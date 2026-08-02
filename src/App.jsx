@@ -1289,11 +1289,97 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     setSelectedRevisionId(rev.id);
   };
 
-  const addComputoItem = (voce) => {
+  const addComputoItem = (voce, qty = '1') => {
     const impresaVal = voce.impresaValue !== undefined ? voce.impresaValue : parseEuro(voce.priceImpresa);
     const clienteVal = voce.clienteValue !== undefined ? voce.clienteValue : evalClientPrice(voce.priceCliente, impresaVal);
-    const item = { id: Date.now() + Math.random(), code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: '1', macro: voce.macro, section: voce.macro };
+    const item = { id: Date.now() + Math.random(), code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: String(qty), macro: voce.macro, section: voce.macro };
     applyItemsChange((its) => [...its, item]);
+  };
+
+  // Plugin 1: importa un file Excel esterno e collega i codici al listino attivo,
+  // creando in automatico le voci del computo con le quantità indicate nel file.
+  const importFromExcel = (file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+        const catalogItems = flattenListino(activeListino);
+        const matched = [];
+        const unmatched = [];
+        rows.forEach((row) => {
+          const keys = Object.keys(row);
+          const codeKey = keys.find((k) => /cod/i.test(k));
+          const qtyKey = keys.find((k) => /quant|qta|qty/i.test(k));
+          const code = codeKey ? String(row[codeKey]).trim() : '';
+          const qty = qtyKey ? row[qtyKey] : '';
+          if (!code) return;
+          const found = catalogItems.find((v) => v.code.toLowerCase() === code.toLowerCase());
+          if (found) matched.push({ voce: found, qty: qty || 1 });
+          else unmatched.push(code);
+        });
+        if (matched.length === 0) {
+          alert('Nessuna voce del file corrisponde a un codice del listino attivo. Verifica che il file abbia una colonna "Codice" e una colonna "Quantità".');
+          return;
+        }
+        applyItemsChange((its) => [
+          ...its,
+          ...matched.map((m) => {
+            const impresaVal = m.voce.impresaValue;
+            const clienteVal = m.voce.clienteValue;
+            return {
+              id: Date.now() + Math.random(), code: m.voce.code, desc: m.voce.desc, unit: m.voce.unit,
+              unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''),
+              qty: String(m.qty), macro: m.voce.macro, section: m.voce.macro,
+            };
+          }),
+        ]);
+        alert(`Importate ${matched.length} voci dal file.${unmatched.length ? '\n\nCodici non trovati nel listino: ' + unmatched.join(', ') : ''}`);
+      } catch (err) {
+        alert('Non sono riuscito a leggere il file. Verifica che sia un .xlsx valido.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  // Plugin 2: planimetrie con punti cliccabili collegati al listino, che finiscono nel computo.
+  const uploadPlanimetria = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const planimetria = { id: Date.now(), name: file.name, image: reader.result, markers: [] };
+      onUpdateProject({ ...project, planimetrie: [...(project.planimetrie || []), planimetria] });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removePlanimetria = (id) => {
+    if (!confirm('Eliminare questa planimetria e tutti i suoi punti?')) return;
+    onUpdateProject({ ...project, planimetrie: (project.planimetrie || []).filter((p) => p.id !== id) });
+  };
+
+  const addPuntoOnPlanimetria = (planimetriaId, xPct, yPct) => {
+    const catalogItems = flattenListino(activeListino);
+    const code = prompt('Codice voce di listino da collegare a questo punto (es. IT.EL.01.005 per un punto luce):');
+    if (!code) return;
+    const voce = catalogItems.find((v) => v.code.toLowerCase() === code.trim().toLowerCase());
+    if (!voce) { alert('Codice non trovato nel listino attivo.'); return; }
+    const qty = prompt(`Quantità di "${voce.desc}" per questo punto:`, '1') || '1';
+    addComputoItem(voce, qty);
+    onUpdateProject({
+      ...project,
+      planimetrie: (project.planimetrie || []).map((p) => (p.id === planimetriaId
+        ? { ...p, markers: [...p.markers, { id: Date.now() + Math.random(), x: xPct, y: yPct, code: voce.code, desc: voce.desc }] }
+        : p)),
+    });
+  };
+
+  const removePunto = (planimetriaId, markerId) => {
+    onUpdateProject({
+      ...project,
+      planimetrie: (project.planimetrie || []).map((p) => (p.id === planimetriaId ? { ...p, markers: p.markers.filter((m) => m.id !== markerId) } : p)),
+    });
   };
 
   const updateQty = (id, qty) => {
@@ -1536,6 +1622,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                 {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
               <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px' }}>Apri le categorie per trovare la voce giusta e trascinala nel computo a destra.</p>
+              <label style={{ display: 'block', textAlign: 'center', background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '8px 0', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer', marginBottom: 12 }}>
+                📥 Importa voci da Excel
+                <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) importFromExcel(e.target.files[0]); e.target.value = ''; }} />
+              </label>
+              <p style={{ fontSize: 10, color: C.gray, margin: '-6px 0 10px' }}>Il file deve avere una colonna "Codice" e una "Quantità": le voci con codice corrispondente al listino attivo vengono aggiunte in automatico al computo.</p>
               <div style={{ maxHeight: 560, overflowY: 'auto' }}>
                 <DraggableCatalogTree listino={activeListino} />
               </div>
@@ -1865,6 +1956,61 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
         <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0' }}>
           In questa anteprima i file restano in memoria per la sessione corrente; nella versione online andranno salvati su uno storage reale.
         </p>
+      </div>
+
+      <div style={{ ...card, marginBottom: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div>
+            <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Planimetrie</p>
+            <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>Carica una planimetria e clicca sopra per aggiungere punti (es. punti luce) collegati a una voce di listino: finiscono in automatico nel computo.</p>
+          </div>
+          <label style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            + Carica planimetria
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadPlanimetria(e.target.files[0]); e.target.value = ''; }} />
+          </label>
+        </div>
+        {(!project.planimetrie || project.planimetrie.length === 0) && (
+          <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna planimetria caricata ancora. Accetta immagini JPG/PNG (i PDF vanno caricati come documento nella sezione sopra).</p>
+        )}
+        {(project.planimetrie || []).map((pl) => (
+          <div key={pl.id} style={{ marginBottom: 18, border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.surfaceSubtle }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>{pl.name}</span>
+              <button onClick={() => removePlanimetria(pl.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+            </div>
+            <div
+              onClick={(e) => {
+                const rect = e.currentTarget.getBoundingClientRect();
+                const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+                const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+                addPuntoOnPlanimetria(pl.id, xPct, yPct);
+              }}
+              style={{ position: 'relative', cursor: 'crosshair', lineHeight: 0 }}
+            >
+              <img src={pl.image} alt={pl.name} style={{ width: '100%', display: 'block' }} />
+              {pl.markers.map((m) => (
+                <div
+                  key={m.id}
+                  onClick={(e) => { e.stopPropagation(); if (confirm(`Rimuovere il punto "${m.desc}"?`)) removePunto(pl.id, m.id); }}
+                  title={`${m.code} — ${m.desc} (clicca per rimuovere)`}
+                  style={{
+                    position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: 'translate(-50%, -50%)',
+                    width: 22, height: 22, borderRadius: 999, background: C.maroon, color: C.white,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
+                    border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', cursor: 'pointer',
+                  }}
+                >
+                  {pl.markers.indexOf(m) + 1}
+                </div>
+              ))}
+            </div>
+            {pl.markers.length > 0 && (
+              <div style={{ padding: '8px 12px', fontSize: 11, color: C.darkGray }}>
+                {pl.markers.length} punti aggiunti al computo · clicca un punto per rimuoverlo
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       <div style={card}>
