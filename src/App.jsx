@@ -1,36 +1,42 @@
 import React, { useState } from 'react';
 import * as XLSX from 'xlsx';
+import { LayoutGrid, BookOpen, Building2, Calculator, GitCompare, Truck, Users, Search, LogOut, MapPin, Clock, Calendar as CalendarIcon } from 'lucide-react';
 
-const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+const FONT = "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
 
 // Design token ufficiali Desearq (estratti da DSM — desearq-design-tokens.css)
 const C = {
   maroon: '#801430',
+  accentHover: '#650F26',
   accentSoft: '#F3DCE1',
   black: '#171717',
-  sidebar: '#0D0D0D',
-  sidebarHover: '#1C1C1C',
+  sidebar: '#F6F4EF',
+  sidebarHover: '#EDEAE1',
   darkGray: '#6B6B6B',
   midGray: '#6B6B6B',
   gray: '#A3A3A3',
   lightGray: '#C9C9C9',
   paleGray: '#E7E4DC',
+  borderStrong: '#D8D4CB',
   bg: '#F6F4EF',
+  surfaceSubtle: '#FAF9F6',
   white: '#FFFFFF',
+  success: '#2E7D4F',
 };
+const PAGE_GRADIENT = 'radial-gradient(120% 90% at 85% 0%, #FBF9F4 0%, #F6F4EF 45%, #F3F0E9 100%)';
 
 const NAV_ITEMS = [
-  { key: 'dashboard', label: 'Dashboard' },
-  { key: 'listino', label: 'Listino prezzi' },
-  { key: 'progetti', label: 'Progetti' },
-  { key: 'computi', label: 'Computi' },
-  { key: 'confronto', label: 'Confronto revisioni' },
-  { key: 'fornitori', label: 'Fornitori' },
-  { key: 'team', label: 'Team' },
+  { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid },
+  { key: 'listino', label: 'Listino prezzi', Icon: BookOpen },
+  { key: 'progetti', label: 'Progetti', Icon: Building2 },
+  { key: 'computi', label: 'Computi', Icon: Calculator },
+  { key: 'confronto', label: 'Confronto revisioni', Icon: GitCompare },
+  { key: 'fornitori', label: 'Fornitori', Icon: Truck },
+  { key: 'team', label: 'Team', Icon: Users },
 ];
 
 const TEAM_MEMBERS = [
-  { name: 'Desearq Studio', role: 'Titolare · Accesso completo', tone: 'teal' },
+  { id: 1, name: 'Nicola', email: 'nicola@desearq.com', password: 'Viaggiare25!', role: 'Admin', status: 'Attivo', tone: 'teal' },
 ];
 
 const STATUS_OPTIONS = ['In attesa di approvazione', 'Approvato', 'In fase di cantiere'];
@@ -218,7 +224,7 @@ const REVISIONS_TABLE = [
 const badgeStyles = {
   orange: { background: 'rgba(107,107,107,0.14)', color: C.darkGray },
   teal: { background: C.accentSoft, color: C.maroon },
-  gray: { background: 'rgba(160,160,160,0.18)', color: C.gray },
+  gray: { background: '#EEECE6', color: C.darkGray },
 };
 
 const card = { background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 20, padding: 18, boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04)' };
@@ -238,58 +244,111 @@ function MetricCard({ label, value, note }) {
 }
 
 function Dashboard({ onNavigate, onOpenProject, projects }) {
+  const topProject = projects[0];
+  const progressByStatus = { 'In attesa di approvazione': 33, 'Approvato': 66, 'In fase di cantiere': 100 };
+  const totalValoreListino = '23.422,85 €';
+  const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
-        <h1 style={h1Style}>Dashboard</h1>
-        <span style={freshBadge}>Dati aggiornati</span>
-      </div>
+      <p style={breadcrumb}>Gestionale / Dashboard</p>
+      <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '2px 0 28px' }}>Dashboard</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 14, marginBottom: 24 }}>
-        <MetricCard label="Progetti attivi" value="3" note="Revisioni sempre separate" />
-        <MetricCard label="Voci di listino" value="13" note="Catalogo completo e tracciabile" />
-        <MetricCard label="Macrosezioni" value="4" note="Extra fissa in chiusura" />
-        <MetricCard label="Valore progetto" value="23.422,85 €" note="2 versioni archiviate" />
-      </div>
-
-      <div style={{ ...card, marginBottom: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
-          <h2 style={{ fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Progetti recenti</h2>
-          <span onClick={() => onNavigate('progetti')} style={{ fontSize: 12, color: C.maroon, fontWeight: 600, cursor: 'pointer' }}>Vedi tutti</span>
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>
+        <div>
+          <span style={{ display: 'block', fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.maroon, marginBottom: 8 }}>Oggi</span>
+          <h1 style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', color: C.black, margin: 0 }}>Bentornato.</h1>
+          <p style={{ fontSize: 15, color: C.darkGray, margin: '8px 0 0' }}>Progetti, computi e listini nello stesso contesto.</p>
         </div>
-        {projects.slice(0, 3).map((p) => (
+        <button
+          onClick={() => onNavigate('progetti')}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.sidebar, color: C.white, border: 'none', borderRadius: 999, padding: '12px 24px', fontFamily: FONT, fontWeight: 500, fontSize: 13, cursor: 'pointer' }}
+        >
+          <Building2 size={16} strokeWidth={1.5} />
+          Apri i progetti
+        </button>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 24, marginBottom: 32 }}>
+        <div style={card}>
+          <p style={{ fontSize: 13, color: C.darkGray, margin: '0 0 16px' }}>Progetti attivi</p>
+          <p style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>{projects.length}</p>
+        </div>
+        <div style={card}>
+          <p style={{ fontSize: 13, color: C.darkGray, margin: '0 0 16px' }}>Voci di listino</p>
+          <p style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>13</p>
+        </div>
+        <div style={card}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <p style={{ fontSize: 13, color: C.darkGray, margin: 0 }}>Macrosezioni</p>
+            <Clock size={20} strokeWidth={1.5} color={C.maroon} />
+          </div>
+          <p style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>4</p>
+        </div>
+        <div style={card}>
+          <p style={{ fontSize: 13, color: C.darkGray, margin: '0 0 16px' }}>Valore progetti</p>
+          <p style={{ fontFamily: FONT, fontSize: 30, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>{totalValoreListino}</p>
+        </div>
+      </div>
+
+      <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '0 0 16px' }}>Progetti attivi</p>
+
+      {topProject && (
+        <div onClick={() => onOpenProject(topProject.id)} style={{ ...card, marginBottom: 20, cursor: 'pointer' }} className="hover-lift">
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+            <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, ...badgeStyles[statusTone[latestStatus(topProject)]] }}>{latestStatus(topProject)}</span>
+            <div style={{ width: 40, height: 40, borderRadius: 999, background: '#0D4D3C', color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 13 }}>
+              {initials(topProject.client)}
+            </div>
+          </div>
+          <p style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, color: C.black, margin: '0 0 6px' }}>{topProject.name}</p>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: C.darkGray, marginBottom: 16 }}>
+            <MapPin size={14} strokeWidth={1.5} />
+            {topProject.header?.ubicazione || topProject.client}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, color: C.darkGray, marginBottom: 8 }}>
+            <span>{topProject.revisions.length} revisioni</span>
+            <span style={{ fontWeight: 600, color: C.black }}>{progressByStatus[latestStatus(topProject)]}%</span>
+          </div>
+          <div style={{ background: '#E9E6DE', borderRadius: 999, height: 6, overflow: 'hidden' }}>
+            <div style={{ background: '#0D4D3C', height: '100%', width: `${progressByStatus[latestStatus(topProject)]}%`, borderRadius: 999 }} />
+          </div>
+        </div>
+      )}
+
+      <div style={{ ...card, marginBottom: 20 }}>
+        <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '0 0 16px' }}>Altri progetti</p>
+        {projects.slice(1).length === 0 && <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Nessun altro progetto.</p>}
+        {projects.slice(1).map((p) => (
           <div
-            key={p.name}
+            key={p.id}
             onClick={() => onOpenProject(p.id)}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${C.paleGray}`, cursor: 'pointer' }}
+            style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 16, borderRadius: 12, background: C.surfaceSubtle, cursor: 'pointer', marginBottom: 8 }}
           >
-            <div>
-              <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{p.name}</p>
-              <p style={{ fontSize: 12, color: C.gray, margin: '2px 0 0' }}>{p.client}</p>
+            <div style={{ width: 44, height: 44, borderRadius: 8, background: C.accentSoft, color: C.maroon, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 14, flexShrink: 0 }}>
+              {initials(p.client)}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
-              <span style={{ fontWeight: 700, fontSize: 13, color: C.black }}>{p.value}</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, marginLeft: 10, ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <p style={{ fontWeight: 500, fontSize: 13, margin: 0, color: C.black }}>{p.name}</p>
+              <p style={{ fontSize: 12, color: C.darkGray, margin: '2px 0 0' }}>{p.client}</p>
             </div>
+            <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
           </div>
         ))}
       </div>
 
       <div style={card}>
-        <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Azioni rapide</h2>
+        <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '0 0 16px' }}>Azioni rapide</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-          <button onClick={() => onNavigate('computi')} style={{ background: C.bg, border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, fontWeight: 600, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
+          <button onClick={() => onNavigate('computi')} style={{ background: C.surfaceSubtle, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, fontWeight: 500, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
             Apri computo e listino
           </button>
-          <button onClick={() => onNavigate('confronto')} style={{ background: C.bg, border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, fontWeight: 600, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
+          <button onClick={() => onNavigate('confronto')} style={{ background: C.surfaceSubtle, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, fontWeight: 500, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
             Confronta revisioni
           </button>
-          <button onClick={() => onNavigate('computi')} style={{ background: C.bg, border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '12px 14px', fontSize: 13, fontWeight: 600, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
+          <button onClick={() => onNavigate('computi')} style={{ background: C.surfaceSubtle, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, fontWeight: 500, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
             Personalizza documento
           </button>
-        </div>
-        <div style={{ background: 'rgba(128,20,48,0.06)', border: '1px solid rgba(128,20,48,0.18)', borderRadius: 10, padding: 14, fontSize: 12, color: C.midGray, marginTop: 14 }}>
-          <strong style={{ color: C.black }}>Listino sempre disponibile.</strong> Consulta la gerarchia e trascina le voci senza lasciare aperto il computo.
         </div>
       </div>
     </div>
@@ -2421,15 +2480,31 @@ function FornitoriPage({ projects, setProjects }) {
   );
 }
 
-function TeamPage() {
-  const [members, setMembers] = useState(TEAM_MEMBERS);
+function TeamPage({ teamAccounts, setTeamAccounts, session }) {
   const [email, setEmail] = useState('');
+  const [role, setRole] = useState('Membro');
+  const [settingPasswordFor, setSettingPasswordFor] = useState(null);
+  const isAdmin = session?.role === 'Admin';
 
   const handleInvite = () => {
     const trimmed = email.trim();
     if (!trimmed) return;
-    setMembers([...members, { name: trimmed, role: 'Collaboratore · In attesa di conferma', tone: 'gray' }]);
+    setTeamAccounts([...teamAccounts, { id: Date.now(), name: trimmed, email: trimmed, password: null, role, status: 'Invito inviato', tone: 'gray' }]);
     setEmail('');
+  };
+
+  const removeMember = (id) => {
+    if (!confirm('Rimuovere questa persona dal team? Perderà l\'accesso al workspace.')) return;
+    setTeamAccounts(teamAccounts.filter((m) => m.id !== id));
+  };
+
+  const changeRole = (id, newRole) => {
+    setTeamAccounts(teamAccounts.map((m) => (m.id === id ? { ...m, role: newRole } : m)));
+  };
+
+  const confirmPassword = (id, password) => {
+    setTeamAccounts(teamAccounts.map((m) => (m.id === id ? { ...m, password, status: 'Attivo', tone: 'teal' } : m)));
+    setSettingPasswordFor(null);
   };
 
   return (
@@ -2439,45 +2514,171 @@ function TeamPage() {
         <span style={freshBadge}>Workspace condiviso</span>
       </div>
 
-      <div style={{ ...card, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Invita via email</h2>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="nome@studio.it"
-            style={{ flex: 1, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }}
-          />
-          <button
-            onClick={handleInvite}
-            style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-          >
-            Invia invito
-          </button>
+      {!isAdmin && (
+        <div style={{ ...card, marginBottom: 18, background: '#FFF8E1', border: '1px solid #F0D98C' }}>
+          <p style={{ fontSize: 12, color: C.black, margin: 0 }}>Sei collegato come <strong>membro</strong>: solo l'admin può invitare o rimuovere persone dal team.</p>
         </div>
-        <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0' }}>
-          La persona riceve una mail con il link per accedere al workspace condiviso.
-        </p>
-      </div>
+      )}
+
+      {isAdmin && (
+        <div style={{ ...card, marginBottom: 18 }}>
+          <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Invita via email</h2>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="nome@studio.it"
+              style={{ flex: 1, minWidth: 180, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }}
+            />
+            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
+              <option>Membro</option>
+              <option>Admin</option>
+            </select>
+            <button
+              onClick={handleInvite}
+              style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+            >
+              Invia invito
+            </button>
+          </div>
+          <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0' }}>
+            La persona riceve una mail con il link per creare la propria password e accedere al workspace. Gli account "Admin" possono gestire il team; i "Membro" no.
+          </p>
+        </div>
+      )}
 
       <div style={{ ...card, marginBottom: 18 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Persone con accesso</h2>
-        {members.map((m, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${C.paleGray}` }}>
+        {teamAccounts.map((m) => (
+          <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${C.paleGray}`, gap: 10, flexWrap: 'wrap' }}>
             <div>
               <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{m.name}</p>
-              <p style={{ fontSize: 12, color: C.gray, margin: '2px 0 0' }}>{m.role}</p>
+              <p style={{ fontSize: 12, color: C.gray, margin: '2px 0 0' }}>{m.email}</p>
             </div>
-            <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, ...badgeStyles[m.tone] }}>
-              {m.tone === 'teal' ? 'Attivo' : 'Invito da inviare'}
-            </span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              {isAdmin ? (
+                <select value={m.role} onChange={(e) => changeRole(m.id, e.target.value)} style={{ fontSize: 11, fontWeight: 600, padding: '5px 8px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}>
+                  <option>Admin</option>
+                  <option>Membro</option>
+                </select>
+              ) : (
+                <span style={{ fontSize: 11, color: C.gray }}>{m.role}</span>
+              )}
+              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, ...badgeStyles[m.status === 'Attivo' ? 'teal' : 'gray'] }}>
+                {m.status}
+              </span>
+              {m.status !== 'Attivo' && (
+                <button onClick={() => setSettingPasswordFor(m.id)} style={rowBtnStyle}>Crea password (demo)</button>
+              )}
+              {isAdmin && m.email !== session.email && (
+                <button onClick={() => removeMember(m.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+              )}
+            </div>
           </div>
         ))}
       </div>
 
       <div style={{ background: 'rgba(128,20,48,0.06)', border: '1px solid rgba(128,20,48,0.18)', borderRadius: 10, padding: 14, fontSize: 12, color: C.midGray }}>
         <strong style={{ color: C.black }}>Come funziona la condivisione.</strong> Tutti i membri invitati accedono allo stesso workspace e agli stessi progetti, computi e listino — senza installare nulla, tramite il link del sito online.
+        In questa anteprima, il pulsante "Crea password (demo)" simula ciò che la persona invitata farebbe cliccando il link ricevuto via email.
+      </div>
+
+      {settingPasswordFor && (
+        <SetPasswordModal
+          onClose={() => setSettingPasswordFor(null)}
+          onConfirm={(password) => confirmPassword(settingPasswordFor, password)}
+        />
+      )}
+    </div>
+  );
+}
+
+function SetPasswordModal({ onClose, onConfirm }) {
+  const [password, setPassword] = useState('');
+  const [confirmPw, setConfirmPw] = useState('');
+  const [error, setError] = useState('');
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 360 }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Crea la tua password</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>Questo è ciò che vedrebbe la persona invitata cliccando il link ricevuto via email.</p>
+
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Nuova password</label>
+        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }} />
+
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Conferma password</label>
+        <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 8px' }} />
+        {error && <p style={{ fontSize: 11, color: C.maroon, margin: '0 0 8px' }}>{error}</p>}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
+          <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Annulla</button>
+          <button
+            onClick={() => {
+              if (password.length < 6) { setError('La password deve avere almeno 6 caratteri.'); return; }
+              if (password !== confirmPw) { setError('Le due password non coincidono.'); return; }
+              onConfirm(password);
+            }}
+            style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}
+          >
+            Conferma
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen({ teamAccounts, onLogin }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  const handleSubmit = () => {
+    const account = teamAccounts.find((a) => a.email.toLowerCase() === email.trim().toLowerCase());
+    if (!account) { setError('Nessun account trovato con questa email.'); return; }
+    if (!account.password) { setError('Questo account non ha ancora creato una password. Chiedi all\'admin di generarla dalla sezione Team.'); return; }
+    if (account.password !== password) { setError('Password errata.'); return; }
+    onLogin({ email: account.email, name: account.name, role: account.role });
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
+      <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360 }}>
+        <div style={{ width: 40, height: 40, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, marginBottom: 16 }}>SCE</div>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.black, margin: '0 0 4px' }}>Accedi</h1>
+        <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px' }}>Software di Computazione Edile — Desearq Studio</p>
+
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Email</label>
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="nome@studio.it"
+          style={{ width: '100%', fontSize: 13, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px' }}
+        />
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Password</label>
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+          style={{ width: '100%', fontSize: 13, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 8px' }}
+        />
+        {error && <p style={{ fontSize: 12, color: C.maroon, margin: '4px 0 8px' }}>{error}</p>}
+
+        <button
+          onClick={handleSubmit}
+          style={{ width: '100%', background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '11px 0', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 12 }}
+        >
+          Accedi
+        </button>
+
+        <p style={{ fontSize: 11, color: C.gray, margin: '18px 0 0', lineHeight: 1.5 }}>
+          Anteprima demo — account admin: <strong>nicola@desearq.com</strong> / <strong>Viaggiare25!</strong>.
+          I membri del team accedono con l'email a cui sono stati invitati e la password che hanno creato dal link ricevuto.
+        </p>
       </div>
     </div>
   );
@@ -2490,6 +2691,8 @@ export default function GestionaleEdilePreview() {
   const [openRevisionId, setOpenRevisionId] = useState(null);
   const [listini, setListini] = useState([{ id: 1, name: 'Listino standard 2026', macros: INITIAL_MACROS }]);
   const [activeListinoId, setActiveListinoId] = useState(1);
+  const [teamAccounts, setTeamAccounts] = useState(TEAM_MEMBERS);
+  const [session, setSession] = useState(null);
 
   const openProject = (id) => { setSelectedProjectId(id); setOpenRevisionId(null); setPage('progetto-dettaglio'); };
   const openRevisionInProject = (projectId, revisionId) => { setSelectedProjectId(projectId); setOpenRevisionId(revisionId); setPage('progetto-dettaglio'); };
@@ -2506,15 +2709,20 @@ export default function GestionaleEdilePreview() {
     return () => { clearTimeout(t); window.removeEventListener('afterprint', handleAfterPrint); };
   }, [printJob]);
 
+  if (!session) {
+    return <LoginScreen teamAccounts={teamAccounts} onLogin={setSession} />;
+  }
+
   return (
     <>
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
         .print-only { display: none; }
         @media print {
           .no-print { display: none !important; }
           .print-only { display: block !important; }
         }
-        .sidebar-item-btn:not(.active):hover { background: ${C.sidebarHover} !important; color: #FFFFFF !important; }
+        .sidebar-item-btn:not(.active):hover { background: ${C.sidebarHover} !important; color: ${C.black} !important; }
         .btn-accent-pill:hover { background: #650F26 !important; }
         .input-focus:focus { outline: none; border-color: ${C.maroon} !important; box-shadow: 0 0 0 3px rgba(128,20,48,0.25); }
       `}</style>
@@ -2523,59 +2731,69 @@ export default function GestionaleEdilePreview() {
           <PrintableComputo project={printJob.project} revision={printJob.revision} clientOnly={printJob.clientOnly} />
         </div>
       )}
-      <div className="no-print" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: C.bg }}>
-      <aside style={{ width: 220, flexShrink: 0, background: C.sidebar, color: C.lightGray, display: 'flex', flexDirection: 'column', padding: '22px 14px' }}>
-        <div style={{ padding: '0 6px 20px', borderBottom: '1px solid rgba(255,255,255,0.08)', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, flexShrink: 0 }}>
-            <span style={{ width: 18, height: 3, background: C.maroon, borderRadius: 2 }} />
-            <span style={{ width: 18, height: 3, background: C.maroon, borderRadius: 2 }} />
-            <span style={{ width: 18, height: 3, background: C.maroon, borderRadius: 2 }} />
-          </div>
+      <div className="no-print" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: PAGE_GRADIENT, backgroundAttachment: 'fixed' }}>
+      <aside style={{ width: 280, flexShrink: 0, background: C.sidebar, color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '22px 14px' }}>
+        <div style={{ padding: '0 6px 20px', borderBottom: `1px solid ${C.paleGray}`, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>SCE</div>
           <div>
-            <p style={{ fontFamily: FONT, fontWeight: 700, fontSize: 16, color: C.white, margin: 0 }}>Software di Computazione Edile</p>
-            <p style={{ fontSize: 11, margin: '4px 0 0', lineHeight: 1.4 }}>Listino e computi metrici estimativi</p>
+            <p style={{ fontFamily: FONT, fontWeight: 700, fontSize: 15, color: C.black, margin: 0 }}>Software di Computazione Edile</p>
+            <p style={{ fontSize: 11, margin: '2px 0 0', lineHeight: 1.4, color: C.gray }}>Desearq Studio</p>
           </div>
         </div>
         <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.gray, padding: '0 6px', marginBottom: 8 }}>Area di lavoro</p>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
           {NAV_ITEMS.map((item) => {
             const active = page === item.key;
+            const Icon = item.Icon;
             return (
               <button
                 key={item.key}
                 className={`sidebar-item-btn${active ? ' active' : ''}`}
                 onClick={() => setPage(item.key)}
                 style={{
-                  padding: '9px 12px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 10,
+                  padding: '11px 12px',
                   borderRadius: 999,
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight: 500,
                   textAlign: 'left',
                   border: 'none',
                   cursor: 'pointer',
                   fontFamily: FONT,
-                  background: active ? C.white : 'transparent',
-                  color: active ? C.black : C.lightGray,
+                  background: active ? C.black : 'transparent',
+                  color: active ? C.white : C.black,
                 }}
               >
+                <Icon size={18} strokeWidth={1.5} />
                 {item.label}
               </button>
             );
           })}
         </nav>
-        <div style={{ marginTop: 'auto', paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-          <p style={{ fontSize: 12, fontWeight: 600, color: C.white, margin: 0 }}>Desearq Studio</p>
-          <p style={{ fontSize: 10, color: C.gray, margin: '2px 0 0' }}>Workspace operativo · Pro</p>
+        <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: `1px solid ${C.paleGray}`, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 999, background: '#8B6F5C', color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{session.email[0].toUpperCase()}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 12, fontWeight: 600, color: C.black, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.email}</p>
+            <p style={{ fontSize: 10, color: C.gray, margin: '2px 0 0' }}>{session.role === 'Admin' ? 'Admin' : 'Membro del team'}</p>
+          </div>
+          <button onClick={() => setSession(null)} style={{ width: 32, height: 32, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: 'transparent', color: C.darkGray, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <LogOut size={16} strokeWidth={1.5} />
+          </button>
         </div>
       </aside>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <header style={{ background: C.white, borderBottom: `1px solid ${C.paleGray}`, padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 14 }}>
-          <input
-            type="text"
-            placeholder="Cerca progetto, cliente, voce o codice…"
-            style={{ flex: 1, maxWidth: 380, fontSize: 13, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }}
-          />
+        <header style={{ background: 'transparent', padding: '18px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 18px', boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04)' }}>
+            <Search size={16} strokeWidth={1.5} color={C.darkGray} />
+            <input
+              type="text"
+              placeholder="Cerca progetto, cliente, voce o codice…"
+              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: C.darkGray, width: 260 }}
+            />
+          </div>
         </header>
 
         <main style={{ padding: 24, flex: 1, overflowX: 'auto' }}>
@@ -2595,7 +2813,7 @@ export default function GestionaleEdilePreview() {
           {page === 'computi' && <ComputiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} onOpenRevision={openRevisionInProject} requestPdf={requestPdf} />}
           {page === 'confronto' && <ConfrontoPage projects={projects} />}
           {page === 'fornitori' && <FornitoriPage projects={projects} setProjects={setProjects} />}
-          {page === 'team' && <TeamPage />}
+          {page === 'team' && <TeamPage teamAccounts={teamAccounts} setTeamAccounts={setTeamAccounts} session={session} />}
         </main>
       </div>
       </div>
