@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { supabase, cea } from './supabaseClient';
 import * as XLSX from 'xlsx';
 import { LayoutGrid, BookOpen, Building2, Calculator, GitCompare, Truck, Users, Search, LogOut, MapPin, Clock, Calendar as CalendarIcon } from 'lucide-react';
 
@@ -33,10 +34,6 @@ const NAV_ITEMS = [
   { key: 'confronto', label: 'Confronto revisioni', Icon: GitCompare },
   { key: 'fornitori', label: 'Fornitori', Icon: Truck },
   { key: 'team', label: 'Team', Icon: Users },
-];
-
-const TEAM_MEMBERS = [
-  { id: 1, name: 'Nicola', email: 'nicola@desearq.com', password: 'Viaggiare25!', role: 'Admin', status: 'Attivo', tone: 'teal' },
 ];
 
 const STATUS_OPTIONS = ['In attesa di approvazione', 'Approvato', 'In fase di cantiere'];
@@ -2465,8 +2462,7 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
   );
 }
 
-function FornitoriPage({ projects, setProjects }) {
-  const [catalog, setCatalog] = useState(INITIAL_FORNITORI);
+function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
   const [expanded, setExpanded] = useState({});
   const [addingTo, setAddingTo] = useState(null); // prodotto selezionato per l'aggiunta al computo
   const isOpen = (key) => expanded[key] !== false;
@@ -2626,31 +2622,45 @@ function FornitoriPage({ projects, setProjects }) {
   );
 }
 
-function TeamPage({ teamAccounts, setTeamAccounts, session }) {
+function TeamPage({ profile }) {
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState('');
+  const [name, setName] = useState('');
   const [role, setRole] = useState('Membro');
-  const [settingPasswordFor, setSettingPasswordFor] = useState(null);
-  const isAdmin = session?.role === 'Admin';
+  const [error, setError] = useState('');
+  const isAdmin = profile?.role === 'Admin';
 
-  const handleInvite = () => {
+  const loadMembers = async () => {
+    setLoading(true);
+    const { data, error: err } = await cea.from('team_members').select('*').order('created_at');
+    if (!err) setMembers(data || []);
+    setLoading(false);
+  };
+
+  React.useEffect(() => { loadMembers(); }, []);
+
+  const handleInvite = async () => {
     const trimmed = email.trim();
     if (!trimmed) return;
-    setTeamAccounts([...teamAccounts, { id: Date.now(), name: trimmed, email: trimmed, password: null, role, status: 'Invito inviato', tone: 'gray' }]);
-    setEmail('');
+    setError('');
+    const { error: err } = await cea.from('team_members').insert({ name: name || trimmed.split('@')[0], email: trimmed, role, status: 'Invito inviato', invited_by: profile.auth_user_id });
+    if (err) { setError(err.message); return; }
+    setEmail(''); setName('');
+    loadMembers();
   };
 
-  const removeMember = (id) => {
+  const removeMember = async (id) => {
     if (!confirm('Rimuovere questa persona dal team? Perderà l\'accesso al workspace.')) return;
-    setTeamAccounts(teamAccounts.filter((m) => m.id !== id));
+    const { error: err } = await cea.from('team_members').delete().eq('id', id);
+    if (err) { alert(err.message); return; }
+    loadMembers();
   };
 
-  const changeRole = (id, newRole) => {
-    setTeamAccounts(teamAccounts.map((m) => (m.id === id ? { ...m, role: newRole } : m)));
-  };
-
-  const confirmPassword = (id, password) => {
-    setTeamAccounts(teamAccounts.map((m) => (m.id === id ? { ...m, password, status: 'Attivo', tone: 'teal' } : m)));
-    setSettingPasswordFor(null);
+  const changeRole = async (id, newRole) => {
+    const { error: err } = await cea.from('team_members').update({ role: newRole }).eq('id', id);
+    if (err) { alert(err.message); return; }
+    loadMembers();
   };
 
   return (
@@ -2670,6 +2680,7 @@ function TeamPage({ teamAccounts, setTeamAccounts, session }) {
         <div style={{ ...card, marginBottom: 18 }}>
           <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Invita via email</h2>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome" style={{ flex: 1, minWidth: 120, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }} />
             <input
               type="email"
               value={email}
@@ -2688,15 +2699,18 @@ function TeamPage({ teamAccounts, setTeamAccounts, session }) {
               Invia invito
             </button>
           </div>
+          {error && <p style={{ fontSize: 12, color: C.maroon, margin: '10px 0 0' }}>{error}</p>}
           <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0' }}>
-            La persona riceve una mail con il link per creare la propria password e accedere al workspace. Gli account "Admin" possono gestire il team; i "Membro" no.
+            La persona invitata deve andare sul sito, cliccare "Crea un account" e registrarsi con <strong>questa stessa email</strong>: verrà collegata automaticamente al team con il ruolo scelto qui.
           </p>
         </div>
       )}
 
       <div style={{ ...card, marginBottom: 18 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Persone con accesso</h2>
-        {teamAccounts.map((m) => (
+        {loading && <p style={{ fontSize: 12, color: C.gray }}>Caricamento…</p>}
+        {!loading && members.length === 0 && <p style={{ fontSize: 12, color: C.gray }}>Nessuna persona ancora.</p>}
+        {members.map((m) => (
           <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${C.paleGray}`, gap: 10, flexWrap: 'wrap' }}>
             <div>
               <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{m.name}</p>
@@ -2714,10 +2728,7 @@ function TeamPage({ teamAccounts, setTeamAccounts, session }) {
               <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, ...badgeStyles[m.status === 'Attivo' ? 'teal' : 'gray'] }}>
                 {m.status}
               </span>
-              {m.status !== 'Attivo' && (
-                <button onClick={() => setSettingPasswordFor(m.id)} style={rowBtnStyle}>Crea password (demo)</button>
-              )}
-              {isAdmin && m.email !== session.email && (
+              {isAdmin && m.id !== profile.id && (
                 <button onClick={() => removeMember(m.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
               )}
             </div>
@@ -2726,75 +2737,60 @@ function TeamPage({ teamAccounts, setTeamAccounts, session }) {
       </div>
 
       <div style={{ background: 'rgba(128,20,48,0.06)', border: '1px solid rgba(128,20,48,0.18)', borderRadius: 10, padding: 14, fontSize: 12, color: C.midGray }}>
-        <strong style={{ color: C.black }}>Come funziona la condivisione.</strong> Tutti i membri invitati accedono allo stesso workspace e agli stessi progetti, computi e listino — senza installare nulla, tramite il link del sito online.
-        In questa anteprima, il pulsante "Crea password (demo)" simula ciò che la persona invitata farebbe cliccando il link ricevuto via email.
-      </div>
-
-      {settingPasswordFor && (
-        <SetPasswordModal
-          onClose={() => setSettingPasswordFor(null)}
-          onConfirm={(password) => confirmPassword(settingPasswordFor, password)}
-        />
-      )}
-    </div>
-  );
-}
-
-function SetPasswordModal({ onClose, onConfirm }) {
-  const [password, setPassword] = useState('');
-  const [confirmPw, setConfirmPw] = useState('');
-  const [error, setError] = useState('');
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 360 }}>
-        <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Crea la tua password</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>Questo è ciò che vedrebbe la persona invitata cliccando il link ricevuto via email.</p>
-
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Nuova password</label>
-        <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }} />
-
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Conferma password</label>
-        <input type="password" value={confirmPw} onChange={(e) => setConfirmPw(e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 8px' }} />
-        {error && <p style={{ fontSize: 11, color: C.maroon, margin: '0 0 8px' }}>{error}</p>}
-
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
-          <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}>Annulla</button>
-          <button
-            onClick={() => {
-              if (password.length < 6) { setError('La password deve avere almeno 6 caratteri.'); return; }
-              if (password !== confirmPw) { setError('Le due password non coincidono.'); return; }
-              onConfirm(password);
-            }}
-            style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}
-          >
-            Conferma
-          </button>
-        </div>
+        <strong style={{ color: C.black }}>Come funziona la condivisione.</strong> Tutti i membri invitati accedono allo stesso workspace e agli stessi progetti, computi e listino con un vero account: i dati restano salvati per sempre e sono visibili a tutto il team.
       </div>
     </div>
   );
 }
 
-function LoginScreen({ teamAccounts, onLogin }) {
+function LoginScreen({ onSignedIn }) {
+  const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
-    const account = teamAccounts.find((a) => a.email.toLowerCase() === email.trim().toLowerCase());
-    if (!account) { setError('Nessun account trovato con questa email.'); return; }
-    if (!account.password) { setError('Questo account non ha ancora creato una password. Chiedi all\'admin di generarla dalla sezione Team.'); return; }
-    if (account.password !== password) { setError('Password errata.'); return; }
-    onLogin({ email: account.email, name: account.name, role: account.role });
+  const handleSignIn = async () => {
+    setError(''); setInfo(''); setLoading(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    setLoading(false);
+    if (err) { setError(err.message === 'Invalid login credentials' ? 'Email o password errata.' : err.message); return; }
+    onSignedIn();
+  };
+
+  const handleSignUp = async () => {
+    setError(''); setInfo(''); setLoading(true);
+    const { data, error: err } = await supabase.auth.signUp({ email: email.trim(), password });
+    if (err) { setLoading(false); setError(err.message); return; }
+
+    if (!data.session) {
+      // Conferma email richiesta: non possiamo ancora chiamare la RPC (serve una sessione attiva).
+      setLoading(false);
+      setInfo('Controlla la tua casella email per confermare la registrazione, poi torna qui e accedi.');
+      return;
+    }
+
+    const { error: rpcErr } = await cea.rpc('bootstrap_or_claim_invite', { p_name: name || email.split('@')[0] });
+    setLoading(false);
+    if (rpcErr) { setError(rpcErr.message); return; }
+    onSignedIn();
   };
 
   return (
     <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
       <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360 }}>
         <div style={{ width: 40, height: 40, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, marginBottom: 16 }}>SCE</div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.black, margin: '0 0 4px' }}>Accedi</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.black, margin: '0 0 4px' }}>{mode === 'signin' ? 'Accedi' : 'Crea il tuo account'}</h1>
         <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px' }}>Software di Computazione Edile — Desearq Studio</p>
+
+        {mode === 'signup' && (
+          <>
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Nome</label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Il tuo nome" style={{ width: '100%', fontSize: 13, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px' }} />
+          </>
+        )}
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Email</label>
         <input
@@ -2809,21 +2805,29 @@ function LoginScreen({ teamAccounts, onLogin }) {
           type="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+          onKeyDown={(e) => e.key === 'Enter' && (mode === 'signin' ? handleSignIn() : handleSignUp())}
           style={{ width: '100%', fontSize: 13, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 8px' }}
         />
         {error && <p style={{ fontSize: 12, color: C.maroon, margin: '4px 0 8px' }}>{error}</p>}
+        {info && <p style={{ fontSize: 12, color: C.success, margin: '4px 0 8px' }}>{info}</p>}
 
         <button
-          onClick={handleSubmit}
-          style={{ width: '100%', background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '11px 0', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 12 }}
+          disabled={loading}
+          onClick={mode === 'signin' ? handleSignIn : handleSignUp}
+          style={{ width: '100%', background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '11px 0', fontSize: 13, fontWeight: 600, cursor: loading ? 'default' : 'pointer', marginTop: 12, opacity: loading ? 0.7 : 1 }}
         >
-          Accedi
+          {loading ? 'Un attimo…' : mode === 'signin' ? 'Accedi' : 'Crea account'}
         </button>
 
-        <p style={{ fontSize: 11, color: C.gray, margin: '18px 0 0', lineHeight: 1.5 }}>
-          Anteprima demo — account admin: <strong>nicola@desearq.com</strong> / <strong>Viaggiare25!</strong>.
-          I membri del team accedono con l'email a cui sono stati invitati e la password che hanno creato dal link ricevuto.
+        <p style={{ fontSize: 12, color: C.gray, margin: '18px 0 0', textAlign: 'center' }}>
+          {mode === 'signin' ? (
+            <>Prima volta? <span onClick={() => { setMode('signup'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer' }}>Crea un account</span></>
+          ) : (
+            <>Hai già un account? <span onClick={() => { setMode('signin'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer' }}>Accedi</span></>
+          )}
+        </p>
+        <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0', lineHeight: 1.5 }}>
+          Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo deve essere prima invitato dall'admin dalla sezione Team, con la stessa email.
         </p>
       </div>
     </div>
@@ -2837,8 +2841,66 @@ export default function GestionaleEdilePreview() {
   const [openRevisionId, setOpenRevisionId] = useState(null);
   const [listini, setListini] = useState([{ id: 1, name: 'Listino standard 2026', macros: INITIAL_MACROS }]);
   const [activeListinoId, setActiveListinoId] = useState(1);
-  const [teamAccounts, setTeamAccounts] = useState(TEAM_MEMBERS);
-  const [session, setSession] = useState(null);
+  const [fornitoriCatalog, setFornitoriCatalog] = useState(INITIAL_FORNITORI);
+
+  // --- Autenticazione reale (Supabase Auth) ---
+  const [authUser, setAuthUser] = useState(undefined); // undefined = ancora in caricamento, null = non collegato
+  const [profile, setProfile] = useState(null); // riga di cea.team_members collegata a questo utente
+  const [profileError, setProfileError] = useState('');
+
+  React.useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setAuthUser(data.session?.user ?? null));
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthUser(session?.user ?? null);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+
+  React.useEffect(() => {
+    if (!authUser) { setProfile(null); return; }
+    let cancelled = false;
+    cea.from('team_members').select('*').eq('auth_user_id', authUser.id).maybeSingle().then(({ data, error }) => {
+      if (cancelled) return;
+      if (error) { setProfileError(error.message); return; }
+      setProfile(data || null);
+    });
+    return () => { cancelled = true; };
+  }, [authUser]);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setProfile(null);
+  };
+
+  // --- Dati condivisi del workspace (progetti, listini, fornitori): un unico documento salvato su Supabase ---
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const saveTimer = React.useRef(null);
+
+  React.useEffect(() => {
+    if (!profile || profile.status !== 'Attivo') return;
+    cea.from('app_state').select('data').eq('id', 1).maybeSingle().then(({ data, error }) => {
+      if (error) { console.error(error); setDataLoaded(true); return; }
+      const saved = data?.data || {};
+      if (saved.projects) setProjects(saved.projects);
+      if (saved.listini) setListini(saved.listini);
+      if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
+      if (saved.fornitoriCatalog) setFornitoriCatalog(saved.fornitoriCatalog);
+      setDataLoaded(true);
+    });
+  }, [profile]);
+
+  React.useEffect(() => {
+    if (!dataLoaded || !profile || profile.status !== 'Attivo') return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      cea.from('app_state').update({
+        data: { projects, listini, activeListinoId, fornitoriCatalog },
+        updated_at: new Date().toISOString(),
+        updated_by: authUser?.id,
+      }).eq('id', 1).then(({ error }) => { if (error) console.error('Salvataggio fallito:', error.message); });
+    }, 900);
+    return () => clearTimeout(saveTimer.current);
+  }, [projects, listini, activeListinoId, fornitoriCatalog, dataLoaded]);
 
   const openProject = (id) => { setSelectedProjectId(id); setOpenRevisionId(null); setPage('progetto-dettaglio'); };
   const openRevisionInProject = (projectId, revisionId) => { setSelectedProjectId(projectId); setOpenRevisionId(revisionId); setPage('progetto-dettaglio'); };
@@ -2855,8 +2917,33 @@ export default function GestionaleEdilePreview() {
     return () => { clearTimeout(t); window.removeEventListener('afterprint', handleAfterPrint); };
   }, [printJob]);
 
-  if (!session) {
-    return <LoginScreen teamAccounts={teamAccounts} onLogin={setSession} />;
+  if (authUser === undefined) {
+    return <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, color: C.gray, fontSize: 13 }}>Caricamento…</div>;
+  }
+
+  if (!authUser) {
+    return <LoginScreen onSignedIn={() => {}} />;
+  }
+
+  if (!profile) {
+    return (
+      <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
+        <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, textAlign: 'center' }}>
+          <p style={{ fontSize: 13, color: C.black, margin: '0 0 12px' }}>{profileError || 'Nessun invito trovato per questa email. Chiedi a un admin di invitarti dalla sezione Team, poi ricarica la pagina.'}</p>
+          <button onClick={handleLogout} style={{ background: C.darkGray, color: C.white, border: 'none', borderRadius: 999, padding: '9px 18px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Esci</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (profile.status !== 'Attivo') {
+    return (
+      <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
+        <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, textAlign: 'center' }}>
+          <p style={{ fontSize: 13, color: C.black, margin: 0 }}>Il tuo invito non è stato ancora completato. Riprova tra poco o contatta l'admin.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -2919,12 +3006,12 @@ export default function GestionaleEdilePreview() {
           })}
         </nav>
         <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: `1px solid ${C.paleGray}`, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 999, background: '#8B6F5C', color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{session.email[0].toUpperCase()}</div>
+          <div style={{ width: 36, height: 36, borderRadius: 999, background: '#8B6F5C', color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{profile.email[0].toUpperCase()}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 12, fontWeight: 600, color: C.black, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{session.email}</p>
-            <p style={{ fontSize: 10, color: C.gray, margin: '2px 0 0' }}>{session.role === 'Admin' ? 'Admin' : 'Membro del team'}</p>
+            <p style={{ fontSize: 12, fontWeight: 600, color: C.black, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</p>
+            <p style={{ fontSize: 10, color: C.gray, margin: '2px 0 0' }}>{profile.role === 'Admin' ? 'Admin' : 'Membro del team'}</p>
           </div>
-          <button onClick={() => setSession(null)} style={{ width: 32, height: 32, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: 'transparent', color: C.darkGray, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+          <button onClick={handleLogout} style={{ width: 32, height: 32, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: 'transparent', color: C.darkGray, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
             <LogOut size={16} strokeWidth={1.5} />
           </button>
         </div>
@@ -2958,8 +3045,8 @@ export default function GestionaleEdilePreview() {
           )}
           {page === 'computi' && <ComputiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} onOpenRevision={openRevisionInProject} requestPdf={requestPdf} />}
           {page === 'confronto' && <ConfrontoPage projects={projects} />}
-          {page === 'fornitori' && <FornitoriPage projects={projects} setProjects={setProjects} />}
-          {page === 'team' && <TeamPage teamAccounts={teamAccounts} setTeamAccounts={setTeamAccounts} session={session} />}
+          {page === 'fornitori' && <FornitoriPage projects={projects} setProjects={setProjects} catalog={fornitoriCatalog} setCatalog={setFornitoriCatalog} />}
+          {page === 'team' && <TeamPage profile={profile} />}
         </main>
       </div>
       </div>
