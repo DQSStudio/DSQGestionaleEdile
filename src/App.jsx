@@ -2763,18 +2763,20 @@ function LoginScreen({ onSignedIn }) {
   const handleSignUp = async () => {
     setError(''); setInfo(''); setLoading(true);
     const { data, error: err } = await supabase.auth.signUp({ email: email.trim(), password });
-    if (err) { setLoading(false); setError(err.message); return; }
+    setLoading(false);
+    if (err) { setError(err.message); return; }
 
     if (!data.session) {
-      // Conferma email richiesta: non possiamo ancora chiamare la RPC (serve una sessione attiva).
-      setLoading(false);
+      // Supabase non dice esplicitamente se l'email esiste già (per sicurezza), ma se non crea
+      // nuove "identities" per un utente che ha già un account confermato, questo è il segnale.
+      if (data.user && data.user.identities && data.user.identities.length === 0) {
+        setError('Questa email ha già un account. Usa "Accedi" con la password che avevi scelto.');
+        return;
+      }
       setInfo('Controlla la tua casella email per confermare la registrazione, poi torna qui e accedi.');
       return;
     }
 
-    const { error: rpcErr } = await cea.rpc('bootstrap_or_claim_invite', { p_name: name || email.split('@')[0] });
-    setLoading(false);
-    if (rpcErr) { setError(rpcErr.message); return; }
     onSignedIn();
   };
 
@@ -2859,10 +2861,17 @@ export default function GestionaleEdilePreview() {
   React.useEffect(() => {
     if (!authUser) { setProfile(null); return; }
     let cancelled = false;
-    cea.from('team_members').select('*').eq('auth_user_id', authUser.id).maybeSingle().then(({ data, error }) => {
+    setProfileError('');
+    cea.from('team_members').select('*').eq('auth_user_id', authUser.id).maybeSingle().then(async ({ data, error }) => {
       if (cancelled) return;
       if (error) { setProfileError(error.message); return; }
-      setProfile(data || null);
+      if (data) { setProfile(data); return; }
+      // Nessun profilo collegato: prova a reclamare un invito esistente o a fare da primo admin
+      // (copre anche gli account creati prima che questo sistema di team esistesse).
+      const { data: claimed, error: claimErr } = await cea.rpc('bootstrap_or_claim_invite', { p_name: authUser.email.split('@')[0] });
+      if (cancelled) return;
+      if (claimErr) { setProfileError(claimErr.message); return; }
+      setProfile(claimed);
     });
     return () => { cancelled = true; };
   }, [authUser]);
