@@ -496,7 +496,7 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 400 }}>
+      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 400, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>{isEdit ? 'Modifica voce di listino' : 'Nuova voce di listino'}</h2>
 
         {isEdit ? (
@@ -711,6 +711,7 @@ function EditableCatalog({ macros, setMacros }) {
                             </div>
                           </div>
                           {isOpen(sKey) && s.voci.length > 0 && (
+                            <div className="table-scroll">
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 6 }}>
                               <thead>
                                 <tr style={{ color: C.gray, fontSize: 10, textTransform: 'uppercase' }}>
@@ -749,6 +750,7 @@ function EditableCatalog({ macros, setMacros }) {
                                 })}
                               </tbody>
                             </table>
+                            </div>
                           )}
                         </div>
                       );
@@ -763,7 +765,7 @@ function EditableCatalog({ macros, setMacros }) {
 
       <div style={card}>
         <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 14px', color: C.black, fontFamily: FONT }}>Listino prezzi aziendale</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 14, marginBottom: 14 }}>
           <MetricCard label="Articoli" value={String(totals.voci)} />
           <MetricCard label="Categorie" value={String(totals.categorie)} />
           <MetricCard label="Sottocategorie" value={String(totals.sottocategorie)} />
@@ -792,7 +794,7 @@ function NewProjectModal({ onClose, onCreate }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380 }}>
+      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>Crea nuovo progetto</h2>
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Nome progetto</label>
@@ -909,6 +911,7 @@ function ComputoSectionsView({ sections }) {
             <span style={{ fontWeight: 700, fontSize: 13, fontFamily: FONT }}>{section.name}</span>
             {section.final && <span style={{ fontSize: 10, fontWeight: 700, background: 'rgba(255,255,255,0.22)', padding: '3px 9px', borderRadius: 999 }}>Sezione finale</span>}
           </div>
+          <div className="table-scroll">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, background: C.white }}>
             <thead>
               <tr style={{ textAlign: 'left', color: C.gray, fontSize: 10, textTransform: 'uppercase' }}>
@@ -941,6 +944,7 @@ function ComputoSectionsView({ sections }) {
               ))}
             </tbody>
           </table>
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 16px', fontSize: 12, fontWeight: 700, color: C.black, borderTop: `1px solid ${C.paleGray}` }}>
             Subtotale {section.name}&nbsp;&nbsp;{section.subtotal}
           </div>
@@ -1592,16 +1596,16 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
 
           <div style={{ ...card, marginBottom: 18 }}>
             <p style={{ fontWeight: 700, fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Dati generali del computo</p>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
               {headerField("Descrizione generale dell'opera", 'descrizione', 'Es. Ristrutturazione integrale di unità residenziale')}
               {headerField('Ubicazione cantiere', 'ubicazione', 'Indirizzo del cantiere')}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
               {headerField('Progettista', 'progettista', 'Nome del progettista')}
               {headerField('Direttore lavori', 'direttoreLavori', 'Nome del direttore lavori')}
               {headerField('Impresa esecutrice', 'impresa', 'Ragione sociale impresa')}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {headerField('Numero pratica / commessa', 'numeroPratica', 'Es. 24/2026')}
               {headerField('Data documento', 'dataDocumento', 'Es. 31/07/2026')}
             </div>
@@ -1611,7 +1615,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           </div>
 
           <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div style={{ ...card, width: 300, flexShrink: 0, border: `2px solid ${C.maroon}` }}>
+            <div style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Listino</p>
               </div>
@@ -1673,7 +1677,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                         {section.items.length === 0 ? (
                           <p style={{ fontSize: 12, color: C.gray, padding: '10px 14px' }}>Nessuna voce ancora in questa sezione.</p>
                         ) : (
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <div className="table-scroll">
+                          <table style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse', fontSize: 12 }}>
                             <thead>
                               <tr style={{ textAlign: 'left', color: C.gray, fontSize: 10, textTransform: 'uppercase' }}>
                                 <th style={{ padding: '8px 6px' }}></th>
@@ -1769,6 +1774,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                               })}
                             </tbody>
                           </table>
+                          </div>
                         )}
                         <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.paleGray}` }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: C.black, marginBottom: section.discountPct ? 6 : 0 }}>
@@ -2038,7 +2044,8 @@ function DiffTable({ diff }) {
     return <p style={{ fontSize: 12, color: C.gray }}>Nessuna voce da confrontare tra queste due versioni.</p>;
   }
   return (
-    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+    <div className="table-scroll">
+    <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
       <thead>
         <tr style={{ textAlign: 'left', color: C.gray, fontSize: 10, textTransform: 'uppercase' }}>
           <th style={{ padding: '8px 6px' }}>Esito</th>
@@ -2071,6 +2078,7 @@ function DiffTable({ diff }) {
         ))}
       </tbody>
     </table>
+    </div>
   );
 }
 
@@ -2292,7 +2300,7 @@ function AddToComputoModal({ prodotto, projects, onClose, onAdd }) {
   if (eligible.length === 0) {
     return (
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-        <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380 }}>
+        <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
           <p style={{ fontSize: 13, color: C.gray, margin: '0 0 16px' }}>Nessun progetto ha ancora un computo creato. Apri un progetto e crea il primo computo prima di aggiungere forniture.</p>
           <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Chiudi</button>
         </div>
@@ -2302,7 +2310,7 @@ function AddToComputoModal({ prodotto, projects, onClose, onAdd }) {
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 420 }}>
+      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Aggiungi al computo</h2>
         <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>{prodotto.name}</p>
 
@@ -2782,7 +2790,7 @@ function LoginScreen({ onSignedIn }) {
 
   return (
     <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
-      <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360 }}>
+      <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ width: 40, height: 40, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, marginBottom: 16 }}>SCE</div>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: C.black, margin: '0 0 4px' }}>{mode === 'signin' ? 'Accedi' : 'Crea il tuo account'}</h1>
         <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px' }}>Software di Computazione Edile — Desearq Studio</p>
@@ -2844,6 +2852,7 @@ export default function GestionaleEdilePreview() {
   const [listini, setListini] = useState([{ id: 1, name: 'Listino standard 2026', macros: INITIAL_MACROS }]);
   const [activeListinoId, setActiveListinoId] = useState(1);
   const [fornitoriCatalog, setFornitoriCatalog] = useState(INITIAL_FORNITORI);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // --- Autenticazione reale (Supabase Auth) ---
   const [authUser, setAuthUser] = useState(undefined); // undefined = ancora in caricamento, null = non collegato
@@ -2937,7 +2946,7 @@ export default function GestionaleEdilePreview() {
   if (!profile) {
     return (
       <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
-        <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, textAlign: 'center' }}>
+        <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto', textAlign: 'center' }}>
           <p style={{ fontSize: 13, color: C.black, margin: '0 0 12px' }}>{profileError || 'Nessun invito trovato per questa email. Chiedi a un admin di invitarti dalla sezione Team, poi ricarica la pagina.'}</p>
           <button onClick={handleLogout} style={{ background: C.darkGray, color: C.white, border: 'none', borderRadius: 999, padding: '9px 18px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Esci</button>
         </div>
@@ -2948,7 +2957,7 @@ export default function GestionaleEdilePreview() {
   if (profile.status !== 'Attivo') {
     return (
       <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
-        <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, textAlign: 'center' }}>
+        <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto', textAlign: 'center' }}>
           <p style={{ fontSize: 13, color: C.black, margin: 0 }}>Il tuo invito non è stato ancora completato. Riprova tra poco o contatta l'admin.</p>
         </div>
       </div>
@@ -2959,6 +2968,8 @@ export default function GestionaleEdilePreview() {
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+        html, body, #root { max-width: 100%; overflow-x: hidden; }
         .print-only { display: none; }
         @media print {
           .no-print { display: none !important; }
@@ -2967,14 +2978,68 @@ export default function GestionaleEdilePreview() {
         .sidebar-item-btn:not(.active):hover { background: ${C.sidebarHover} !important; color: ${C.black} !important; }
         .btn-accent-pill:hover { background: #650F26 !important; }
         .input-focus:focus { outline: none; border-color: ${C.maroon} !important; box-shadow: 0 0 0 3px rgba(128,20,48,0.25); }
+
+        /* --- Rendering mobile --- */
+        input, select, textarea, button { max-width: 100%; }
+        .table-scroll { width: 100%; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        .table-scroll > table { min-width: 620px; }
+        .mobile-menu-btn { display: none; }
+        .sidebar-backdrop { display: none; }
+        .form-grid { display: grid; }
+
+        /* Su schermi stretti, qualunque riga flessibile può andare a capo invece di traboccare */
+        @media (max-width: 760px) {
+          [style*="display:flex"], [style*="display: flex"] { flex-wrap: wrap; min-width: 0; }
+        }
+
+        @media (max-width: 880px) {
+          .app-shell { position: relative; }
+          .sidebar-aside {
+            position: fixed !important;
+            top: 0; left: 0;
+            height: 100vh !important;
+            max-height: 100dvh;
+            transform: translateX(-100%);
+            transition: transform 0.22s ease;
+            z-index: 60;
+            box-shadow: 6px 0 24px rgba(0,0,0,0.18);
+          }
+          .sidebar-aside.open { transform: translateX(0); }
+          .sidebar-backdrop.open {
+            display: block;
+            position: fixed; inset: 0;
+            background: rgba(5,5,5,0.45);
+            z-index: 55;
+          }
+          .mobile-menu-btn {
+            display: inline-flex !important;
+            align-items: center; justify-content: center;
+            width: 38px; height: 38px;
+            border-radius: 10px;
+            border: 1px solid ${C.paleGray};
+            background: ${C.white};
+            cursor: pointer;
+            flex-shrink: 0;
+          }
+          .top-header { padding: 14px 16px 0 !important; justify-content: space-between !important; }
+          .search-input { width: 100% !important; }
+          .search-input-wrap { flex: 1; min-width: 0; }
+          main.app-main { padding: 16px !important; }
+          h1 { font-size: 24px !important; }
+        }
+
+        @media (max-width: 640px) {
+          .form-grid { grid-template-columns: 1fr !important; }
+        }
       `}</style>
       {printJob && (
         <div className="print-only">
           <PrintableComputo project={printJob.project} revision={printJob.revision} clientOnly={printJob.clientOnly} />
         </div>
       )}
-      <div className="no-print" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: PAGE_GRADIENT, backgroundAttachment: 'fixed' }}>
-      <aside style={{ width: 280, flexShrink: 0, background: C.sidebar, color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '22px 14px' }}>
+      <div className="no-print app-shell" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: PAGE_GRADIENT, backgroundAttachment: 'fixed' }}>
+      <div className={`sidebar-backdrop${mobileNavOpen ? ' open' : ''}`} onClick={() => setMobileNavOpen(false)} />
+      <aside className={`sidebar-aside${mobileNavOpen ? ' open' : ''}`} style={{ width: 280, flexShrink: 0, background: C.sidebar, color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '22px 14px' }}>
         <div style={{ padding: '0 6px 20px', borderBottom: `1px solid ${C.paleGray}`, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 36, height: 36, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>SCE</div>
           <div>
@@ -2991,7 +3056,7 @@ export default function GestionaleEdilePreview() {
               <button
                 key={item.key}
                 className={`sidebar-item-btn${active ? ' active' : ''}`}
-                onClick={() => setPage(item.key)}
+                onClick={() => { setPage(item.key); setMobileNavOpen(false); }}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -3026,19 +3091,28 @@ export default function GestionaleEdilePreview() {
         </div>
       </aside>
 
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <header style={{ background: 'transparent', padding: '18px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 18px', boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04)' }}>
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
+        <header className="top-header" style={{ background: 'transparent', padding: '18px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
+          <button
+            className="mobile-menu-btn"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Apri il menu"
+            style={{ fontSize: 16 }}
+          >
+            ☰
+          </button>
+          <div className="search-input-wrap" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 18px', boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04)' }}>
             <Search size={16} strokeWidth={1.5} color={C.darkGray} />
             <input
               type="text"
               placeholder="Cerca progetto, cliente, voce o codice…"
-              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: C.darkGray, width: 260 }}
+              className="search-input"
+              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: C.darkGray, width: 'clamp(120px, 30vw, 260px)' }}
             />
           </div>
         </header>
 
-        <main style={{ padding: 24, flex: 1, overflowX: 'auto' }}>
+        <main className="app-main" style={{ padding: 24, flex: 1, overflowX: 'auto', minWidth: 0, width: '100%' }}>
           {page === 'dashboard' && <Dashboard onNavigate={setPage} onOpenProject={openProject} projects={projects} />}
           {page === 'listino' && <ListinoPage listini={listini} setListini={setListini} activeId={activeListinoId} setActiveId={setActiveListinoId} />}
           {page === 'progetti' && <ProgettiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} />}
