@@ -320,16 +320,16 @@ function Dashboard({ onNavigate, onOpenProject, projects }) {
           <div
             key={p.id}
             onClick={() => onOpenProject(p.id)}
-            style={{ display: 'flex', alignItems: 'center', gap: 16, padding: 16, borderRadius: 12, background: C.surfaceSubtle, cursor: 'pointer', marginBottom: 8 }}
+            style={{ display: 'flex', flexWrap: 'wrap', rowGap: 8, alignItems: 'center', gap: 16, padding: 16, borderRadius: 12, background: C.surfaceSubtle, cursor: 'pointer', marginBottom: 8 }}
           >
             <div style={{ width: 44, height: 44, borderRadius: 8, background: C.accentSoft, color: C.maroon, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 14, flexShrink: 0 }}>
               {initials(p.client)}
             </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
               <p style={{ fontWeight: 500, fontSize: 13, margin: 0, color: C.black }}>{p.name}</p>
               <p style={{ fontSize: 12, color: C.darkGray, margin: '2px 0 0' }}>{p.client}</p>
             </div>
-            <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
+            <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, flexShrink: 0, ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
           </div>
         ))}
       </div>
@@ -956,7 +956,7 @@ function ComputoSectionsView({ sections }) {
 
 const SECTION_COLORS = [C.maroon, C.darkGray, '#94706C', C.sidebar];
 
-function DraggableCatalogTree({ listino }) {
+function DraggableCatalogTree({ listino, onAdd }) {
   const [expanded, setExpanded] = useState({});
   const isOpen = (key) => expanded[key] !== false;
   const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
@@ -999,16 +999,29 @@ function DraggableCatalogTree({ listino }) {
                             {s.voci.map((v, vi) => {
                               const impresaVal = parseEuro(v.priceImpresa);
                               const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
+                              const voceData = { ...v, macro: m.name, impresaValue: impresaVal, clienteValue: clienteVal };
                               return (
                               <div
                                 key={vi}
                                 draggable
-                                onDragStart={(e) => e.dataTransfer.setData('application/json', JSON.stringify({ ...v, macro: m.name, impresaValue: impresaVal, clienteValue: clienteVal }))}
-                                style={{ border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '7px 9px', marginBottom: 6, cursor: 'grab', background: C.white }}
+                                onDragStart={(e) => e.dataTransfer.setData('application/json', JSON.stringify(voceData))}
+                                style={{ border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '7px 9px', marginBottom: 6, cursor: 'grab', background: C.white, display: 'flex', alignItems: 'center', gap: 8 }}
                               >
-                                <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: C.maroon }}>{v.code}</p>
-                                <p style={{ margin: '2px 0 0', fontSize: 12, color: C.black }}>{v.desc}</p>
-                                <p style={{ margin: '2px 0 0', fontSize: 11, color: C.gray }}>{v.unit} · impresa {formatEuro(impresaVal)} · cliente {formatEuro(clienteVal)}</p>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                  <p style={{ margin: 0, fontSize: 11, fontWeight: 700, color: C.maroon }}>{v.code}</p>
+                                  <p style={{ margin: '2px 0 0', fontSize: 12, color: C.black }}>{v.desc}</p>
+                                  <p style={{ margin: '2px 0 0', fontSize: 11, color: C.gray }}>{v.unit} · impresa {formatEuro(impresaVal)} · cliente {formatEuro(clienteVal)}</p>
+                                </div>
+                                {onAdd && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); onAdd(voceData); }}
+                                    title="Aggiungi al computo"
+                                    aria-label="Aggiungi al computo"
+                                    style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: C.white, color: C.maroon, fontSize: 16, fontWeight: 700, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                    +
+                                  </button>
+                                )}
                               </div>
                               );
                             })}
@@ -1622,14 +1635,14 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
               <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '6px 0 10px' }}>
                 {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px' }}>Apri le categorie per trovare la voce giusta e trascinala nel computo a destra.</p>
+              <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px' }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
               <label style={{ display: 'block', textAlign: 'center', background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '8px 0', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer', marginBottom: 12 }}>
                 📥 Importa voci da Excel
                 <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) importFromExcel(e.target.files[0]); e.target.value = ''; }} />
               </label>
               <p style={{ fontSize: 10, color: C.gray, margin: '-6px 0 10px' }}>Il file deve avere una colonna "Codice" e una "Quantità": le voci con codice corrispondente al listino attivo vengono aggiunte in automatico al computo.</p>
               <div style={{ maxHeight: 560, overflowY: 'auto' }}>
-                <DraggableCatalogTree listino={activeListino} />
+                <DraggableCatalogTree listino={activeListino} onAdd={addComputoItem} />
               </div>
             </div>
 
@@ -2120,7 +2133,7 @@ function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, req
             key={p.id}
             onClick={() => setActiveId(p.id)}
             style={{
-              border: 'none', borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+              borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
               background: p.id === project.id ? C.maroon : C.white,
               color: p.id === project.id ? C.white : C.black,
               border: `1px solid ${p.id === project.id ? C.maroon : C.paleGray}`,
@@ -2438,32 +2451,34 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
         {prodotto.fornitori.length === 0 ? (
           <p style={{ fontSize: 11, color: C.gray, margin: 0 }}>Nessun fornitore inserito.</p>
         ) : (
-          <>
-            <div style={{ display: 'flex', fontSize: 10, color: C.gray, textTransform: 'uppercase', padding: '2px 0' }}>
-              <span style={{ flex: 1 }}>Fornitore</span>
-              <span style={{ width: 70, textAlign: 'right' }}>Listino</span>
-              <span style={{ width: 70, textAlign: 'right' }}>Scontato</span>
-              <span style={{ width: 70, textAlign: 'right' }}>Cliente</span>
-              <span style={{ width: 56 }}></span>
-            </div>
-            {[...prodotto.fornitori].sort((a, b) => parseEuro(a.prezzoScontato) - parseEuro(b.prezzoScontato)).map((f) => (
-              <div key={f.id} style={{ display: 'flex', alignItems: 'center', padding: '6px 0', borderTop: `1px solid ${C.paleGray}` }}>
-                <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 12, color: C.black }}>{f.name}</span>
-                  {parseEuro(f.prezzoScontato) === cheapestScontato && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: C.maroon, background: 'rgba(128,20,48,0.1)', padding: '2px 7px', borderRadius: 999 }}>Migliore offerta</span>
-                  )}
-                </div>
-                <span style={{ width: 70, textAlign: 'right', fontSize: 12, color: C.gray }}>{f.prezzoListino} €</span>
-                <span style={{ width: 70, textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.black }}>{f.prezzoScontato} €</span>
-                <span style={{ width: 70, textAlign: 'right', fontSize: 12, color: C.maroon }}>{f.prezzoCliente} €</span>
-                <span style={{ width: 56, display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                  <button onClick={() => editFornitore(f.id)} style={{ ...rowBtnStyle, padding: '2px 6px' }}>✎</button>
-                  <button onClick={() => removeFornitore(f.id)} style={{ ...rowBtnStyle, padding: '2px 6px' }}>🗑</button>
-                </span>
+          <div className="table-scroll">
+            <div style={{ minWidth: 420 }}>
+              <div style={{ display: 'flex', flexWrap: 'nowrap', fontSize: 10, color: C.gray, textTransform: 'uppercase', padding: '2px 0' }}>
+                <span style={{ flex: 1, minWidth: 120 }}>Fornitore</span>
+                <span style={{ width: 70, textAlign: 'right', flexShrink: 0 }}>Listino</span>
+                <span style={{ width: 70, textAlign: 'right', flexShrink: 0 }}>Scontato</span>
+                <span style={{ width: 70, textAlign: 'right', flexShrink: 0 }}>Cliente</span>
+                <span style={{ width: 56, flexShrink: 0 }}></span>
               </div>
-            ))}
-          </>
+              {[...prodotto.fornitori].sort((a, b) => parseEuro(a.prezzoScontato) - parseEuro(b.prezzoScontato)).map((f) => (
+                <div key={f.id} style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', padding: '6px 0', borderTop: `1px solid ${C.paleGray}` }}>
+                  <div style={{ flex: 1, minWidth: 120, display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: C.black, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
+                    {parseEuro(f.prezzoScontato) === cheapestScontato && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: C.maroon, background: 'rgba(128,20,48,0.1)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>Migliore offerta</span>
+                    )}
+                  </div>
+                  <span style={{ width: 70, textAlign: 'right', fontSize: 12, color: C.gray, flexShrink: 0 }}>{f.prezzoListino} €</span>
+                  <span style={{ width: 70, textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.black, flexShrink: 0 }}>{f.prezzoScontato} €</span>
+                  <span style={{ width: 70, textAlign: 'right', fontSize: 12, color: C.maroon, flexShrink: 0 }}>{f.prezzoCliente} €</span>
+                  <span style={{ width: 56, display: 'flex', flexWrap: 'nowrap', gap: 4, justifyContent: 'flex-end', flexShrink: 0 }}>
+                    <button onClick={() => editFornitore(f.id)} style={{ ...rowBtnStyle, padding: '2px 6px' }}>✎</button>
+                    <button onClick={() => removeFornitore(f.id)} style={{ ...rowBtnStyle, padding: '2px 6px' }}>🗑</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>
