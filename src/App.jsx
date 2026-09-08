@@ -1550,11 +1550,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     const name = prompt('Nome della persona da assegnare:');
     if (!name) return;
     const role = prompt('Ruolo:', 'Collaboratore') || 'Collaboratore';
-    onUpdateProject({ ...project, team: [...project.team, { name, role }] });
+    onUpdateProject({ ...project, team: [...(project.team || []), { name, role }] });
   };
 
   const removeTeamMember = (idx) => {
-    onUpdateProject({ ...project, team: project.team.filter((_, i) => i !== idx) });
+    onUpdateProject({ ...project, team: (project.team || []).filter((_, i) => i !== idx) });
   };
 
   const headerField = (label, field, placeholder) => (
@@ -2034,9 +2034,9 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Team assegnato</p>
           <button onClick={addTeamMember} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>+ Aggiungi persona</button>
         </div>
-        {project.team.length === 0 && <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna persona assegnata a questo progetto.</p>}
-        {project.team.map((m, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < project.team.length - 1 ? `1px solid ${C.paleGray}` : 'none' }}>
+        {(project.team || []).length === 0 && <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna persona assegnata a questo progetto.</p>}
+        {(project.team || []).map((m, i) => (
+          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < (project.team || []).length - 1 ? `1px solid ${C.paleGray}` : 'none' }}>
             <div>
               <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{m.name}</p>
               <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>{m.role}</p>
