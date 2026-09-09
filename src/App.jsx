@@ -66,6 +66,39 @@ function evalClientPrice(formula, impresaPrice) {
 const nowLabel = () => new Date().toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const sumImpresa = (items) => (items || []).reduce((sum, it) => sum + parseEuro(it.unitPriceImpresa) * parseEuro(it.qty), 0);
 const sumCliente = (items) => (items || []).reduce((sum, it) => sum + parseEuro(it.unitPriceCliente) * parseEuro(it.qty), 0);
+
+// Raggruppa le voci di una revisione per sezione/categoria (stesso criterio usato nel computo:
+// it.section || it.macro) e calcola il totale cliente netto di ogni categoria (dopo lo sconto di sezione).
+// Usata per gli Stati avanzamento pagamenti, che seguono l'ultima revisione approvata del computo.
+function computeSectionTotals(revision) {
+  const items = (revision?.items || []).filter((it) => it.type !== 'subtotal');
+  const extraSections = revision?.extraSections || [];
+  const sectionDiscounts = revision?.sectionDiscounts || {};
+  const sections = [];
+  const byName = (name) => {
+    let s = sections.find((s) => s.name === name);
+    if (!s) { s = { name, items: [] }; sections.push(s); }
+    return s;
+  };
+  extraSections.forEach((name) => byName(name));
+  items.forEach((it) => byName(it.section || it.macro || 'Voci varie').items.push(it));
+  sections.forEach((s) => {
+    const subtotalCliente = sumCliente(s.items);
+    const discountPct = parseFloat(sectionDiscounts[s.name]) || 0;
+    s.netCliente = subtotalCliente * (1 - discountPct / 100);
+  });
+  return sections.filter((s) => s.items.length > 0);
+}
+
+// L'ultima revisione del computo che è stata approvata (status diverso da "In attesa di approvazione"),
+// scorrendo dalla più recente: è quella che alimenta gli Stati avanzamento pagamenti e il Portale Clienti.
+function latestApprovedRevision(project) {
+  const revs = project.revisions || [];
+  for (let i = revs.length - 1; i >= 0; i--) {
+    if (revs[i].status && revs[i].status !== STATUS_OPTIONS[0]) return revs[i];
+  }
+  return null;
+}
 const getVatInfo = (revision) => {
   const rate = revision?.vatRate !== undefined && revision?.vatRate !== null ? Number(revision.vatRate) : 22;
   const label = revision?.vatLabel && revision.vatLabel.trim() ? revision.vatLabel : `IVA ${rate}%`;
@@ -1557,6 +1590,40 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     onUpdateProject({ ...project, team: (project.team || []).filter((_, i) => i !== idx) });
   };
 
+  // --- Stati avanzamento pagamenti (SAL cantiere per categoria) ---
+  // project.cantiereSal è un oggetto { [nomeCategoria]: { impresa, fatture: [{id, label, importo, stato}] } }.
+  // Le categorie e il loro totale arrivano in automatico dall'ultima revisione approvata del computo;
+  // impresa e fatture restano quelle inserite qui finché non le cambi tu, anche se il computo si aggiorna.
+  const cantiereSal = project.cantiereSal || {};
+
+  const setImpresaCategoria = (categoria) => {
+    const current = cantiereSal[categoria] || { impresa: '', fatture: [] };
+    const impresa = prompt('Impresa assegnata a questa categoria:', current.impresa || '');
+    if (impresa === null) return;
+    onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, impresa } } });
+  };
+
+  const addFatturaCategoria = (categoria) => {
+    const label = prompt('Descrizione fattura (es. "Fattura n.1", "SAL 1 lavori"):');
+    if (!label) return;
+    const importo = parseEuro(prompt('Importo (€):', '0') || '0');
+    const current = cantiereSal[categoria] || { impresa: '', fatture: [] };
+    const fattura = { id: Date.now(), label, importo, stato: 'Emessa' };
+    onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, fatture: [...(current.fatture || []), fattura] } } });
+  };
+
+  const updateFatturaStato = (categoria, fatturaId, stato) => {
+    const current = cantiereSal[categoria] || { impresa: '', fatture: [] };
+    const fatture = (current.fatture || []).map((f) => (f.id === fatturaId ? { ...f, stato } : f));
+    onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, fatture } } });
+  };
+
+  const removeFatturaCategoria = (categoria, fatturaId) => {
+    const current = cantiereSal[categoria] || { impresa: '', fatture: [] };
+    const fatture = (current.fatture || []).filter((f) => f.id !== fatturaId);
+    onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, fatture } } });
+  };
+
   const headerField = (label, field, placeholder) => (
     <div>
       <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>{label}</label>
@@ -1937,6 +2004,68 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           )}
         </div>
       )}
+
+      {(() => {
+        const approvedRevision = latestApprovedRevision(project);
+        if (!approvedRevision) return null;
+        const sections = computeSectionTotals(approvedRevision);
+        return (
+          <div style={{ ...card, marginBottom: 18 }}>
+            <div style={{ marginBottom: 12 }}>
+              <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Stati avanzamento pagamenti</p>
+              <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>
+                Per categoria del computo approvato ({approvedRevision.customName || approvedRevision.label}): impresa assegnata, fatture e residuo. Si aggiorna da solo quando approvi una nuova revisione, e finisce in automatico nel Portale Clienti.
+              </p>
+            </div>
+            {sections.length === 0 && <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Il computo approvato non ha ancora voci.</p>}
+            {sections.map((s, si) => {
+              const entry = cantiereSal[s.name] || { impresa: '', fatture: [] };
+              const fatture = entry.fatture || [];
+              const fatturato = fatture.reduce((sum, f) => sum + (f.importo || 0), 0);
+              const pagato = fatture.filter((f) => f.stato === 'Pagata').reduce((sum, f) => sum + (f.importo || 0), 0);
+              const residuo = Math.max(s.netCliente - fatturato, 0);
+              return (
+                <div key={s.name} style={{ padding: '14px 0', borderTop: si === 0 ? 'none' : `1px solid ${C.paleGray}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+                    <div>
+                      <p style={{ fontWeight: 700, fontSize: 14, margin: 0, color: C.black }}>{s.name}</p>
+                      <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>
+                        Totale categoria {formatEuro(s.netCliente)}{entry.impresa ? ` · Impresa: ${entry.impresa}` : ' · nessuna impresa assegnata'}
+                      </p>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button onClick={() => setImpresaCategoria(s.name)} style={rowBtnStyle}>{entry.impresa ? '✎ Impresa' : '+ Impresa'}</button>
+                      <button onClick={() => addFatturaCategoria(s.name)} style={rowBtnStyle}>+ Fattura</button>
+                    </div>
+                  </div>
+
+                  {fatture.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      {fatture.map((f) => (
+                        <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', gap: 8, flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 12, color: C.black }}>{f.label} — {formatEuro(f.importo)}</span>
+                          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <select value={f.stato} onChange={(e) => updateFatturaStato(s.name, f.id, e.target.value)} style={{ fontSize: 11, fontWeight: 600, padding: '4px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, color: C.midGray }}>
+                              {['Emessa', 'Pagata', 'Da pagare', 'Scaduta'].map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                            </select>
+                            <button onClick={() => removeFatturaCategoria(s.name, f.id)} style={rowBtnStyle}>🗑</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 18, marginTop: 10, fontSize: 12, flexWrap: 'wrap' }}>
+                    <span style={{ color: C.gray }}>Fatturato: <strong style={{ color: C.black }}>{formatEuro(fatturato)}</strong></span>
+                    <span style={{ color: C.gray }}>Pagato: <strong style={{ color: C.black }}>{formatEuro(pagato)}</strong></span>
+                    <span style={{ color: C.gray }}>Residuo da fatturare: <strong style={{ color: residuo > 0.005 ? C.maroon : C.black }}>{formatEuro(residuo)}</strong></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       <div style={{ ...card, marginBottom: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -2493,6 +2622,11 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
 
   const addToComputo = (projectId, revisionId, priceSource, qty) => {
     const prodotto = addingTo;
+    // La voce va nella categoria del fornitore scelto come fonte prezzo (non in un generico "FORNITURE"):
+    // cosi' ogni categoria del computo raggruppa le voci di un solo fornitore, ed e' collegabile a
+    // un'unica impresa/fattura in "Stati avanzamento pagamenti" senza mischiare fornitori diversi.
+    // Solo se si sceglie il prezzo di listino del prodotto (nessun fornitore reale) si resta su "FORNITURE".
+    const sectionName = priceSource.id !== 'listino' ? priceSource.name : 'FORNITURE';
     const newItem = {
       id: Date.now() + Math.random(),
       code: '',
@@ -2502,8 +2636,8 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
       unitPriceCliente: priceSource.prezzoCliente,
       listinoRef: priceSource.prezzoListino,
       qty,
-      macro: 'FORNITURE',
-      section: 'FORNITURE',
+      macro: sectionName,
+      section: sectionName,
     };
     setProjects(projects.map((p) => (p.id === projectId ? addItemToProjectRevision(p, revisionId, newItem) : p)));
   };
