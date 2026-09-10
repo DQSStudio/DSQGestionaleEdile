@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
 import { supabase, cea } from './supabaseClient';
 import * as XLSX from 'xlsx';
+import * as pdfjsLib from 'pdfjs-dist';
+import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { LayoutGrid, BookOpen, Building2, Calculator, GitCompare, Truck, Users, Search, LogOut, MapPin, Clock, Calendar as CalendarIcon } from 'lucide-react';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 const FONT = "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
 
@@ -178,6 +182,68 @@ function flattenListino(listino) {
     });
   })));
   return out;
+}
+
+// --- Importazione computo da PDF (solo macrocategorie + totale complessivo) ---
+// Estrae il testo del PDF pagina per pagina (pdfjs ricostruisce le righe usando "hasEOL"),
+// poi cerca su ogni riga l'ultimo importo in formato italiano (es. "12.604,00"): quello che precede
+// diventa l'etichetta. Le righe la cui etichetta contiene "totale" insieme a "complessivo"/"generale"/
+// "lavori"/"opera"/"computo" sono candidate come totale complessivo; le altre come macrocategorie.
+// È un'estrazione "best effort": l'utente rivede e corregge le righe proposte prima di confermare.
+const EURO_AMOUNT_RE = /(\d{1,3}(?:\.\d{3})*,\d{2})(?!\d)/g;
+
+function parseItalianAmount(str) {
+  const n = parseFloat(String(str).replace(/\./g, '').replace(',', '.'));
+  return isFinite(n) ? n : 0;
+}
+
+async function extractTextLinesFromPdf(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const lines = [];
+  for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    const page = await pdf.getPage(pageNum);
+    const content = await page.getTextContent();
+    let current = '';
+    content.items.forEach((item) => {
+      current += item.str;
+      if (item.hasEOL) {
+        if (current.trim()) lines.push(current.trim());
+        current = '';
+      } else if (item.str) {
+        current += ' ';
+      }
+    });
+    if (current.trim()) lines.push(current.trim());
+  }
+  return lines;
+}
+
+function parseComputoPdfLines(lines) {
+  const candidateRows = [];
+  let totaleComplessivo = null;
+  let bestTotaleAmount = -Infinity;
+
+  lines.forEach((line) => {
+    const matches = [...line.matchAll(EURO_AMOUNT_RE)];
+    if (matches.length === 0) return;
+    const last = matches[matches.length - 1];
+    const amount = parseItalianAmount(last[1]);
+    if (!(amount > 0)) return;
+    let label = line.slice(0, last.index).replace(/[.\-–_\s€]+$/, '').trim();
+    if (!label) return;
+    const labelLower = label.toLowerCase();
+    const looksLikeTotale = labelLower.includes('totale') &&
+      /(complessivo|generale|lavori|opera|computo|importo)/.test(labelLower);
+    if (looksLikeTotale) {
+      if (amount > bestTotaleAmount) { bestTotaleAmount = amount; totaleComplessivo = amount; }
+      return;
+    }
+    if (label.length > 90) return; // riga troppo lunga: probabilmente una voce di dettaglio, non un totale di categoria
+    candidateRows.push({ id: Date.now() + Math.random(), name: label, totale: formatEuro(amount).replace(' €', '') });
+  });
+
+  return { rows: candidateRows, totaleComplessivo };
 }
 
 const PROJECTS = [
@@ -1254,6 +1320,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const [showCompare, setShowCompare] = useState(false);
   const [listinoId, setListinoId] = useState(listini[0]?.id);
   const [dragOver, setDragOver] = useState(false);
+  const [showImportPdf, setShowImportPdf] = useState(false);
 
   const selectedRevision = revisions.find((r) => r.id === selectedRevisionId) || latestRevision;
   const isEditingLatest = selectedRevision && latestRevision && selectedRevision.id === latestRevision.id;
@@ -1530,6 +1597,39 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     setSelectedRevisionId(newRev.id);
   };
 
+  // Crea una nuova revisione (o la prima, se il progetto non ne ha ancora) a partire dai totali per
+  // macrocategoria importati da un PDF: un solo elemento per categoria, con il totale cliente letto dal
+  // PDF e la quota di totale impresa ripartita in proporzione. Da qui si potrà "Salvare una nuova versione"
+  // come sempre, aggiungendo o correggendo le singole voci una alla volta.
+  const createRevisionFromPdfTotals = (rowsIn, totaleImpresaManuale) => {
+    const sommaCategorie = rowsIn.reduce((sum, r) => sum + r.totale, 0);
+    const newItems = rowsIn.map((r) => {
+      const quotaImpresa = sommaCategorie > 0 ? totaleImpresaManuale * (r.totale / sommaCategorie) : 0;
+      return {
+        id: Date.now() + Math.random(),
+        code: '',
+        desc: 'Totale importato da PDF — da dettagliare con le singole voci',
+        unit: '',
+        unitPriceImpresa: formatEuro(quotaImpresa).replace(' €', ''),
+        unitPriceCliente: formatEuro(r.totale).replace(' €', ''),
+        qty: '1',
+        macro: r.name,
+        section: r.name,
+        imported: true,
+      };
+    });
+    const total = formatEuro(sumImpresa(newItems));
+    const totalCliente = formatEuro(sumCliente(newItems));
+    const newRev = {
+      id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null,
+      dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0],
+      items: newItems, extraSections: [], total, totalCliente,
+    };
+    onUpdateProject({ ...project, revisions: [...revisions, newRev], header, value: total });
+    setSelectedRevisionId(newRev.id);
+    setShowImportPdf(false);
+  };
+
   const openRevision = (id) => setSelectedRevisionId(id);
 
   const deleteRevision = (id) => {
@@ -1647,10 +1747,15 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
       </div>
       <p style={{ fontSize: 12, color: C.gray, margin: '0 0 18px' }}>{project.client}</p>
 
+      {showImportPdf && <ImportPdfComputoModal onClose={() => setShowImportPdf(false)} onConfirm={createRevisionFromPdfTotals} />}
+
       {revisions.length === 0 ? (
         <div style={{ ...card, marginBottom: 24, textAlign: 'center', padding: 36 }}>
           <p style={{ fontSize: 13, color: C.gray, margin: '0 0 14px' }}>Questo progetto non ha ancora un computo metrico.</p>
-          <button onClick={startComputo} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Crea primo computo metrico</button>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button onClick={startComputo} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>+ Crea primo computo metrico</button>
+            <button onClick={() => setShowImportPdf(true)} style={{ background: C.white, color: C.black, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>📄 Importa da PDF (macrocategorie)</button>
+          </div>
         </div>
       ) : (
         <>
@@ -1668,6 +1773,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
 
           <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
             <button onClick={saveNewVersion} style={{ background: C.maroon, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>+ Salva nuova versione</button>
+            <button onClick={() => setShowImportPdf(true)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>📄 Nuova revisione da PDF</button>
             <button onClick={() => exportComputoExcel(project, selectedRevision, false)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Scarica Excel completo</button>
             <button onClick={() => exportComputoExcel(project, selectedRevision, true)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Scarica Excel solo cliente</button>
             <button onClick={() => requestPdf(project, selectedRevision, false)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬇ Scarica PDF completo (impresa+cliente)</button>
@@ -2416,6 +2522,123 @@ const INITIAL_FORNITORI = [
     ],
   },
 ];
+
+// Modale per creare una revisione del computo a partire da un PDF: ne estrae solo le macrocategorie
+// e i loro totali (mai le singole voci), lascia rivedere/correggere tutto a mano prima di confermare,
+// e permette di inserire manualmente il totale complessivo dell'impresa (non deducibile dal PDF cliente).
+function ImportPdfComputoModal({ onClose, onConfirm }) {
+  const [stage, setStage] = useState('upload'); // upload | loading | review | error
+  const [rows, setRows] = useState([]);
+  const [totaleRilevato, setTotaleRilevato] = useState(null);
+  const [totaleImpresa, setTotaleImpresa] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setStage('loading');
+    try {
+      const lines = await extractTextLinesFromPdf(file);
+      const { rows: found, totaleComplessivo } = parseComputoPdfLines(lines);
+      if (found.length === 0) {
+        setErrorMsg('Non ho trovato righe con un importo riconoscibile in questo PDF. Puoi comunque inserire le macrocategorie a mano qui sotto.');
+      }
+      setRows(found);
+      setTotaleRilevato(totaleComplessivo);
+      setStage('review');
+    } catch (err) {
+      setErrorMsg('Non sono riuscito a leggere questo PDF (' + String(err?.message || err) + '). Verifica che sia un PDF testuale valido, oppure inserisci le macrocategorie a mano.');
+      setRows([]);
+      setTotaleRilevato(null);
+      setStage('review');
+    }
+  };
+
+  const updateRow = (id, field, value) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
+  const removeRow = (id) => setRows((rs) => rs.filter((r) => r.id !== id));
+  const addRow = () => setRows((rs) => [...rs, { id: Date.now() + Math.random(), name: '', totale: '0,00' }]);
+
+  const sommaCategorie = rows.reduce((sum, r) => sum + parseEuro(r.totale), 0);
+  const scostamento = totaleRilevato !== null ? Math.abs(sommaCategorie - totaleRilevato) : 0;
+  const mismatchTotale = totaleRilevato !== null && scostamento > 0.02;
+
+  const canConfirm = rows.length > 0 && rows.every((r) => r.name.trim()) && sommaCategorie > 0;
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: 16 }}>
+      <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 560, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Importa computo da PDF</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>
+          Dal PDF vengono lette solo le macrocategorie e i loro totali (mai le singole voci): creerai una nuova revisione da questi totali, per poi dettagliarla con le voci una alla volta.
+        </p>
+
+        {stage === 'upload' && (
+          <label style={{ display: 'block', textAlign: 'center', background: C.bg, border: `1px dashed ${C.paleGray}`, borderRadius: 10, padding: '30px 14px', fontSize: 13, fontWeight: 600, color: C.black, cursor: 'pointer' }}>
+            📄 Carica il PDF del computo
+            <input type="file" accept="application/pdf" style={{ display: 'none' }} onChange={(e) => handleFile(e.target.files[0])} />
+          </label>
+        )}
+
+        {stage === 'loading' && (
+          <p style={{ fontSize: 13, color: C.gray, textAlign: 'center', padding: 30 }}>Lettura del PDF in corso…</p>
+        )}
+
+        {stage === 'review' && (
+          <>
+            {errorMsg && <p style={{ fontSize: 12, color: C.maroon, background: 'rgba(128,20,48,0.08)', borderRadius: 8, padding: '8px 10px', margin: '0 0 12px' }}>{errorMsg}</p>}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Macrocategorie e relativi totali (cliente)</label>
+              <button onClick={addRow} style={rowBtnStyle}>+ Categoria</button>
+            </div>
+            {rows.length === 0 ? (
+              <p style={{ fontSize: 12, color: C.gray, margin: '0 0 10px' }}>Nessuna macrocategoria ancora. Aggiungine una con "+ Categoria".</p>
+            ) : rows.map((r) => (
+              <div key={r.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                <input value={r.name} onChange={(e) => updateRow(r.id, 'name', e.target.value)} placeholder="Nome macrocategoria"
+                  style={{ flex: 1, fontSize: 12, padding: '7px 9px', borderRadius: 8, border: `1px solid ${C.paleGray}` }} />
+                <input value={r.totale} onChange={(e) => updateRow(r.id, 'totale', e.target.value)} placeholder="0,00"
+                  style={{ width: 100, fontSize: 12, padding: '7px 9px', borderRadius: 8, border: `1px solid ${C.paleGray}`, textAlign: 'right' }} />
+                <span style={{ fontSize: 11, color: C.gray }}>€</span>
+                <button onClick={() => removeRow(r.id)} style={{ ...rowBtnStyle, padding: '5px 8px' }}>🗑</button>
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, margin: '12px 0', padding: '10px 12px', background: C.bg, borderRadius: 8 }}>
+              <span style={{ color: C.gray }}>Somma categorie</span>
+              <strong style={{ color: C.black }}>{formatEuro(sommaCategorie)}</strong>
+            </div>
+            {totaleRilevato !== null && (
+              <p style={{ fontSize: 11, margin: '-6px 0 12px', color: mismatchTotale ? C.maroon : C.success }}>
+                Totale complessivo letto dal PDF: {formatEuro(totaleRilevato)}
+                {mismatchTotale ? ` — non coincide con la somma delle categorie (scarto ${formatEuro(scostamento)}): correggi le righe sopra se serve.` : ' — corrisponde alla somma delle categorie.'}
+              </p>
+            )}
+
+            <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Totale complessivo impresa (inserito a mano — il PDF cliente non lo contiene)</label>
+            <input value={totaleImpresa} onChange={(e) => setTotaleImpresa(e.target.value)} placeholder="0,00"
+              style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 6px' }} />
+            <p style={{ fontSize: 10, color: C.gray, margin: '0 0 16px' }}>
+              Viene ripartito automaticamente tra le categorie in proporzione al loro totale cliente: potrai comunque correggere ogni voce in seguito.
+            </p>
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
+          <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Annulla</button>
+          {stage === 'review' && (
+            <button
+              disabled={!canConfirm}
+              onClick={() => onConfirm(rows.map((r) => ({ name: r.name.trim(), totale: parseEuro(r.totale) })), parseEuro(totaleImpresa))}
+              style={{ background: canConfirm ? C.maroon : C.lightGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: canConfirm ? 'pointer' : 'default' }}
+            >
+              Crea revisione da questi totali
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function AddToComputoModal({ prodotto, projects, onClose, onAdd }) {
   const eligible = projects.filter((p) => p.revisions.length > 0);
