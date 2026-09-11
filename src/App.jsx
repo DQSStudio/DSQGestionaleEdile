@@ -654,6 +654,7 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
   const [customUnit, setCustomUnit] = useState(initialVoce && !startsKnown ? initialVoce.unit : '');
   const [priceImpresa, setPriceImpresa] = useState(initialVoce?.priceImpresa || '');
   const [priceCliente, setPriceCliente] = useState(initialVoce?.priceCliente || '');
+  const [note, setNote] = useState(initialVoce?.note || '');
   const previewImpresa = parseEuro(priceImpresa);
   const previewCliente = evalClientPrice(priceCliente, previewImpresa);
 
@@ -702,13 +703,22 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
           {priceImpresa && <> Anteprima: impresa {formatEuro(previewImpresa)} → cliente {formatEuro(previewCliente)}.</>}
         </p>
 
+        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Note (facoltative, solo uso interno)</label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Es. condizioni particolari, fornitori consigliati, riferimenti capitolato…"
+          rows={2}
+          style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px', fontFamily: 'inherit', resize: 'vertical' }}
+        />
+
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
           <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Annulla</button>
           <button
             onClick={() => {
               if (!desc.trim()) return;
               const finalUnit = unit === 'Altro' ? (customUnit || '—') : unit;
-              onSave(locations[locationIdx].path, { code: code || '—', desc, unit: finalUnit, priceImpresa: priceImpresa || '0,00', priceCliente: priceCliente || '' });
+              onSave(locations[locationIdx].path, { code: code || '—', desc, unit: finalUnit, priceImpresa: priceImpresa || '0,00', priceCliente: priceCliente || '', note: note || '' });
               onClose();
             }}
             style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}
@@ -760,6 +770,7 @@ function VoceComputoModal({ macroName, sottoName, initialItem, prefill, mergeCan
   const [rows, setRows] = useState(initialRows.length ? initialRows : [emptyMisurazioneRow()]);
   const [manualQty, setManualQty] = useState(initialItem && !initialItem.unitaCalcolo ? (initialItem.qty || '') : '');
   const [mergeIntoId, setMergeIntoId] = useState('');
+  const [note, setNote] = useState(initialItem?.note || prefill?.note || '');
 
   const previewImpresa = parseEuro(priceImpresa);
   const previewCliente = evalClientPrice(priceCliente, previewImpresa);
@@ -884,6 +895,15 @@ function VoceComputoModal({ macroName, sottoName, initialItem, prefill, mergeCan
           </>
         )}
 
+        <label style={labelStyle}>Note (facoltative, solo uso interno)</label>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Es. dettagli di cantiere, condizioni particolari, promemoria…"
+          rows={2}
+          style={{ ...fieldStyle, fontFamily: 'inherit', resize: 'vertical' }}
+        />
+
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
           <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Annulla</button>
           <button
@@ -895,6 +915,7 @@ function VoceComputoModal({ macroName, sottoName, initialItem, prefill, mergeCan
                 unitaCalcolo: unitaCalcolo || null,
                 misurazioni: unitaCalcolo ? [{ rows }] : [],
                 manualQty: manualQty || '0',
+                note: note || '',
                 editId: initialItem?.id || null,
                 mergeIntoItemId: mergeIntoId || null,
               });
@@ -913,6 +934,7 @@ function VoceComputoModal({ macroName, sottoName, initialItem, prefill, mergeCan
 function EditableCatalog({ macros, setMacros }) {
   const [showVoceModal, setShowVoceModal] = useState(false);
   const [editingVoce, setEditingVoce] = useState(null); // { path: [mi,ci,si,vi] }
+  const [newVoceAt, setNewVoceAt] = useState(null); // [mi,ci,si] quando si aggiunge dal pulsante "+ Voce" di una sottocategoria
   const [expanded, setExpanded] = useState({});
   const coded = withCodes(macros);
 
@@ -1025,7 +1047,7 @@ function EditableCatalog({ macros, setMacros }) {
             <p style={{ fontSize: 11, color: C.gray, margin: '4px 0 0' }}>{totals.voci} voci consultabili · clicca su una riga per aprirla o chiuderla</p>
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { setEditingVoce(null); setShowVoceModal(true); }} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Nuova voce</button>
+            <button onClick={() => { setEditingVoce(null); setNewVoceAt(null); setShowVoceModal(true); }} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Nuova voce</button>
             <button onClick={addMacro} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>+ Macrocategoria</button>
           </div>
         </div>
@@ -1081,10 +1103,19 @@ function EditableCatalog({ macros, setMacros }) {
                               <button onClick={() => moveItem('sotto', [mi, ci, si], 'up')} disabled={si === 0} style={{ ...rowBtn, opacity: si === 0 ? 0.4 : 1 }}>▲</button>
                               <button onClick={() => moveItem('sotto', [mi, ci, si], 'down')} disabled={si === c.sottocategorie.length - 1} style={{ ...rowBtn, opacity: si === c.sottocategorie.length - 1 ? 0.4 : 1 }}>▼</button>
                               <button onClick={() => rename('sotto', [mi, ci, si])} style={rowBtn}>✎</button>
+                              <button
+                                onClick={() => { setEditingVoce(null); setNewVoceAt([mi, ci, si]); setShowVoceModal(true); }}
+                                style={{ ...rowBtn, background: C.maroon, color: C.white, border: 'none' }}
+                              >
+                                + Voce
+                              </button>
                               <button onClick={() => remove('sotto', [mi, ci, si])} style={rowBtn}>🗑</button>
                             </div>
                           </div>
-                          {isOpen(sKey) && s.voci.length > 0 && (
+                          {isOpen(sKey) && (
+                            s.voci.length === 0 ? (
+                              <p style={{ fontSize: 12, color: C.gray, padding: '6px 12px 10px 32px' }}>Nessuna voce ancora in questa sottocategoria. Usa "+ Voce" per aggiungerne una.</p>
+                            ) : (
                             <div className="table-scroll">
                             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 6 }}>
                               <thead>
@@ -1103,17 +1134,20 @@ function EditableCatalog({ macros, setMacros }) {
                                   const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
                                   return (
                                   <tr key={vi} style={{ borderTop: `1px solid ${C.paleGray}` }}>
-                                    <td style={{ padding: '6px 12px 6px 32px', fontWeight: 700, color: C.black, width: 110 }}>{v.code}</td>
-                                    <td style={{ padding: '6px 12px', color: C.midGray }}>{v.desc}</td>
-                                    <td style={{ padding: '6px 12px', color: C.gray, width: 70 }}>{v.unit}</td>
-                                    <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.black, width: 90 }}>{formatEuro(impresaVal)}</td>
-                                    <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.maroon, width: 90 }}>{formatEuro(clienteVal)}</td>
-                                    <td style={{ padding: '6px 12px', width: 100 }}>
+                                    <td style={{ padding: '6px 12px 6px 32px', fontWeight: 700, color: C.black, width: 110, verticalAlign: 'top' }}>{v.code}</td>
+                                    <td style={{ padding: '6px 12px', color: C.midGray, verticalAlign: 'top' }}>
+                                      {v.desc}
+                                      {v.note && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.gray, fontStyle: 'italic' }}>📝 {v.note}</p>}
+                                    </td>
+                                    <td style={{ padding: '6px 12px', color: C.gray, width: 70, verticalAlign: 'top' }}>{v.unit}</td>
+                                    <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.black, width: 90, verticalAlign: 'top' }}>{formatEuro(impresaVal)}</td>
+                                    <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.maroon, width: 90, verticalAlign: 'top' }}>{formatEuro(clienteVal)}</td>
+                                    <td style={{ padding: '6px 12px', width: 100, verticalAlign: 'top' }}>
                                       <div style={{ display: 'flex', gap: 4 }}>
                                         <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'up')} disabled={vi === 0} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === 0 ? 0.4 : 1 }}>▲</button>
                                         <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'down')} disabled={vi === s.voci.length - 1} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === s.voci.length - 1 ? 0.4 : 1 }}>▼</button>
                                         <button
-                                          onClick={() => { setEditingVoce({ path: [mi, ci, si, vi] }); setShowVoceModal(true); }}
+                                          onClick={() => { setEditingVoce({ path: [mi, ci, si, vi] }); setNewVoceAt(null); setShowVoceModal(true); }}
                                           style={{ ...rowBtn, padding: '2px 6px' }}
                                         >
                                           ✎
@@ -1127,6 +1161,7 @@ function EditableCatalog({ macros, setMacros }) {
                               </tbody>
                             </table>
                             </div>
+                            )
                           )}
                         </div>
                       );
@@ -1154,9 +1189,13 @@ function EditableCatalog({ macros, setMacros }) {
       {showVoceModal && (
         <VoceModal
           locations={locations}
-          initialLocationIdx={editingVoce ? locations.findIndex((l) => l.path.join() === editingVoce.path.slice(0, 3).join()) : 0}
+          initialLocationIdx={
+            editingVoce ? locations.findIndex((l) => l.path.join() === editingVoce.path.slice(0, 3).join())
+            : newVoceAt ? locations.findIndex((l) => l.path.join() === newVoceAt.join())
+            : 0
+          }
           initialVoce={editingVoce ? macros[editingVoce.path[0]].categorie[editingVoce.path[1]].sottocategorie[editingVoce.path[2]].voci[editingVoce.path[3]] : null}
-          onClose={() => { setShowVoceModal(false); setEditingVoce(null); }}
+          onClose={() => { setShowVoceModal(false); setEditingVoce(null); setNewVoceAt(null); }}
           onSave={saveVoce}
         />
       )}
@@ -1599,6 +1638,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const [dragOver, setDragOver] = useState(false);
   const [showImportPdf, setShowImportPdf] = useState(false);
   const [voceComputoCtx, setVoceComputoCtx] = useState(null); // { macroName, sottoName, initialItem }
+  const [expandedItems, setExpandedItems] = useState({}); // { [itemId]: true } — dettaglio misurazioni/note aperto
 
   const selectedRevision = revisions.find((r) => r.id === selectedRevisionId) || latestRevision;
   const isEditingLatest = selectedRevision && latestRevision && selectedRevision.id === latestRevision.id;
@@ -1718,7 +1758,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
       macroName: voce.macro || 'Voci varie',
       sottoName: voce.sotto || 'Generale',
       initialItem: null,
-      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente },
+      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
     });
   };
 
@@ -1871,7 +1911,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     const impresaVal = parseEuro(voceData.priceImpresa);
     const clienteVal = evalClientPrice(voceData.priceCliente, impresaVal);
     const priceFields = {
-      desc: voceData.desc, unit: voceData.unit,
+      desc: voceData.desc, unit: voceData.unit, note: voceData.note || '',
       unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''),
       unitPriceCliente: formatEuro(clienteVal).replace(' €', ''),
     };
@@ -2278,16 +2318,33 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {sc.items.map((it) => (
-                                      <tr key={it.id} style={{ borderTop: `1px solid ${C.paleGray}` }}>
+                                    {sc.items.map((it) => {
+                                      const detailRows = (it.misurazioni || []).flatMap((g) => g.rows || []);
+                                      const hasDetail = detailRows.length > 0 || !!it.note;
+                                      const isExpanded = !!expandedItems[it.id];
+                                      return (
+                                      <React.Fragment key={it.id}>
+                                      <tr style={{ borderTop: `1px solid ${C.paleGray}` }}>
                                         <td style={{ padding: '8px 6px' }}>
                                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                            {hasDetail && (
+                                              <button
+                                                onClick={() => setExpandedItems((ex) => ({ ...ex, [it.id]: !ex[it.id] }))}
+                                                title="Mostra/nascondi dettaglio misurazioni e note"
+                                                style={{ ...iconBtn, height: 18, fontSize: 9, lineHeight: '16px' }}
+                                              >
+                                                {isExpanded ? '▾' : '▸'}
+                                              </button>
+                                            )}
                                             <button onClick={() => moveItemInSection(it.id, 'up')} style={{ ...iconBtn, height: 18, fontSize: 9, lineHeight: '16px' }}>▲</button>
                                             <button onClick={() => moveItemInSection(it.id, 'down')} style={{ ...iconBtn, height: 18, fontSize: 9, lineHeight: '16px' }}>▼</button>
                                           </div>
                                         </td>
                                         <td style={{ padding: '8px 6px', fontWeight: 700, color: C.black }}>{it.code}</td>
-                                        <td style={{ padding: '8px 6px', color: C.midGray }}>{it.desc}</td>
+                                        <td style={{ padding: '8px 6px', color: C.midGray }}>
+                                          {it.desc}
+                                          {it.note && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.gray, fontStyle: 'italic' }}>📝 {it.note}</p>}
+                                        </td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right' }}>
                                           {it.autoCode ? (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -2325,7 +2382,47 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                           <button onClick={() => removeItem(it.id)} style={iconBtn}>🗑</button>
                                         </td>
                                       </tr>
-                                    ))}
+                                      {isExpanded && hasDetail && (
+                                        <tr style={{ background: '#f7f5f0' }}>
+                                          <td></td>
+                                          <td colSpan={9} style={{ padding: '8px 6px 12px' }}>
+                                            {detailRows.length > 0 && (
+                                              <div className="table-scroll">
+                                                <table style={{ width: '100%', minWidth: 420, borderCollapse: 'collapse', fontSize: 11 }}>
+                                                  <thead>
+                                                    <tr style={{ textAlign: 'right', color: C.gray, fontSize: 10, textTransform: 'uppercase' }}>
+                                                      <th style={{ padding: '3px 6px', textAlign: 'left' }}>Segno</th>
+                                                      <th style={{ padding: '3px 6px' }}>Par.ug.</th>
+                                                      <th style={{ padding: '3px 6px' }}>Lunghezza</th>
+                                                      <th style={{ padding: '3px 6px' }}>Larghezza</th>
+                                                      <th style={{ padding: '3px 6px' }}>H / Peso</th>
+                                                      <th style={{ padding: '3px 6px' }}>Valore</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody>
+                                                    {detailRows.map((r, ri) => (
+                                                      <tr key={ri} style={{ borderTop: `1px solid ${C.paleGray}` }}>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'left' }}>{r.segno === '-' ? '− si detrae' : '+ somma'}</td>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.parUg || '—'}</td>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.lung || '—'}</td>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.larg || '—'}</td>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.hPeso || '—'}</td>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{computeMisurazioneRowValue(r, it.unitaCalcolo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                </table>
+                                              </div>
+                                            )}
+                                            {it.note && (
+                                              <p style={{ fontSize: 11, color: C.midGray, margin: detailRows.length > 0 ? '8px 0 0' : 0 }}><strong>Nota:</strong> {it.note}</p>
+                                            )}
+                                          </td>
+                                        </tr>
+                                      )}
+                                      </React.Fragment>
+                                      );
+                                    })}
                                   </tbody>
                                 </table>
                                 </div>
