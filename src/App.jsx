@@ -732,18 +732,30 @@ function emptyMisurazioneRow() {
   return { parUg: '1', lung: '', larg: '', hPeso: '', segno: '+' };
 }
 
+// L'unità di misura di una voce di listino suggerisce automaticamente la modalità di calcolo da usare nel
+// computo: m² -> formula a metri quadri, m³ -> formula a metri cubi, ml -> formula a metri lineari; le unità
+// "a corpo", "cadauna", "kg", "ora" e "Altro" non hanno una formula geometrica e restano a quantità manuale.
+function defaultCalcForUnit(unit) {
+  if (unit === 'm²') return 'mq';
+  if (unit === 'm³') return 'm3';
+  if (unit === 'ml') return 'ml';
+  return '';
+}
+
 // Modale per creare/modificare una voce del computo con misurazioni reali (par.ug, lunghezza, larghezza,
 // H/peso), oppure per unire questa nuova misurazione a una voce già esistente della stessa sottocategoria
 // (stessa riga di Costo: la quantità sommata si moltiplica per l'unico prezzo unitario della voce di destinazione).
-function VoceComputoModal({ macroName, sottoName, initialItem, mergeCandidates, onClose, onSave }) {
+// "prefill" arriva quando la voce si crea a partire da una voce di Listino (drag&drop o pulsante +): porta già
+// descrizione, unità e prezzi del listino, così l'utente deve solo inserire le misurazioni reali di cantiere.
+function VoceComputoModal({ macroName, sottoName, initialItem, prefill, mergeCandidates, onClose, onSave }) {
   const isEdit = !!initialItem;
-  const [desc, setDesc] = useState(initialItem?.desc || '');
-  const startsKnown = initialItem && UNIT_OPTIONS.slice(0, -1).includes(initialItem.unit);
-  const [unit, setUnit] = useState(initialItem ? (startsKnown ? initialItem.unit : 'Altro') : 'm²');
-  const [customUnit, setCustomUnit] = useState(initialItem && !startsKnown ? initialItem.unit : '');
-  const [priceImpresa, setPriceImpresa] = useState(initialItem?.unitPriceImpresa || '');
-  const [priceCliente, setPriceCliente] = useState(initialItem?.unitPriceCliente || '');
-  const [unitaCalcolo, setUnitaCalcolo] = useState(initialItem ? (initialItem.unitaCalcolo || '') : 'mq');
+  const [desc, setDesc] = useState(initialItem?.desc || prefill?.desc || '');
+  const startsKnown = (initialItem || prefill) && UNIT_OPTIONS.slice(0, -1).includes((initialItem || prefill).unit);
+  const [unit, setUnit] = useState((initialItem || prefill) ? (startsKnown ? (initialItem || prefill).unit : 'Altro') : 'm²');
+  const [customUnit, setCustomUnit] = useState((initialItem || prefill) && !startsKnown ? (initialItem || prefill).unit : '');
+  const [priceImpresa, setPriceImpresa] = useState(initialItem?.unitPriceImpresa || prefill?.priceImpresa || '');
+  const [priceCliente, setPriceCliente] = useState(initialItem?.unitPriceCliente || prefill?.priceCliente || '');
+  const [unitaCalcolo, setUnitaCalcolo] = useState(initialItem ? (initialItem.unitaCalcolo || '') : (prefill ? defaultCalcForUnit(prefill.unit) : 'mq'));
   const initialRows = initialItem ? (initialItem.misurazioni || []).flatMap((g) => g.rows || []) : [];
   const [rows, setRows] = useState(initialRows.length ? initialRows : [emptyMisurazioneRow()]);
   const [manualQty, setManualQty] = useState(initialItem && !initialItem.unitaCalcolo ? (initialItem.qty || '') : '');
@@ -985,6 +997,22 @@ function EditableCatalog({ macros, setMacros }) {
     setMacros(next);
   };
 
+  // Sposta su/giù macrocategorie, categorie, sottocategorie o singole voci: i codici di macro/categoria/
+  // sottocategoria si aggiornano da soli perché withCodes li ricalcola in base all'ordine nell'array.
+  const moveItem = (kind, path, direction) => {
+    const next = structuredClone(macros);
+    let arr;
+    if (kind === 'macro') arr = next;
+    else if (kind === 'categoria') arr = next[path[0]].categorie;
+    else if (kind === 'sotto') arr = next[path[0]].categorie[path[1]].sottocategorie;
+    else arr = next[path[0]].categorie[path[1]].sottocategorie[path[2]].voci;
+    const idx = path[path.length - 1];
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= arr.length) return;
+    [arr[idx], arr[swapIdx]] = [arr[swapIdx], arr[idx]];
+    setMacros(next);
+  };
+
   const rowBtn = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 6, fontSize: 11, fontWeight: 600, padding: '3px 8px', cursor: 'pointer', color: C.midGray };
   const codeTag = { fontSize: 10, fontWeight: 700, color: C.maroon, background: 'rgba(128,20,48,0.08)', padding: '2px 6px', borderRadius: 5, marginLeft: 8 };
 
@@ -1016,6 +1044,8 @@ function EditableCatalog({ macros, setMacros }) {
                 <span style={{ fontWeight: 700, fontSize: 13, color: C.black }}>{m.name}</span>
                 <span style={codeTag}>{m.code}</span>
                 <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                  <button onClick={() => moveItem('macro', [mi], 'up')} disabled={mi === 0} style={{ ...rowBtn, opacity: mi === 0 ? 0.4 : 1 }}>▲</button>
+                  <button onClick={() => moveItem('macro', [mi], 'down')} disabled={mi === coded.length - 1} style={{ ...rowBtn, opacity: mi === coded.length - 1 ? 0.4 : 1 }}>▼</button>
                   <button onClick={() => rename('macro', [mi])} style={rowBtn}>✎ Rinomina</button>
                   <button onClick={() => addCategoria(mi)} style={rowBtn}>+ Categoria</button>
                   <button onClick={() => remove('macro', [mi])} style={rowBtn}>🗑</button>
@@ -1031,6 +1061,8 @@ function EditableCatalog({ macros, setMacros }) {
                       <span style={{ fontWeight: 600, fontSize: 12, color: C.black }}>{c.name}</span>
                       <span style={codeTag}>{c.code}</span>
                       <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                        <button onClick={() => moveItem('categoria', [mi, ci], 'up')} disabled={ci === 0} style={{ ...rowBtn, opacity: ci === 0 ? 0.4 : 1 }}>▲</button>
+                        <button onClick={() => moveItem('categoria', [mi, ci], 'down')} disabled={ci === m.categorie.length - 1} style={{ ...rowBtn, opacity: ci === m.categorie.length - 1 ? 0.4 : 1 }}>▼</button>
                         <button onClick={() => rename('categoria', [mi, ci])} style={rowBtn}>✎</button>
                         <button onClick={() => addSotto(mi, ci)} style={rowBtn}>+ Sottocategoria</button>
                         <button onClick={() => remove('categoria', [mi, ci])} style={rowBtn}>🗑</button>
@@ -1046,6 +1078,8 @@ function EditableCatalog({ macros, setMacros }) {
                             <span style={{ fontSize: 12, color: C.midGray }}>{s.name}</span>
                             <span style={codeTag}>{s.code}</span>
                             <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
+                              <button onClick={() => moveItem('sotto', [mi, ci, si], 'up')} disabled={si === 0} style={{ ...rowBtn, opacity: si === 0 ? 0.4 : 1 }}>▲</button>
+                              <button onClick={() => moveItem('sotto', [mi, ci, si], 'down')} disabled={si === c.sottocategorie.length - 1} style={{ ...rowBtn, opacity: si === c.sottocategorie.length - 1 ? 0.4 : 1 }}>▼</button>
                               <button onClick={() => rename('sotto', [mi, ci, si])} style={rowBtn}>✎</button>
                               <button onClick={() => remove('sotto', [mi, ci, si])} style={rowBtn}>🗑</button>
                             </div>
@@ -1074,8 +1108,10 @@ function EditableCatalog({ macros, setMacros }) {
                                     <td style={{ padding: '6px 12px', color: C.gray, width: 70 }}>{v.unit}</td>
                                     <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.black, width: 90 }}>{formatEuro(impresaVal)}</td>
                                     <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.maroon, width: 90 }}>{formatEuro(clienteVal)}</td>
-                                    <td style={{ padding: '6px 12px', width: 60 }}>
+                                    <td style={{ padding: '6px 12px', width: 100 }}>
                                       <div style={{ display: 'flex', gap: 4 }}>
+                                        <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'up')} disabled={vi === 0} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === 0 ? 0.4 : 1 }}>▲</button>
+                                        <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'down')} disabled={vi === s.voci.length - 1} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === s.voci.length - 1 ? 0.4 : 1 }}>▼</button>
                                         <button
                                           onClick={() => { setEditingVoce({ path: [mi, ci, si, vi] }); setShowVoceModal(true); }}
                                           style={{ ...rowBtn, padding: '2px 6px' }}
@@ -1111,7 +1147,7 @@ function EditableCatalog({ macros, setMacros }) {
           <MetricCard label="Sottocategorie" value={String(totals.sottocategorie)} />
         </div>
         <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>
-          I codici di macrocategoria, categoria e sottocategoria si aggiornano automaticamente in base all'ordine e alla struttura.
+          Con le frecce ▲▼ puoi riordinare manualmente macrocategorie, categorie, sottocategorie e singole voci: i codici di macrocategoria, categoria e sottocategoria si aggiornano da soli in base al nuovo ordine.
         </p>
       </div>
 
@@ -1339,7 +1375,7 @@ function DraggableCatalogTree({ listino, onAdd }) {
                             {s.voci.map((v, vi) => {
                               const impresaVal = parseEuro(v.priceImpresa);
                               const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
-                              const voceData = { ...v, macro: m.name, impresaValue: impresaVal, clienteValue: clienteVal };
+                              const voceData = { ...v, macro: m.name, sotto: s.name, impresaValue: impresaVal, clienteValue: clienteVal };
                               return (
                               <div
                                 key={vi}
@@ -1673,6 +1709,19 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     applyItemsChange((its) => [...its, item]);
   };
 
+  // Aggiungere una voce dal Listino (trascinandola o toccando +) apre lo stesso pannello di misurazione
+  // delle voci create da zero, precompilato con descrizione/unità/prezzi del listino: la modalità di calcolo
+  // (ml/m²/m³, oppure quantità manuale per "a corpo"/"cadauna"/ecc.) si sceglie in base all'unità di misura.
+  // La voce finisce come voce vera e propria nella macrocategoria/sottocategoria del listino di provenienza.
+  const openVoceFromListino = (voce) => {
+    setVoceComputoCtx({
+      macroName: voce.macro || 'Voci varie',
+      sottoName: voce.sotto || 'Generale',
+      initialItem: null,
+      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente },
+    });
+  };
+
   // Plugin 2: planimetrie con punti cliccabili collegati al listino, che finiscono nel computo.
   const uploadPlanimetria = (file) => {
     const reader = new FileReader();
@@ -1890,9 +1939,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     }));
   };
 
+  // Rimuove una macrosezione senza voci vere: ripulisce anche eventuali "Sommatoria parziale" rimaste
+  // agganciate a quella sezione (altrimenti la macrosezione ricomparirebbe da sola perché quelle righe
+  // esistono ancora), oltre alle sottocategorie vuote definite lì e al suo ordine salvato.
   const removeMarkerOrEmptySection = (sectionName) => {
-    if (!confirm(`Rimuovere la macrosezione "${sectionName}"? (possibile solo se vuota)`)) return;
-    applyRevisionChange((rev) => ({ extraSections: (rev.extraSections || []).filter((n) => n !== sectionName) }));
+    if (!confirm(`Rimuovere la macrosezione "${sectionName}"?`)) return;
+    applyRevisionChange((rev) => ({
+      extraSections: (rev.extraSections || []).filter((n) => n !== sectionName),
+      items: (rev.items || []).filter((it) => (it.section || it.macro || 'Voci varie') !== sectionName),
+      sottocategorie: Object.fromEntries(Object.entries(rev.sottocategorie || {}).filter(([k]) => k !== sectionName)),
+      sottocategorieOrder: Object.fromEntries(Object.entries(rev.sottocategorieOrder || {}).filter(([k]) => k !== sectionName)),
+      macroOrder: (rev.macroOrder || []).filter((n) => n !== sectionName),
+    }));
   };
 
   const updateHeader = (field, value) => {
@@ -2120,7 +2178,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
               </select>
               <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px' }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
               <div style={{ maxHeight: 560, overflowY: 'auto' }}>
-                <DraggableCatalogTree listino={activeListino} onAdd={addComputoItem} />
+                <DraggableCatalogTree listino={activeListino} onAdd={openVoceFromListino} />
               </div>
             </div>
 
@@ -2136,7 +2194,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                   setDragOver(false);
                   const data = e.dataTransfer.getData('application/json');
                   if (!data) return;
-                  addComputoItem(JSON.parse(data));
+                  openVoceFromListino(JSON.parse(data));
                 }}
                 style={{
                   border: `2px dashed ${dragOver ? C.maroon : 'rgba(23,107,99,0.4)'}`,
@@ -2162,6 +2220,9 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                         else { runImp += parseEuro(it.unitPriceImpresa) * parseEuro(it.qty); runCli += parseEuro(it.unitPriceCliente) * parseEuro(it.qty); }
                       });
                     }
+                    // La macrosezione è eliminabile finché non contiene voci vere (le eventuali "Sommatoria
+                    // parziale" rimaste vengono ripulite da removeMarkerOrEmptySection insieme alla sezione).
+                    const hasRealItems = section.items.some((it) => it.type !== 'subtotal');
                     return (
                       <div key={section.name} style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden', marginBottom: 14, background: C.white }}>
                         <div style={{ background: section.color, color: C.white, padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
@@ -2172,7 +2233,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                             <button onClick={() => renameSection(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>✎ Rinomina</button>
                             <button onClick={() => addSottocategoria(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>+ Sottocategoria</button>
                             <button onClick={() => addPartialSubtotal(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>+ Sommatoria parziale</button>
-                            {section.sottocategorie.length === 0 && section.subtotalMarkers.length === 0 && (
+                            {!hasRealItems && (
                               <button onClick={() => removeMarkerOrEmptySection(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>🗑</button>
                             )}
                           </div>
@@ -2234,11 +2295,20 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                               <button onClick={() => setVoceComputoCtx({ macroName: section.name, sottoName: sc.name, initialItem: it })} style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}>✎</button>
                                             </span>
                                           ) : (
-                                            <input
-                                              value={it.qty}
-                                              onChange={(e) => updateQty(it.id, e.target.value)}
-                                              style={{ width: 60, fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right' }}
-                                            />
+                                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                                              <input
+                                                value={it.qty}
+                                                onChange={(e) => updateQty(it.id, e.target.value)}
+                                                style={{ width: 60, fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right' }}
+                                              />
+                                              <button
+                                                onClick={() => setVoceComputoCtx({ macroName: section.name, sottoName: sc.name, initialItem: it })}
+                                                title="Apri il pannello misurazioni per questa voce (i dati del listino restano invariati finché non salvi)"
+                                                style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}
+                                              >
+                                                ✎
+                                              </button>
+                                            </span>
                                           )}
                                         </td>
                                         <td style={{ padding: '8px 6px', color: C.gray }}>{it.unit}</td>
@@ -2323,6 +2393,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                     macroName={voceComputoCtx.macroName}
                     sottoName={voceComputoCtx.sottoName}
                     initialItem={voceComputoCtx.initialItem}
+                    prefill={voceComputoCtx.prefill}
                     mergeCandidates={(groupedSections.find((s) => s.name === voceComputoCtx.macroName)?.sottocategorie.find((sc) => sc.name === voceComputoCtx.sottoName)?.items || []).filter((it) => it.autoCode && it.id !== voceComputoCtx.initialItem?.id)}
                     onClose={() => setVoceComputoCtx(null)}
                     onSave={(voceData) => saveVoceComputo(voceComputoCtx.macroName, voceComputoCtx.sottoName, voceData)}
