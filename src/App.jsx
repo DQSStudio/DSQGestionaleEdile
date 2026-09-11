@@ -1557,7 +1557,7 @@ function PrintableComputo({ project, revision, clientOnly }) {
         let runC = 0;
         return (
         <div key={gi} style={{ marginTop: 14 }}>
-          <h3 style={{ fontSize: 13, margin: '0 0 6px', borderBottom: '1px solid #000', paddingBottom: 2 }}>{g.name}</h3>
+          <h3 style={{ fontSize: 13, margin: '0 0 6px', borderBottom: '1px solid #000', paddingBottom: 2, pageBreakAfter: 'avoid', breakAfter: 'avoid' }}>{g.name}</h3>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
             <thead>
               <tr>
@@ -1636,6 +1636,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const [showCompare, setShowCompare] = useState(false);
   const [listinoId, setListinoId] = useState(listini[0]?.id);
   const [dragOver, setDragOver] = useState(false);
+  const [dragOverTarget, setDragOverTarget] = useState(null); // "macroName" o "macroName|sottoName" evidenziato durante il drag
   const [showImportPdf, setShowImportPdf] = useState(false);
   const [voceComputoCtx, setVoceComputoCtx] = useState(null); // { macroName, sottoName, initialItem }
   const [expandedItems, setExpandedItems] = useState({}); // { [itemId]: true } — dettaglio misurazioni/note aperto
@@ -1757,6 +1758,19 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     setVoceComputoCtx({
       macroName: voce.macro || 'Voci varie',
       sottoName: voce.sotto || 'Generale',
+      initialItem: null,
+      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
+    });
+  };
+
+  // Come openVoceFromListino, ma la macrosezione (e facoltativamente la sottocategoria) di destinazione sono
+  // quelle su cui l'utente ha trascinato fisicamente la voce nel computo — non quelle del listino d'origine.
+  // Così si possono organizzare le voci secondo le macrocategorie/sottocategorie create nel computo, anche
+  // quando non coincidono con quelle del listino.
+  const addVoceToTarget = (voce, macroName, sottoName) => {
+    setVoceComputoCtx({
+      macroName,
+      sottoName: sottoName || voce.sotto || 'Generale',
       initialItem: null,
       prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
     });
@@ -2264,7 +2278,25 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                     // parziale" rimaste vengono ripulite da removeMarkerOrEmptySection insieme alla sezione).
                     const hasRealItems = section.items.some((it) => it.type !== 'subtotal');
                     return (
-                      <div key={section.name} style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden', marginBottom: 14, background: C.white }}>
+                      <div
+                        key={section.name}
+                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(section.name); }}
+                        onDragLeave={() => setDragOverTarget((t) => (t === section.name ? null : t))}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          setDragOverTarget(null);
+                          const data = e.dataTransfer.getData('application/json');
+                          if (!data) return;
+                          addVoceToTarget(JSON.parse(data), section.name);
+                        }}
+                        style={{
+                          border: `1px solid ${dragOverTarget === section.name ? C.maroon : C.paleGray}`,
+                          borderRadius: 10, overflow: 'hidden', marginBottom: 14,
+                          background: dragOverTarget === section.name ? 'rgba(128,20,48,0.05)' : C.white,
+                        }}
+                        data-macro-card={section.name}
+                      >
                         <div style={{ background: section.color, color: C.white, padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                           <span style={{ fontWeight: 700, fontSize: 13, fontFamily: FONT }}>{section.name}</span>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -2284,7 +2316,24 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                         ) : section.sottocategorie.map((sc, scIdx) => {
                           const mergeCandidates = sc.items.filter((it) => it.autoCode);
                           return (
-                            <div key={sc.name} style={{ borderTop: `1px solid ${C.paleGray}` }}>
+                            <div
+                              key={sc.name}
+                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(`${section.name}|${sc.name}`); }}
+                              onDragLeave={() => setDragOverTarget((t) => (t === `${section.name}|${sc.name}` ? null : t))}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setDragOverTarget(null);
+                                const data = e.dataTransfer.getData('application/json');
+                                if (!data) return;
+                                addVoceToTarget(JSON.parse(data), section.name, sc.name);
+                              }}
+                              style={{
+                                borderTop: `1px solid ${C.paleGray}`,
+                                background: dragOverTarget === `${section.name}|${sc.name}` ? 'rgba(128,20,48,0.06)' : 'transparent',
+                              }}
+                              data-sotto-row={`${section.name}|${sc.name}`}
+                            >
                               <div style={{ background: '#f7f5f0', padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                                 <span style={{ fontWeight: 700, fontSize: 12, color: C.black }}>{sc.name}</span>
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
