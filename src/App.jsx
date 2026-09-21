@@ -3564,8 +3564,10 @@ function TeamPage({ profile }) {
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
+  const [password, setPassword] = useState('');
   const [role, setRole] = useState('Membro');
   const [error, setError] = useState('');
+  const [creating, setCreating] = useState(false);
   const isAdmin = profile?.role === 'Admin';
 
   const loadMembers = async () => {
@@ -3577,14 +3579,35 @@ function TeamPage({ profile }) {
 
   React.useEffect(() => { loadMembers(); }, []);
 
-  const handleInvite = async () => {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    setError('');
-    const { error: err } = await cea.from('team_members').insert({ name: name || trimmed.split('@')[0], email: trimmed, role, status: 'Invito inviato', invited_by: profile.auth_user_id });
-    if (err) { setError(err.message); return; }
-    setEmail(''); setName('');
+  // Crea (o completa, se c'era già una vecchia riga "Invito inviato" con la stessa email) l'accesso
+  // di una persona: l'admin sceglie qui email e password, l'account viene attivato subito lato server
+  // (funzione Edge "cea-admin-create-user", con service role) senza inviare alcuna email di conferma —
+  // la persona può accedere da subito con "Accedi" usando queste credenziali.
+  const handleCreate = async () => {
+    const trimmedEmail = email.trim();
+    if (!name.trim() || !trimmedEmail || !password) { setError('Nome, email e password sono obbligatori.'); return; }
+    if (password.length < 6) { setError('La password deve avere almeno 6 caratteri.'); return; }
+    setError(''); setCreating(true);
+    const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', {
+      body: { action: 'create', email: trimmedEmail, password, name: name.trim(), role },
+    });
+    setCreating(false);
+    if (err) { setError(err.message || 'Creazione non riuscita.'); return; }
+    if (data?.error) { setError(data.error); return; }
+    setEmail(''); setName(''); setPassword(''); setRole('Membro');
     loadMembers();
+  };
+
+  const handleResetPassword = async (m) => {
+    const newPassword = prompt(`Nuova password per ${m.name} (${m.email}):`);
+    if (!newPassword) return;
+    if (newPassword.length < 6) { alert('La password deve avere almeno 6 caratteri.'); return; }
+    const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', {
+      body: { action: 'reset_password', memberId: m.id, password: newPassword },
+    });
+    if (err) { alert(err.message || 'Operazione non riuscita.'); return; }
+    if (data?.error) { alert(data.error); return; }
+    alert('Password aggiornata: comunicala alla persona di persona o in chat privata, non via email.');
   };
 
   const removeMember = async (id) => {
@@ -3609,13 +3632,13 @@ function TeamPage({ profile }) {
 
       {!isAdmin && (
         <div style={{ ...card, marginBottom: 18, background: '#FFF8E1', border: '1px solid #F0D98C' }}>
-          <p style={{ fontSize: 12, color: C.black, margin: 0 }}>Sei collegato come <strong>membro</strong>: solo l'admin può invitare o rimuovere persone dal team.</p>
+          <p style={{ fontSize: 12, color: C.black, margin: 0 }}>Sei collegato come <strong>membro</strong>: solo l'admin può creare o rimuovere accessi al team.</p>
         </div>
       )}
 
       {isAdmin && (
         <div style={{ ...card, marginBottom: 18 }}>
-          <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Invita via email</h2>
+          <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Crea un nuovo accesso</h2>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome" style={{ flex: 1, minWidth: 120, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }} />
             <input
@@ -3625,20 +3648,28 @@ function TeamPage({ profile }) {
               placeholder="nome@studio.it"
               style={{ flex: 1, minWidth: 180, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }}
             />
+            <input
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password (min. 6 caratteri)"
+              style={{ flex: 1, minWidth: 160, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }}
+            />
             <select value={role} onChange={(e) => setRole(e.target.value)} style={{ fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
               <option>Membro</option>
               <option>Admin</option>
             </select>
             <button
-              onClick={handleInvite}
-              style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+              onClick={handleCreate}
+              disabled={creating}
+              style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: creating ? 'default' : 'pointer', opacity: creating ? 0.7 : 1 }}
             >
-              Invia invito
+              {creating ? 'Un attimo…' : 'Crea accesso'}
             </button>
           </div>
           {error && <p style={{ fontSize: 12, color: C.maroon, margin: '10px 0 0' }}>{error}</p>}
           <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0' }}>
-            La persona invitata deve andare sul sito, cliccare "Crea un account" e registrarsi con <strong>questa stessa email</strong>: verrà collegata automaticamente al team con il ruolo scelto qui.
+            L'account viene attivato subito: non parte nessuna email di conferma. Comunica tu stesso email e password alla persona (di persona, in chat privata…) — potrà accedere subito da "Accedi" con queste credenziali, senza passare da "Crea un account".
           </p>
         </div>
       )}
@@ -3665,6 +3696,9 @@ function TeamPage({ profile }) {
               <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, ...badgeStyles[m.status === 'Attivo' ? 'teal' : 'gray'] }}>
                 {m.status}
               </span>
+              {isAdmin && m.auth_user_id && (
+                <button onClick={() => handleResetPassword(m)} style={rowBtnStyle}>🔑 Reimposta password</button>
+              )}
               {isAdmin && m.id !== profile.id && (
                 <button onClick={() => removeMember(m.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
               )}
@@ -3674,7 +3708,7 @@ function TeamPage({ profile }) {
       </div>
 
       <div style={{ background: 'rgba(128,20,48,0.06)', border: '1px solid rgba(128,20,48,0.18)', borderRadius: 10, padding: 14, fontSize: 12, color: C.midGray }}>
-        <strong style={{ color: C.black }}>Come funziona la condivisione.</strong> Tutti i membri invitati accedono allo stesso workspace e agli stessi progetti, computi e listino con un vero account: i dati restano salvati per sempre e sono visibili a tutto il team.
+        <strong style={{ color: C.black }}>Come funziona la condivisione.</strong> Tutti i membri con un accesso creato qui entrano nello stesso workspace e vedono gli stessi progetti, computi e listino con un vero account: i dati restano salvati per sempre e sono visibili a tutto il team.
       </div>
     </div>
   );
@@ -3766,7 +3800,7 @@ function LoginScreen({ onSignedIn }) {
           )}
         </p>
         <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0', lineHeight: 1.5 }}>
-          Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo deve essere prima invitato dall'admin dalla sezione Team, con la stessa email.
+          Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo riceve l'accesso già pronto (email e password) dall'admin nella sezione Team: userà direttamente "Accedi" qui sopra, senza bisogno di registrarsi.
         </p>
       </div>
     </div>
