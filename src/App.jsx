@@ -2223,15 +2223,15 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           </div>
 
           <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}` }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <div style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexShrink: 0 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Listino</p>
               </div>
-              <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '6px 0 10px' }}>
+              <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '6px 0 10px', flexShrink: 0 }}>
                 {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
-              <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px' }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
-              <div style={{ maxHeight: 560, overflowY: 'auto' }}>
+              <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px', flexShrink: 0 }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
+              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
                 <DraggableCatalogTree listino={activeListino} onAdd={openVoceFromListino} />
               </div>
             </div>
@@ -2280,16 +2280,6 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                     return (
                       <div
                         key={section.name}
-                        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(section.name); }}
-                        onDragLeave={() => setDragOverTarget((t) => (t === section.name ? null : t))}
-                        onDrop={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          setDragOverTarget(null);
-                          const data = e.dataTransfer.getData('application/json');
-                          if (!data) return;
-                          addVoceToTarget(JSON.parse(data), section.name);
-                        }}
                         style={{
                           border: `1px solid ${dragOverTarget === section.name ? C.maroon : C.paleGray}`,
                           borderRadius: 10, overflow: 'hidden', marginBottom: 14,
@@ -2297,7 +2287,26 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                         }}
                         data-macro-card={section.name}
                       >
-                        <div style={{ background: section.color, color: C.white, padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                        {/* Il "trascina qui" per forzare questa specifica macrocategoria è solo sulla fascia
+                            colorata dell'intestazione, non su tutta la card: le card riempiono quasi tutto lo
+                            schermo una volta popolate, quindi se l'intero corpo fosse un bersaglio valido
+                            qualunque voce trascinata (anche di un'altra macrocategoria del listino) finirebbe
+                            "per sbaglio" in quella visualizzata al momento. Lasciando libero il corpo, un
+                            rilascio lì risale fino alla zona tratteggiata generale, che usa la macrocategoria
+                            corretta della voce nel listino. */}
+                        <div
+                          onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(section.name); }}
+                          onDragLeave={() => setDragOverTarget((t) => (t === section.name ? null : t))}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setDragOverTarget(null);
+                            const data = e.dataTransfer.getData('application/json');
+                            if (!data) return;
+                            addVoceToTarget(JSON.parse(data), section.name);
+                          }}
+                          style={{ background: section.color, color: C.white, padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}
+                        >
                           <span style={{ fontWeight: 700, fontSize: 13, fontFamily: FONT }}>{section.name}</span>
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             <button onClick={() => moveMacroSection(section.name, 'up')} disabled={sIdx === 0} style={{ ...iconBtn, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none', opacity: sIdx === 0 ? 0.4 : 1 }}>▲</button>
@@ -2318,23 +2327,27 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                           return (
                             <div
                               key={sc.name}
-                              onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(`${section.name}|${sc.name}`); }}
-                              onDragLeave={() => setDragOverTarget((t) => (t === `${section.name}|${sc.name}` ? null : t))}
-                              onDrop={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                setDragOverTarget(null);
-                                const data = e.dataTransfer.getData('application/json');
-                                if (!data) return;
-                                addVoceToTarget(JSON.parse(data), section.name, sc.name);
-                              }}
                               style={{
                                 borderTop: `1px solid ${C.paleGray}`,
                                 background: dragOverTarget === `${section.name}|${sc.name}` ? 'rgba(128,20,48,0.06)' : 'transparent',
                               }}
                               data-sotto-row={`${section.name}|${sc.name}`}
                             >
-                              <div style={{ background: '#f7f5f0', padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                              {/* Stesso motivo della card macro: solo la riga di intestazione della sottocategoria
+                                  è un bersaglio di trascinamento "forzato", non l'intera tabella di voci sotto. */}
+                              <div
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(`${section.name}|${sc.name}`); }}
+                                onDragLeave={() => setDragOverTarget((t) => (t === `${section.name}|${sc.name}` ? null : t))}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDragOverTarget(null);
+                                  const data = e.dataTransfer.getData('application/json');
+                                  if (!data) return;
+                                  addVoceToTarget(JSON.parse(data), section.name, sc.name);
+                                }}
+                                style={{ background: '#f7f5f0', padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}
+                              >
                                 <span style={{ fontWeight: 700, fontSize: 12, color: C.black }}>{sc.name}</span>
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                                   <button onClick={() => moveSottocategoria(section.name, sc.name, 'up')} disabled={scIdx === 0} style={{ ...iconBtn, height: 22, opacity: scIdx === 0 ? 0.4 : 1 }}>▲</button>
@@ -3946,7 +3959,7 @@ export default function GestionaleEdilePreview() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; }
-        html, body, #root { max-width: 100%; overflow-x: hidden; }
+        html, body, #root { max-width: 100%; overflow-x: clip; }
         .print-only { display: none; }
         @media print {
           .no-print { display: none !important; }
@@ -4089,7 +4102,12 @@ export default function GestionaleEdilePreview() {
           </div>
         </header>
 
-        <main className="app-main" style={{ padding: 24, flex: 1, overflowX: 'auto', minWidth: 0, width: '100%' }}>
+        {/* overflowX qui era 'auto': su qualunque browser questo trasforma <main> in un "contenitore di scroll",
+            che diventa il riferimento per il posizionamento "sticky" al suo interno — rompendo lo sticky della
+            colonna Listino nel computo metrico (restava ancorato al box di <main>, che non scorre mai da solo,
+            invece che alla pagina). 'clip' taglia comunque l'overflow orizzontale ma senza creare quel contenitore,
+            quindi lo sticky funziona di nuovo; le singole tabelle larghe restano scorrevili con la classe .table-scroll. */}
+        <main className="app-main" style={{ padding: 24, flex: 1, overflowX: 'clip', minWidth: 0, width: '100%' }}>
           {page === 'dashboard' && <Dashboard onNavigate={setPage} onOpenProject={openProject} projects={projects} />}
           {page === 'listino' && <ListinoPage listini={listini} setListini={setListini} activeId={activeListinoId} setActiveId={setActiveListinoId} />}
           {page === 'progetti' && <ProgettiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} />}
