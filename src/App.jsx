@@ -3559,6 +3559,20 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
   );
 }
 
+// Il client supabase-js, quando una Edge Function risponde con uno stato non-2xx, mette in `error`
+// un FunctionsHttpError generico ("Edge Function returned a non-2xx status code") e nasconde il vero
+// messaggio (es. "Solo un amministratore può...") dentro `error.context`, che è la Response originale
+// e va letta a parte. Questa funzione recupera il messaggio reale quando possibile.
+async function extractFunctionErrorMessage(err, fallback) {
+  try {
+    if (err?.context && typeof err.context.json === 'function') {
+      const body = await err.context.clone().json();
+      if (body?.error) return body.error;
+    }
+  } catch (_e) { /* risposta non JSON: usa il messaggio generico sotto */ }
+  return err?.message || fallback;
+}
+
 function TeamPage({ profile }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -3592,7 +3606,7 @@ function TeamPage({ profile }) {
       body: { action: 'create', email: trimmedEmail, password, name: name.trim(), role },
     });
     setCreating(false);
-    if (err) { setError(err.message || 'Creazione non riuscita.'); return; }
+    if (err) { setError(await extractFunctionErrorMessage(err, 'Creazione non riuscita.')); return; }
     if (data?.error) { setError(data.error); return; }
     setEmail(''); setName(''); setPassword(''); setRole('Membro');
     loadMembers();
@@ -3605,7 +3619,7 @@ function TeamPage({ profile }) {
     const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', {
       body: { action: 'reset_password', memberId: m.id, password: newPassword },
     });
-    if (err) { alert(err.message || 'Operazione non riuscita.'); return; }
+    if (err) { alert(await extractFunctionErrorMessage(err, 'Operazione non riuscita.')); return; }
     if (data?.error) { alert(data.error); return; }
     alert('Password aggiornata: comunicala alla persona di persona o in chat privata, non via email.');
   };
