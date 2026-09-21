@@ -3,7 +3,7 @@ import { supabase, cea } from './supabaseClient';
 import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import { LayoutGrid, BookOpen, Building2, Calculator, GitCompare, Truck, Users, Search, LogOut, MapPin, Clock, Calendar as CalendarIcon } from 'lucide-react';
+import { LayoutGrid, BookOpen, Building2, Calculator, GitCompare, Truck, Users, Search, LogOut, MapPin, Clock, Calendar as CalendarIcon, Settings, UserSearch } from 'lucide-react';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
@@ -38,6 +38,7 @@ const NAV_ITEMS = [
   { key: 'confronto', label: 'Confronto revisioni', Icon: GitCompare },
   { key: 'fornitori', label: 'Fornitori', Icon: Truck },
   { key: 'team', label: 'Team', Icon: Users },
+  { key: 'impostazioni', label: 'Impostazioni studio', Icon: Settings },
 ];
 
 const STATUS_OPTIONS = ['In attesa di approvazione', 'Approvato', 'In fase di cantiere'];
@@ -757,7 +758,7 @@ function defaultCalcForUnit(unit) {
 // (stessa riga di Costo: la quantità sommata si moltiplica per l'unico prezzo unitario della voce di destinazione).
 // "prefill" arriva quando la voce si crea a partire da una voce di Listino (drag&drop o pulsante +): porta già
 // descrizione, unità e prezzi del listino, così l'utente deve solo inserire le misurazioni reali di cantiere.
-function VoceComputoModal({ macroName, sottoName, initialItem, prefill, mergeCandidates, onClose, onSave }) {
+function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, prefill, mergeCandidates, onClose, onSave }) {
   const isEdit = !!initialItem;
   const [desc, setDesc] = useState(initialItem?.desc || prefill?.desc || '');
   const startsKnown = (initialItem || prefill) && UNIT_OPTIONS.slice(0, -1).includes((initialItem || prefill).unit);
@@ -791,7 +792,7 @@ function VoceComputoModal({ macroName, sottoName, initialItem, prefill, mergeCan
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: 16 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 640, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 4px', color: C.black }}>{isEdit ? 'Modifica voce' : 'Nuova voce'}</h2>
-        <p style={{ fontSize: 11, color: C.gray, margin: '0 0 16px' }}>{macroName} › {sottoName}</p>
+        <p style={{ fontSize: 11, color: C.gray, margin: '0 0 16px' }}>{macroName} › {categoriaName || 'Generale'} › {sottoName}</p>
 
         <label style={labelStyle}>Descrizione tecnica</label>
         <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrivi lavorazione, materiali e condizioni…" style={fieldStyle} />
@@ -1414,7 +1415,7 @@ function DraggableCatalogTree({ listino, onAdd }) {
                             {s.voci.map((v, vi) => {
                               const impresaVal = parseEuro(v.priceImpresa);
                               const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
-                              const voceData = { ...v, macro: m.name, sotto: s.name, impresaValue: impresaVal, clienteValue: clienteVal };
+                              const voceData = { ...v, macro: m.name, categoria: c.name, sotto: s.name, impresaValue: impresaVal, clienteValue: clienteVal };
                               return (
                               <div
                                 key={vi}
@@ -1455,20 +1456,64 @@ function DraggableCatalogTree({ listino, onAdd }) {
   );
 }
 
-function groupItemsForExport(items, extraSections) {
-  const groups = [];
-  const byName = (name) => {
-    let g = groups.find((s) => s.name === name);
-    if (!g) { g = { name, items: [] }; groups.push(g); }
-    return g;
-  };
-  (extraSections || []).forEach((n) => byName(n));
-  (items || []).forEach((it) => byName(it.section || it.macro || 'Voci varie').items.push(it));
-  return groups;
+// Raggruppa le voci di una revisione su tre livelli (macrocategoria > categoria > sottocategoria),
+// rispettando l'ordine personalizzato salvato (macroOrder / categorieOrder / sottocategorieOrder) e i
+// gruppi creati ma ancora vuoti (extraSections / categorieDefinite / sottocategorie). Usata sia per la
+// visualizzazione a schermo del computo sia per la stampa PDF e l'export Excel, così restano sempre
+// coerenti tra loro. La sottocategoria è tenuta per chiave composta "macro|categoria" perché lo stesso
+// nome di sottocategoria può comparire sotto più categorie diverse.
+function buildComputoGroups(revision) {
+  const items = revision?.items || [];
+  const extraSections = revision?.extraSections || [];
+  const categorieOrderSaved = revision?.categorieOrder || {};
+  const categorieDefinedEmpty = revision?.categorieDefinite || {};
+  const sottoOrderSaved = revision?.sottocategorieOrder || {};
+  const sottoDefinedEmpty = revision?.sottocategorie || {};
+
+  const rawMacroNames = [];
+  extraSections.forEach((name) => { if (!rawMacroNames.includes(name)) rawMacroNames.push(name); });
+  items.forEach((it) => {
+    const m = it.section || it.macro || 'Voci varie';
+    if (!rawMacroNames.includes(m)) rawMacroNames.push(m);
+  });
+  const macroNames = orderNames(rawMacroNames, revision?.macroOrder);
+
+  return macroNames.map((name, idx) => {
+    const sectionItems = items.filter((it) => (it.section || it.macro || 'Voci varie') === name);
+    const realSectionItems = sectionItems.filter((it) => it.type !== 'subtotal');
+    const subtotalMarkers = sectionItems.filter((it) => it.type === 'subtotal');
+
+    const rawCatNames = [];
+    (categorieDefinedEmpty[name] || []).forEach((c) => { if (!rawCatNames.includes(c)) rawCatNames.push(c); });
+    realSectionItems.forEach((it) => {
+      const c = it.categoria || 'Generale';
+      if (!rawCatNames.includes(c)) rawCatNames.push(c);
+    });
+    const catNames = orderNames(rawCatNames, categorieOrderSaved[name]);
+
+    const categorie = catNames.map((catName) => {
+      const catKey = `${name}|${catName}`;
+      const catItems = realSectionItems.filter((it) => (it.categoria || 'Generale') === catName);
+      const rawSottoNames = [];
+      (sottoDefinedEmpty[catKey] || []).forEach((s) => { if (!rawSottoNames.includes(s)) rawSottoNames.push(s); });
+      catItems.forEach((it) => {
+        const s = it.sottocategoria || 'Generale';
+        if (!rawSottoNames.includes(s)) rawSottoNames.push(s);
+      });
+      const sottoNames = orderNames(rawSottoNames, sottoOrderSaved[catKey]);
+      const sottocategorie = sottoNames.map((sName) => ({
+        name: sName,
+        items: catItems.filter((it) => (it.sottocategoria || 'Generale') === sName),
+      }));
+      return { name: catName, items: catItems, sottocategorie };
+    });
+
+    return { name, color: SECTION_COLORS[idx % SECTION_COLORS.length], items: sectionItems, categorie, subtotalMarkers };
+  });
 }
 
 function exportComputoExcel(project, revision, clientOnly) {
-  const groups = groupItemsForExport(revision.items, revision.extraSections);
+  const groups = buildComputoGroups(revision);
   const rows = [];
   rows.push([clientOnly ? 'Computo metrico (versione cliente)' : 'Computo metrico']);
   rows.push(['Progetto', project.name]);
@@ -1477,40 +1522,43 @@ function exportComputoExcel(project, revision, clientOnly) {
   rows.push(['Data modifica', revision.dateModified]);
   rows.push([]);
   rows.push(clientOnly
-    ? ['Sezione', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente']
-    : ['Sezione', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo impresa', 'Totale impresa', 'Prezzo cliente', 'Totale cliente']);
+    ? ['Sezione', 'Categoria', 'Sottocategoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente']
+    : ['Sezione', 'Categoria', 'Sottocategoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo impresa', 'Totale impresa', 'Prezzo cliente', 'Totale cliente']);
 
   groups.forEach((g) => {
     let runImpresa = 0;
     let runCliente = 0;
-    g.items.forEach((it) => {
-      if (it.type === 'subtotal') {
-        const hasVat = it.vatRate !== null && it.vatRate !== undefined;
-        if (hasVat) {
-          if (!clientOnly) {
-            rows.push([g.name, '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(runImpresa)]);
-            rows.push([g.name, '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(runImpresa * (it.vatRate / 100))]);
-            rows.push([g.name, '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(runImpresa * (1 + it.vatRate / 100))]);
-          } else {
-            rows.push([g.name, '', `${it.title} — IVA esclusa`, '', '', formatEuro(runCliente)]);
-            rows.push([g.name, '', `${it.title} — ${it.vatLabel}`, '', '', formatEuro(runCliente * (it.vatRate / 100))]);
-            rows.push([g.name, '', `${it.title} — IVA inclusa`, '', '', formatEuro(runCliente * (1 + it.vatRate / 100))]);
-          }
+    g.categorie.forEach((cat) => {
+      cat.sottocategorie.forEach((sotto) => {
+        sotto.items.forEach((it) => {
+          const qty = parseEuro(it.qty);
+          const totImpresa = parseEuro(it.unitPriceImpresa) * qty;
+          const totCliente = parseEuro(it.unitPriceCliente) * qty;
+          runImpresa += totImpresa;
+          runCliente += totCliente;
+          rows.push(clientOnly
+            ? [g.name, cat.name, sotto.name, it.code, it.desc, it.qty, it.unit, it.unitPriceCliente, formatEuro(totCliente)]
+            : [g.name, cat.name, sotto.name, it.code, it.desc, it.qty, it.unit, it.unitPriceImpresa, formatEuro(totImpresa), it.unitPriceCliente, formatEuro(totCliente)]);
+        });
+      });
+    });
+    g.subtotalMarkers.forEach((it) => {
+      const hasVat = it.vatRate !== null && it.vatRate !== undefined;
+      if (hasVat) {
+        if (!clientOnly) {
+          rows.push([g.name, '', '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(runImpresa)]);
+          rows.push([g.name, '', '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(runImpresa * (it.vatRate / 100))]);
+          rows.push([g.name, '', '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(runImpresa * (1 + it.vatRate / 100))]);
         } else {
-          rows.push([g.name, '', `— ${it.title} —`]);
+          rows.push([g.name, '', '', '', `${it.title} — IVA esclusa`, '', '', formatEuro(runCliente)]);
+          rows.push([g.name, '', '', '', `${it.title} — ${it.vatLabel}`, '', '', formatEuro(runCliente * (it.vatRate / 100))]);
+          rows.push([g.name, '', '', '', `${it.title} — IVA inclusa`, '', '', formatEuro(runCliente * (1 + it.vatRate / 100))]);
         }
-        runImpresa = 0;
-        runCliente = 0;
-        return;
+      } else {
+        rows.push([g.name, '', '', '', `— ${it.title} —`]);
       }
-      const qty = parseEuro(it.qty);
-      const totImpresa = parseEuro(it.unitPriceImpresa) * qty;
-      const totCliente = parseEuro(it.unitPriceCliente) * qty;
-      runImpresa += totImpresa;
-      runCliente += totCliente;
-      rows.push(clientOnly
-        ? [g.name, it.code, it.desc, it.qty, it.unit, it.unitPriceCliente, formatEuro(totCliente)]
-        : [g.name, it.code, it.desc, it.qty, it.unit, it.unitPriceImpresa, formatEuro(totImpresa), it.unitPriceCliente, formatEuro(totCliente)]);
+      runImpresa = 0;
+      runCliente = 0;
     });
   });
 
@@ -1536,21 +1584,75 @@ function exportComputoExcel(project, revision, clientOnly) {
   XLSX.writeFile(wb, filename);
 }
 
-function PrintableComputo({ project, revision, clientOnly }) {
-  const groups = groupItemsForExport(revision.items, revision.extraSections);
+function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
+  const groups = buildComputoGroups(revision);
   const realItems = (revision.items || []).filter((it) => it.type !== 'subtotal');
   const impresaTot = sumImpresa(realItems);
   const clienteTot = sumCliente(realItems);
   const header = project.header || {};
   const { rate: vatRate, label: vatLabel } = getVatInfo(revision);
+  const ss = studioSettings || DEFAULT_STUDIO_SETTINGS;
+  const hasCustomHeader = ss.usaIntestazionePersonalizzata && ss.intestazioneImg;
+  const hasCustomFooter = ss.usaPiePersonalizzato && ss.pieImg;
+  const hasStudioInfo = ss.nome || ss.indirizzo || ss.piva || ss.cf || ss.telefono || ss.email || ss.sito || ss.logo;
 
   return (
-    <div className="print-only" style={{ padding: 24, fontFamily: FONT, color: '#000' }}>
+    <div className="print-only" style={{ fontFamily: FONT, color: '#000' }}>
+      {/* Intestazione ripetuta su ogni pagina stampata (position: fixed si ripete su ogni pagina in
+          stampa dai browser basati su Chromium, incluso il "Salva come PDF"). */}
+      {(hasCustomHeader || hasStudioInfo) && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, padding: '10px 24px', borderBottom: '1px solid #ccc', background: '#fff' }}>
+          {hasCustomHeader ? (
+            <img src={ss.intestazioneImg} alt="" style={{ maxHeight: 60, maxWidth: '100%', display: 'block', margin: '0 auto' }} />
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              {ss.logo && <img src={ss.logo} alt="" style={{ height: 40 }} />}
+              <div style={{ fontSize: 10.5, lineHeight: 1.4 }}>
+                {ss.nome && <div style={{ fontWeight: 700, fontSize: 12 }}>{ss.nome}</div>}
+                <div>
+                  {[ss.indirizzo, ss.piva && `P.IVA ${ss.piva}`, ss.cf && `CF ${ss.cf}`].filter(Boolean).join(' — ')}
+                </div>
+                <div>{[ss.telefono, ss.email, ss.sito].filter(Boolean).join(' — ')}</div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+      {/* Piè di pagina ripetuto su ogni pagina, stesso meccanismo dell'intestazione. */}
+      {(hasCustomFooter || ss.testoPiePagina) && (
+        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '6px 24px', borderTop: '1px solid #ccc', background: '#fff', textAlign: 'center' }}>
+          {hasCustomFooter ? (
+            <img src={ss.pieImg} alt="" style={{ maxHeight: 34, maxWidth: '100%' }} />
+          ) : (
+            <p style={{ fontSize: 9.5, color: '#333', margin: 0 }}>{ss.testoPiePagina}</p>
+          )}
+        </div>
+      )}
+      <div style={{
+        padding: '24px',
+        paddingTop: (hasCustomHeader || hasStudioInfo) ? 90 : 24,
+        paddingBottom: (hasCustomFooter || ss.testoPiePagina) ? 40 : 24,
+      }}>
       <h1 style={{ fontSize: 20, marginBottom: 4 }}>{clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
       <p style={{ fontSize: 12, margin: '2px 0' }}>Progetto: {project.name} — Cliente: {project.client}</p>
       <p style={{ fontSize: 12, margin: '2px 0' }}>Versione: {revision.customName || revision.label} — Modificata il {revision.dateModified}</p>
       {(header.descrizione || header.ubicazione) && (
         <p style={{ fontSize: 12, margin: '2px 0' }}>{header.descrizione} {header.ubicazione && `— ${header.ubicazione}`}</p>
+      )}
+      {project.clientSheet && (
+        <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid #ccc', borderRadius: 6, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <p style={{ fontSize: 12, fontWeight: 700, margin: '0 0 4px' }}>Scheda cliente</p>
+          <p style={{ fontSize: 11, margin: '2px 0' }}>{project.clientSheet.name}{project.clientSheet.type && ` — ${project.clientSheet.type}`}</p>
+          {project.clientSheet.address && <p style={{ fontSize: 11, margin: '2px 0' }}>{project.clientSheet.address}</p>}
+          <p style={{ fontSize: 11, margin: '2px 0' }}>
+            {[project.clientSheet.phone, project.clientSheet.email].filter(Boolean).join(' — ')}
+          </p>
+          {(project.clientSheet.piva || project.clientSheet.cf) && (
+            <p style={{ fontSize: 11, margin: '2px 0' }}>
+              {[project.clientSheet.piva && `P.IVA ${project.clientSheet.piva}`, project.clientSheet.cf && `CF ${project.clientSheet.cf}`].filter(Boolean).join(' — ')}
+            </p>
+          )}
+        </div>
       )}
       {groups.map((g, gi) => {
         let runI = 0;
@@ -1572,38 +1674,54 @@ function PrintableComputo({ project, revision, clientOnly }) {
               </tr>
             </thead>
             <tbody>
-              {g.items.map((it, ii) => {
-                if (it.type === 'subtotal') {
-                  const hasVat = it.vatRate !== null && it.vatRate !== undefined;
-                  const rowEl = (
-                    <tr key={ii}>
-                      <td colSpan={clientOnly ? 6 : 8} style={{ padding: '4px 3px', fontWeight: 700 }}>
-                        {it.title}
-                        {hasVat && (
-                          <span style={{ fontWeight: 400 }}>
-                            {' '}— IVA esclusa {formatEuro(clientOnly ? runC : runI)}, {it.vatLabel} {formatEuro((clientOnly ? runC : runI) * (it.vatRate / 100))}, IVA inclusa {formatEuro((clientOnly ? runC : runI) * (1 + it.vatRate / 100))}
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                  runI = 0; runC = 0;
-                  return rowEl;
-                }
-                runI += parseEuro(it.unitPriceImpresa) * parseEuro(it.qty);
-                runC += parseEuro(it.unitPriceCliente) * parseEuro(it.qty);
-                return (
-                <tr key={ii}>
-                  <td style={{ padding: '3px' }}>{it.code}</td>
-                  <td style={{ padding: '3px' }}>{it.desc}</td>
-                  <td style={{ padding: '3px', textAlign: 'right' }}>{it.qty}</td>
-                  <td style={{ padding: '3px' }}>{it.unit}</td>
-                  {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceImpresa} €</td>}
-                  {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
-                  <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceCliente} €</td>
-                  <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
-                </tr>
+              {g.categorie.map((cat, ci) => (
+                <React.Fragment key={ci}>
+                  <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                    <td colSpan={clientOnly ? 6 : 8} style={{ padding: '6px 3px 2px', fontWeight: 700, fontSize: 11.5, borderBottom: '1px solid #ccc' }}>{cat.name}</td>
+                  </tr>
+                  {cat.sottocategorie.map((sotto, si) => (
+                    <React.Fragment key={si}>
+                      {sotto.name !== 'Generale' && (
+                        <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                          <td colSpan={clientOnly ? 6 : 8} style={{ padding: '3px 3px 2px 12px', fontWeight: 600, fontStyle: 'italic' }}>{sotto.name}</td>
+                        </tr>
+                      )}
+                      {sotto.items.map((it, ii) => {
+                        runI += parseEuro(it.unitPriceImpresa) * parseEuro(it.qty);
+                        runC += parseEuro(it.unitPriceCliente) * parseEuro(it.qty);
+                        return (
+                        <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                          <td style={{ padding: '3px' }}>{it.code}</td>
+                          <td style={{ padding: '3px' }}>{it.desc}</td>
+                          <td style={{ padding: '3px', textAlign: 'right' }}>{it.qty}</td>
+                          <td style={{ padding: '3px' }}>{it.unit}</td>
+                          {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceImpresa} €</td>}
+                          {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
+                          <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceCliente} €</td>
+                          <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
+                        </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </React.Fragment>
+              ))}
+              {g.subtotalMarkers.map((it, ii) => {
+                const hasVat = it.vatRate !== null && it.vatRate !== undefined;
+                const rowEl = (
+                  <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                    <td colSpan={clientOnly ? 6 : 8} style={{ padding: '4px 3px', fontWeight: 700 }}>
+                      {it.title}
+                      {hasVat && (
+                        <span style={{ fontWeight: 400 }}>
+                          {' '}— IVA esclusa {formatEuro(clientOnly ? runC : runI)}, {it.vatLabel} {formatEuro((clientOnly ? runC : runI) * (it.vatRate / 100))}, IVA inclusa {formatEuro((clientOnly ? runC : runI) * (1 + it.vatRate / 100))}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
                 );
+                runI = 0; runC = 0;
+                return rowEl;
               })}
             </tbody>
           </table>
@@ -1623,6 +1741,7 @@ function PrintableComputo({ project, revision, clientOnly }) {
         <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}><span>{vatLabel}</span><span>{formatEuro(clienteTot * (vatRate / 100))}</span></p>
         <p style={{ fontSize: 14, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Totale generale IVA inclusa (cliente)</span><span>{formatEuro(clienteTot * (1 + vatRate / 100))}</span></p>
       </div>
+      </div>
     </div>
   );
 }
@@ -1636,10 +1755,17 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const [showCompare, setShowCompare] = useState(false);
   const [listinoId, setListinoId] = useState(listini[0]?.id);
   const [dragOver, setDragOver] = useState(false);
-  const [dragOverTarget, setDragOverTarget] = useState(null); // "macroName" o "macroName|sottoName" evidenziato durante il drag
+  const [dragOverTarget, setDragOverTarget] = useState(null); // "macroName", "macroName|categoriaName" o "macroName|categoriaName|sottoName" evidenziato durante il drag
   const [showImportPdf, setShowImportPdf] = useState(false);
-  const [voceComputoCtx, setVoceComputoCtx] = useState(null); // { macroName, sottoName, initialItem }
+  const [voceComputoCtx, setVoceComputoCtx] = useState(null); // { macroName, categoriaName, sottoName, initialItem }
   const [expandedItems, setExpandedItems] = useState({}); // { [itemId]: true } — dettaglio misurazioni/note aperto
+
+  // --- Scheda cliente importata da Desearq Studio Manager (stesso progetto Supabase, schema "public") ---
+  const [showClientImport, setShowClientImport] = useState(false);
+  const [dsmClients, setDsmClients] = useState(null); // null = non ancora caricati
+  const [loadingDsmClients, setLoadingDsmClients] = useState(false);
+  const [dsmClientsError, setDsmClientsError] = useState('');
+  const [clientSearch, setClientSearch] = useState('');
 
   const selectedRevision = revisions.find((r) => r.id === selectedRevisionId) || latestRevision;
   const isEditingLatest = selectedRevision && latestRevision && selectedRevision.id === latestRevision.id;
@@ -1652,37 +1778,10 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const realItems = items.filter((it) => it.type !== 'subtotal');
   const { rate: vatRate, label: vatLabel } = getVatInfo(selectedRevision);
 
-  // Raggruppamento a due livelli (macrocategoria > sottocategoria), con l'ordine di visualizzazione
-  // salvato esplicitamente su revision.macroOrder / revision.sottocategorieOrder — così macrocategorie
-  // e sottocategorie si possono ridistribuire manualmente (▲▼) indipendentemente dall'ordine delle voci.
-  // revision.sottocategorie tiene anche le sottocategorie create ma ancora senza voci.
-  const rawMacroNames = [];
-  extraSections.forEach((name) => { if (!rawMacroNames.includes(name)) rawMacroNames.push(name); });
-  items.forEach((it) => {
-    const m = it.section || it.macro || 'Voci varie';
-    if (!rawMacroNames.includes(m)) rawMacroNames.push(m);
-  });
-  const macroNames = orderNames(rawMacroNames, selectedRevision?.macroOrder);
-  const sottoOrderSaved = selectedRevision?.sottocategorieOrder || {};
-  const sottoDefinedEmpty = selectedRevision?.sottocategorie || {};
-
-  const groupedSections = macroNames.map((name, idx) => {
-    const sectionItems = items.filter((it) => (it.section || it.macro || 'Voci varie') === name);
-    const realSectionItems = sectionItems.filter((it) => it.type !== 'subtotal');
-    const subtotalMarkers = sectionItems.filter((it) => it.type === 'subtotal');
-    const rawSottoNames = [];
-    (sottoDefinedEmpty[name] || []).forEach((s) => { if (!rawSottoNames.includes(s)) rawSottoNames.push(s); });
-    realSectionItems.forEach((it) => {
-      const s = it.sottocategoria || 'Generale';
-      if (!rawSottoNames.includes(s)) rawSottoNames.push(s);
-    });
-    const sottoNames = orderNames(rawSottoNames, sottoOrderSaved[name]);
-    const sottocategorie = sottoNames.map((sName) => ({
-      name: sName,
-      items: realSectionItems.filter((it) => (it.sottocategoria || 'Generale') === sName),
-    }));
-    return { name, color: SECTION_COLORS[idx % SECTION_COLORS.length], items: sectionItems, sottocategorie, subtotalMarkers };
-  });
+  // Raggruppamento a tre livelli (macrocategoria > categoria > sottocategoria), calcolato da
+  // buildComputoGroups (condiviso anche con la stampa PDF e l'export Excel, così restano sempre
+  // coerenti con quanto mostrato qui a schermo).
+  const groupedSections = buildComputoGroups(selectedRevision);
   const allSectionNames = groupedSections.map((s) => s.name);
 
   let importoLavori = 0;
@@ -1757,19 +1856,21 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const openVoceFromListino = (voce) => {
     setVoceComputoCtx({
       macroName: voce.macro || 'Voci varie',
+      categoriaName: voce.categoria || 'Generale',
       sottoName: voce.sotto || 'Generale',
       initialItem: null,
       prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
     });
   };
 
-  // Come openVoceFromListino, ma la macrosezione (e facoltativamente la sottocategoria) di destinazione sono
-  // quelle su cui l'utente ha trascinato fisicamente la voce nel computo — non quelle del listino d'origine.
-  // Così si possono organizzare le voci secondo le macrocategorie/sottocategorie create nel computo, anche
-  // quando non coincidono con quelle del listino.
-  const addVoceToTarget = (voce, macroName, sottoName) => {
+  // Come openVoceFromListino, ma la macrosezione (e facoltativamente categoria/sottocategoria) di destinazione
+  // sono quelle su cui l'utente ha trascinato fisicamente la voce nel computo — non quelle del listino d'origine.
+  // Così si possono organizzare le voci secondo le macrocategorie/categorie/sottocategorie create nel computo,
+  // anche quando non coincidono con quelle del listino.
+  const addVoceToTarget = (voce, macroName, categoriaName, sottoName) => {
     setVoceComputoCtx({
       macroName,
+      categoriaName: categoriaName || voce.categoria || 'Generale',
       sottoName: sottoName || voce.sotto || 'Generale',
       initialItem: null,
       prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
@@ -1824,7 +1925,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   };
 
   const moveItemToSection = (id, sectionName) => {
-    applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, section: sectionName, sottocategoria: 'Generale' } : it)));
+    applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, section: sectionName, categoria: 'Generale', sottocategoria: 'Generale' } : it)));
+  };
+
+  const moveItemToCategoria = (id, categoriaName) => {
+    applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, categoria: categoriaName, sottocategoria: 'Generale' } : it)));
   };
 
   const moveItemToSottocategoria = (id, sottoName) => {
@@ -1832,17 +1937,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   };
 
   // Sposta una voce su/giù, scambiandola con la voce precedente/successiva della stessa sottocategoria
-  // (all'interno della stessa macrocategoria): è quest'ordine, insieme a quello di macro e sottocategorie,
-  // a determinare il codice automatico di ogni voce.
+  // (all'interno della stessa categoria e macrocategoria): è quest'ordine, insieme a quello di macro,
+  // categorie e sottocategorie, a determinare il codice automatico di ogni voce.
   const moveItemInSection = (id, direction) => {
     applyItemsChange((its) => {
       const item = its.find((it) => it.id === id);
       if (!item) return its;
       const sectionName = item.section || item.macro || 'Voci varie';
+      const catName = item.categoria || 'Generale';
       const sottoName = item.sottocategoria || 'Generale';
       const sameGroupIdx = its
         .map((it, idx) => ({ it, idx }))
-        .filter((o) => (o.it.section || o.it.macro || 'Voci varie') === sectionName && (o.it.sottocategoria || 'Generale') === sottoName)
+        .filter((o) => (o.it.section || o.it.macro || 'Voci varie') === sectionName && (o.it.categoria || 'Generale') === catName && (o.it.sottocategoria || 'Generale') === sottoName)
         .map((o) => o.idx);
       const idxA = its.indexOf(item);
       const posInSection = sameGroupIdx.indexOf(idxA);
@@ -1872,56 +1978,116 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
 
   // Sposta una macrocategoria su/giù, scambiandola con la precedente/successiva nell'ordine mostrato.
   const moveMacroSection = (name, direction) => {
-    const idx = macroNames.indexOf(name);
+    const idx = allSectionNames.indexOf(name);
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= macroNames.length) return;
-    const next = [...macroNames];
+    if (swapIdx < 0 || swapIdx >= allSectionNames.length) return;
+    const next = [...allSectionNames];
     [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
     applyRevisionChange(() => ({ macroOrder: next }));
   };
 
-  // Sposta una sottocategoria su/giù all'interno della sua macrocategoria.
-  const moveSottocategoria = (macroName, sName, direction) => {
+  // Sposta una categoria su/giù all'interno della sua macrocategoria.
+  const moveCategoria = (macroName, catName, direction) => {
     const section = groupedSections.find((s) => s.name === macroName);
-    const current = section ? section.sottocategorie.map((sc) => sc.name) : [];
+    const current = section ? section.categorie.map((c) => c.name) : [];
+    const idx = current.indexOf(catName);
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapIdx < 0 || swapIdx >= current.length) return;
+    const next = [...current];
+    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
+    applyRevisionChange((rev) => ({ categorieOrder: { ...(rev.categorieOrder || {}), [macroName]: next } }));
+  };
+
+  const addCategoria = (macroName) => {
+    const name = prompt('Nome della nuova categoria (es. Opere edili, Opere da piastrellista...):');
+    if (!name) return;
+    applyRevisionChange((rev) => ({
+      categorieDefinite: { ...(rev.categorieDefinite || {}), [macroName]: [...((rev.categorieDefinite || {})[macroName] || []), name] },
+    }));
+  };
+
+  const renameCategoria = (macroName, oldName) => {
+    const newName = prompt('Rinomina categoria:', oldName);
+    if (!newName || newName === oldName) return;
+    applyRevisionChange((rev) => {
+      const oldKey = `${macroName}|${oldName}`;
+      const newKey = `${macroName}|${newName}`;
+      const rekey = (obj) => {
+        const next = { ...obj };
+        if (oldKey in next) { next[newKey] = next[oldKey]; delete next[oldKey]; }
+        return next;
+      };
+      return {
+        items: (rev.items || []).map((it) => ((it.section || it.macro) === macroName && (it.categoria || 'Generale') === oldName ? { ...it, categoria: newName } : it)),
+        categorieDefinite: { ...(rev.categorieDefinite || {}), [macroName]: ((rev.categorieDefinite || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
+        categorieOrder: { ...(rev.categorieOrder || {}), [macroName]: ((rev.categorieOrder || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
+        sottocategorie: rekey(rev.sottocategorie || {}),
+        sottocategorieOrder: rekey(rev.sottocategorieOrder || {}),
+      };
+    });
+  };
+
+  const removeCategoria = (macroName, catName) => {
+    if (!confirm(`Rimuovere la categoria "${catName}"? (possibile solo se vuota)`)) return;
+    applyRevisionChange((rev) => {
+      const key = `${macroName}|${catName}`;
+      return {
+        categorieDefinite: { ...(rev.categorieDefinite || {}), [macroName]: ((rev.categorieDefinite || {})[macroName] || []).filter((n) => n !== catName) },
+        categorieOrder: { ...(rev.categorieOrder || {}), [macroName]: ((rev.categorieOrder || {})[macroName] || []).filter((n) => n !== catName) },
+        sottocategorie: Object.fromEntries(Object.entries(rev.sottocategorie || {}).filter(([k]) => k !== key)),
+        sottocategorieOrder: Object.fromEntries(Object.entries(rev.sottocategorieOrder || {}).filter(([k]) => k !== key)),
+      };
+    });
+  };
+
+  // Sposta una sottocategoria su/giù all'interno della sua categoria (chiave composta "macro|categoria",
+  // perché la stessa sottocategoria può comparire sotto più categorie diverse nella stessa macrocategoria).
+  const moveSottocategoria = (macroName, catName, sName, direction) => {
+    const section = groupedSections.find((s) => s.name === macroName);
+    const cat = section ? section.categorie.find((c) => c.name === catName) : null;
+    const current = cat ? cat.sottocategorie.map((sc) => sc.name) : [];
     const idx = current.indexOf(sName);
     const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (swapIdx < 0 || swapIdx >= current.length) return;
     const next = [...current];
     [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-    applyRevisionChange((rev) => ({ sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [macroName]: next } }));
+    const key = `${macroName}|${catName}`;
+    applyRevisionChange((rev) => ({ sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [key]: next } }));
   };
 
-  const addSottocategoria = (macroName) => {
+  const addSottocategoria = (macroName, catName) => {
     const name = prompt('Nome della nuova sottocategoria:');
     if (!name) return;
+    const key = `${macroName}|${catName}`;
     applyRevisionChange((rev) => ({
-      sottocategorie: { ...(rev.sottocategorie || {}), [macroName]: [...((rev.sottocategorie || {})[macroName] || []), name] },
+      sottocategorie: { ...(rev.sottocategorie || {}), [key]: [...((rev.sottocategorie || {})[key] || []), name] },
     }));
   };
 
-  const renameSottocategoria = (macroName, oldName) => {
+  const renameSottocategoria = (macroName, catName, oldName) => {
     const newName = prompt('Rinomina sottocategoria:', oldName);
     if (!newName || newName === oldName) return;
+    const key = `${macroName}|${catName}`;
     applyRevisionChange((rev) => ({
-      items: (rev.items || []).map((it) => ((it.section || it.macro) === macroName && (it.sottocategoria || 'Generale') === oldName ? { ...it, sottocategoria: newName } : it)),
-      sottocategorie: { ...(rev.sottocategorie || {}), [macroName]: ((rev.sottocategorie || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
-      sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [macroName]: ((rev.sottocategorieOrder || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
+      items: (rev.items || []).map((it) => ((it.section || it.macro) === macroName && (it.categoria || 'Generale') === catName && (it.sottocategoria || 'Generale') === oldName ? { ...it, sottocategoria: newName } : it)),
+      sottocategorie: { ...(rev.sottocategorie || {}), [key]: ((rev.sottocategorie || {})[key] || []).map((n) => (n === oldName ? newName : n)) },
+      sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [key]: ((rev.sottocategorieOrder || {})[key] || []).map((n) => (n === oldName ? newName : n)) },
     }));
   };
 
-  const removeSottocategoria = (macroName, sName) => {
+  const removeSottocategoria = (macroName, catName, sName) => {
     if (!confirm(`Rimuovere la sottocategoria "${sName}"? (possibile solo se vuota)`)) return;
+    const key = `${macroName}|${catName}`;
     applyRevisionChange((rev) => ({
-      sottocategorie: { ...(rev.sottocategorie || {}), [macroName]: ((rev.sottocategorie || {})[macroName] || []).filter((n) => n !== sName) },
-      sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [macroName]: ((rev.sottocategorieOrder || {})[macroName] || []).filter((n) => n !== sName) },
+      sottocategorie: { ...(rev.sottocategorie || {}), [key]: ((rev.sottocategorie || {})[key] || []).filter((n) => n !== sName) },
+      sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [key]: ((rev.sottocategorieOrder || {})[key] || []).filter((n) => n !== sName) },
     }));
   };
 
   // Crea o modifica una voce con misurazioni reali, oppure — se mergeIntoItemId è indicato — aggiunge i
   // nuovi gruppi di misurazione a una voce già esistente della stessa sottocategoria, sommandone le
   // quantità sotto un'unica riga di costo (un solo prezzo unitario per il totale sommato).
-  const saveVoceComputo = (macroName, sottoName, voceData) => {
+  const saveVoceComputo = (macroName, categoriaName, sottoName, voceData) => {
     const impresaVal = parseEuro(voceData.priceImpresa);
     const clienteVal = evalClientPrice(voceData.priceCliente, impresaVal);
     const priceFields = {
@@ -1950,7 +2116,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
       }
       const newItem = {
         id: Date.now() + Math.random(), code: '', autoCode: true, ...priceFields,
-        qty, macro: macroName, section: macroName, sottocategoria: sottoName,
+        qty, macro: macroName, section: macroName, categoria: categoriaName || 'Generale', sottocategoria: sottoName,
         unitaCalcolo: voceData.unitaCalcolo, misurazioni: voceData.misurazioni,
       };
       return [...its, newItem];
@@ -1995,20 +2161,64 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
 
   // Rimuove una macrosezione senza voci vere: ripulisce anche eventuali "Sommatoria parziale" rimaste
   // agganciate a quella sezione (altrimenti la macrosezione ricomparirebbe da sola perché quelle righe
-  // esistono ancora), oltre alle sottocategorie vuote definite lì e al suo ordine salvato.
+  // esistono ancora), oltre a categorie/sottocategorie vuote definite lì, ai loro ordini salvati e al
+  // suo ordine di macrosezione.
   const removeMarkerOrEmptySection = (sectionName) => {
     if (!confirm(`Rimuovere la macrosezione "${sectionName}"?`)) return;
+    const belongsToSection = (k) => k === sectionName || k.startsWith(`${sectionName}|`);
     applyRevisionChange((rev) => ({
       extraSections: (rev.extraSections || []).filter((n) => n !== sectionName),
       items: (rev.items || []).filter((it) => (it.section || it.macro || 'Voci varie') !== sectionName),
-      sottocategorie: Object.fromEntries(Object.entries(rev.sottocategorie || {}).filter(([k]) => k !== sectionName)),
-      sottocategorieOrder: Object.fromEntries(Object.entries(rev.sottocategorieOrder || {}).filter(([k]) => k !== sectionName)),
+      categorieDefinite: Object.fromEntries(Object.entries(rev.categorieDefinite || {}).filter(([k]) => k !== sectionName)),
+      categorieOrder: Object.fromEntries(Object.entries(rev.categorieOrder || {}).filter(([k]) => k !== sectionName)),
+      sottocategorie: Object.fromEntries(Object.entries(rev.sottocategorie || {}).filter(([k]) => !belongsToSection(k))),
+      sottocategorieOrder: Object.fromEntries(Object.entries(rev.sottocategorieOrder || {}).filter(([k]) => !belongsToSection(k))),
       macroOrder: (rev.macroOrder || []).filter((n) => n !== sectionName),
     }));
   };
 
   const updateHeader = (field, value) => {
     onUpdateProject({ ...project, header: { ...header, [field]: value } });
+  };
+
+  // --- Scheda cliente importata da Desearq Studio Manager ---
+  // Desearq Studio Manager e Gestionale Edile condividono lo stesso progetto Supabase: l'anagrafica clienti
+  // vive in public.app_state.data.clients (schema "public", diverso da "cea" usato per i dati di questa app).
+  // La lettura è di sola consultazione: si importa lo snapshot dei dati del cliente scelto dentro al progetto,
+  // che poi restano modificabili qui senza toccare in alcun modo i dati in Desearq Studio Manager.
+  const openClientImport = () => {
+    setShowClientImport(true);
+    if (dsmClients !== null || loadingDsmClients) return;
+    setLoadingDsmClients(true);
+    setDsmClientsError('');
+    supabase.from('app_state').select('data').eq('id', 1).maybeSingle().then(({ data, error }) => {
+      setLoadingDsmClients(false);
+      if (error) { setDsmClientsError('Impossibile leggere l\'anagrafica clienti da Desearq Studio Manager: ' + error.message); return; }
+      setDsmClients((data?.data && data.data.clients) || []);
+    });
+  };
+
+  const importClientSheet = (c) => {
+    onUpdateProject({
+      ...project,
+      clientSheet: {
+        source: 'desearq-studio-manager', importedId: c.id, importedAt: nowLabel(),
+        name: c.name || '', type: c.type || '', cf: c.cf || '', piva: c.piva || '',
+        email: c.email || '', phone: c.phone || '', address: c.address || '',
+        properties: c.properties || [],
+      },
+    });
+    setShowClientImport(false);
+    setClientSearch('');
+  };
+
+  const updateClientSheetField = (field, value) => {
+    onUpdateProject({ ...project, clientSheet: { ...(project.clientSheet || {}), [field]: value } });
+  };
+
+  const removeClientSheet = () => {
+    if (!confirm('Rimuovere la scheda cliente da questo progetto?')) return;
+    onUpdateProject({ ...project, clientSheet: null });
   };
 
   const saveNewVersion = () => {
@@ -2222,6 +2432,94 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
             </p>
           </div>
 
+          <div style={{ ...card, marginBottom: 18 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Scheda cliente</p>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={openClientImport} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>
+                  ⇩ {project.clientSheet ? 'Reimporta' : 'Importa'} da Desearq Studio Manager
+                </button>
+                {project.clientSheet && (
+                  <button onClick={removeClientSheet} style={rowBtnStyle}>🗑 Rimuovi</button>
+                )}
+              </div>
+            </div>
+
+            {showClientImport && (
+              <div style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: 12, marginBottom: 14, background: '#f7f5f0' }}>
+                <input
+                  value={clientSearch}
+                  onChange={(e) => setClientSearch(e.target.value)}
+                  placeholder="Cerca cliente per nome…"
+                  autoFocus
+                  style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginBottom: 8 }}
+                />
+                {loadingDsmClients && <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Caricamento anagrafica da Desearq Studio Manager…</p>}
+                {dsmClientsError && <p style={{ fontSize: 12, color: C.maroon, margin: 0 }}>{dsmClientsError}</p>}
+                {!loadingDsmClients && !dsmClientsError && dsmClients && (
+                  <div style={{ maxHeight: 220, overflowY: 'auto' }}>
+                    {dsmClients
+                      .filter((c) => !clientSearch.trim() || (c.name || '').toLowerCase().includes(clientSearch.trim().toLowerCase()))
+                      .map((c) => (
+                        <div
+                          key={c.id}
+                          onClick={() => importClientSheet(c)}
+                          style={{ padding: '8px 10px', borderRadius: 8, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', gap: 8, background: C.white, marginBottom: 4 }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#efe8db'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = C.white; }}
+                        >
+                          <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>{c.name}</span>
+                          <span style={{ fontSize: 11, color: C.gray }}>{c.email || c.phone || ''}</span>
+                        </div>
+                      ))}
+                    {dsmClients.filter((c) => !clientSearch.trim() || (c.name || '').toLowerCase().includes(clientSearch.trim().toLowerCase())).length === 0 && (
+                      <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessun cliente trovato.</p>
+                    )}
+                  </div>
+                )}
+                <button onClick={() => setShowClientImport(false)} style={{ ...rowBtnStyle, marginTop: 8 }}>Chiudi</button>
+              </div>
+            )}
+
+            {!project.clientSheet ? (
+              <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna scheda cliente ancora collegata a questo progetto. Importala da Desearq Studio Manager oppure lascia questa sezione vuota.</p>
+            ) : (
+              <>
+                <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px' }}>
+                  Importata da Desearq Studio Manager il {project.clientSheet.importedAt}. I campi restano modificabili qui senza alcun effetto su Desearq Studio Manager.
+                </p>
+                <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Nome / Ragione sociale</label>
+                    <input value={project.clientSheet.name || ''} onChange={(e) => updateClientSheetField('name', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Indirizzo</label>
+                    <input value={project.clientSheet.address || ''} onChange={(e) => updateClientSheetField('address', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
+                  </div>
+                </div>
+                <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12 }}>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Telefono</label>
+                    <input value={project.clientSheet.phone || ''} onChange={(e) => updateClientSheetField('phone', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Email</label>
+                    <input value={project.clientSheet.email || ''} onChange={(e) => updateClientSheetField('email', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>P.IVA</label>
+                    <input value={project.clientSheet.piva || ''} onChange={(e) => updateClientSheetField('piva', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
+                  </div>
+                  <div>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Codice fiscale</label>
+                    <input value={project.clientSheet.cf || ''} onChange={(e) => updateClientSheetField('cf', e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+
           <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexShrink: 0 }}>
@@ -2241,6 +2539,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                 <button onClick={addCustomSection} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>+ Nuova macrosezione</button>
               </div>
               <div
+                data-general-dropzone="true"
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={(e) => {
@@ -2312,7 +2611,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                             <button onClick={() => moveMacroSection(section.name, 'up')} disabled={sIdx === 0} style={{ ...iconBtn, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none', opacity: sIdx === 0 ? 0.4 : 1 }}>▲</button>
                             <button onClick={() => moveMacroSection(section.name, 'down')} disabled={sIdx === groupedSections.length - 1} style={{ ...iconBtn, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none', opacity: sIdx === groupedSections.length - 1 ? 0.4 : 1 }}>▼</button>
                             <button onClick={() => renameSection(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>✎ Rinomina</button>
-                            <button onClick={() => addSottocategoria(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>+ Sottocategoria</button>
+                            <button onClick={() => addCategoria(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>+ Categoria</button>
                             <button onClick={() => addPartialSubtotal(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>+ Sommatoria parziale</button>
                             {!hasRealItems && (
                               <button onClick={() => removeMarkerOrEmptySection(section.name)} style={{ ...rowBtnStyle, background: 'rgba(255,255,255,0.15)', color: C.white, border: 'none' }}>🗑</button>
@@ -2320,42 +2619,82 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                           </div>
                         </div>
 
-                        {section.sottocategorie.length === 0 ? (
-                          <p style={{ fontSize: 12, color: C.gray, padding: '10px 14px' }}>Nessuna sottocategoria ancora in questa macrocategoria.</p>
-                        ) : section.sottocategorie.map((sc, scIdx) => {
-                          const mergeCandidates = sc.items.filter((it) => it.autoCode);
+                        {section.categorie.length === 0 ? (
+                          <p style={{ fontSize: 12, color: C.gray, padding: '10px 14px' }}>Nessuna categoria ancora in questa macrocategoria.</p>
+                        ) : section.categorie.map((cat, catIdx) => {
+                          const catKey = `${section.name}|${cat.name}`;
+                          const catHasItems = cat.sottocategorie.some((sc) => sc.items.length > 0);
                           return (
                             <div
-                              key={sc.name}
+                              key={cat.name}
                               style={{
                                 borderTop: `1px solid ${C.paleGray}`,
-                                background: dragOverTarget === `${section.name}|${sc.name}` ? 'rgba(128,20,48,0.06)' : 'transparent',
+                                background: dragOverTarget === catKey ? 'rgba(128,20,48,0.06)' : 'transparent',
                               }}
-                              data-sotto-row={`${section.name}|${sc.name}`}
+                              data-categoria-row={catKey}
                             >
-                              {/* Stesso motivo della card macro: solo la riga di intestazione della sottocategoria
-                                  è un bersaglio di trascinamento "forzato", non l'intera tabella di voci sotto. */}
+                              {/* Come per la macrocategoria: solo la fascia di intestazione della categoria è
+                                  un bersaglio di trascinamento "forzato", non l'intero blocco sotto. */}
                               <div
-                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(`${section.name}|${sc.name}`); }}
-                                onDragLeave={() => setDragOverTarget((t) => (t === `${section.name}|${sc.name}` ? null : t))}
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(catKey); }}
+                                onDragLeave={() => setDragOverTarget((t) => (t === catKey ? null : t))}
                                 onDrop={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
                                   setDragOverTarget(null);
                                   const data = e.dataTransfer.getData('application/json');
                                   if (!data) return;
-                                  addVoceToTarget(JSON.parse(data), section.name, sc.name);
+                                  addVoceToTarget(JSON.parse(data), section.name, cat.name);
                                 }}
-                                style={{ background: '#f7f5f0', padding: '6px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}
+                                style={{ background: '#efe8db', padding: '7px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6, borderLeft: `4px solid ${section.color}` }}
+                              >
+                                <span style={{ fontWeight: 700, fontSize: 12.5, color: C.black }}>{cat.name}</span>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                                  <button onClick={() => moveCategoria(section.name, cat.name, 'up')} disabled={catIdx === 0} style={{ ...iconBtn, height: 22, opacity: catIdx === 0 ? 0.4 : 1 }}>▲</button>
+                                  <button onClick={() => moveCategoria(section.name, cat.name, 'down')} disabled={catIdx === section.categorie.length - 1} style={{ ...iconBtn, height: 22, opacity: catIdx === section.categorie.length - 1 ? 0.4 : 1 }}>▼</button>
+                                  <button onClick={() => renameCategoria(section.name, cat.name)} style={rowBtnStyle}>✎ Rinomina</button>
+                                  <button onClick={() => addSottocategoria(section.name, cat.name)} style={rowBtnStyle}>+ Sottocategoria</button>
+                                  <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: 'Generale', initialItem: null })} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, border: 'none' }}>+ Voce</button>
+                                  {!catHasItems && (
+                                    <button onClick={() => removeCategoria(section.name, cat.name)} style={rowBtnStyle}>🗑</button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {cat.sottocategorie.length === 0 ? (
+                                <p style={{ fontSize: 12, color: C.gray, padding: '8px 14px 8px 22px' }}>Nessuna sottocategoria ancora in questa categoria.</p>
+                              ) : cat.sottocategorie.map((sc, scIdx) => (
+                            <div
+                              key={sc.name}
+                              style={{
+                                borderTop: `1px solid ${C.paleGray}`,
+                                background: dragOverTarget === `${catKey}|${sc.name}` ? 'rgba(128,20,48,0.06)' : 'transparent',
+                              }}
+                              data-sotto-row={`${catKey}|${sc.name}`}
+                            >
+                              {/* Stesso motivo della card macro/categoria: solo la riga di intestazione della
+                                  sottocategoria è un bersaglio di trascinamento "forzato", non l'intera tabella di voci sotto. */}
+                              <div
+                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(`${catKey}|${sc.name}`); }}
+                                onDragLeave={() => setDragOverTarget((t) => (t === `${catKey}|${sc.name}` ? null : t))}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setDragOverTarget(null);
+                                  const data = e.dataTransfer.getData('application/json');
+                                  if (!data) return;
+                                  addVoceToTarget(JSON.parse(data), section.name, cat.name, sc.name);
+                                }}
+                                style={{ background: '#f7f5f0', padding: '6px 14px 6px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}
                               >
                                 <span style={{ fontWeight: 700, fontSize: 12, color: C.black }}>{sc.name}</span>
                                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                  <button onClick={() => moveSottocategoria(section.name, sc.name, 'up')} disabled={scIdx === 0} style={{ ...iconBtn, height: 22, opacity: scIdx === 0 ? 0.4 : 1 }}>▲</button>
-                                  <button onClick={() => moveSottocategoria(section.name, sc.name, 'down')} disabled={scIdx === section.sottocategorie.length - 1} style={{ ...iconBtn, height: 22, opacity: scIdx === section.sottocategorie.length - 1 ? 0.4 : 1 }}>▼</button>
-                                  <button onClick={() => renameSottocategoria(section.name, sc.name)} style={rowBtnStyle}>✎ Rinomina</button>
-                                  <button onClick={() => setVoceComputoCtx({ macroName: section.name, sottoName: sc.name, initialItem: null })} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, border: 'none' }}>+ Voce</button>
+                                  <button onClick={() => moveSottocategoria(section.name, cat.name, sc.name, 'up')} disabled={scIdx === 0} style={{ ...iconBtn, height: 22, opacity: scIdx === 0 ? 0.4 : 1 }}>▲</button>
+                                  <button onClick={() => moveSottocategoria(section.name, cat.name, sc.name, 'down')} disabled={scIdx === cat.sottocategorie.length - 1} style={{ ...iconBtn, height: 22, opacity: scIdx === cat.sottocategorie.length - 1 ? 0.4 : 1 }}>▼</button>
+                                  <button onClick={() => renameSottocategoria(section.name, cat.name, sc.name)} style={rowBtnStyle}>✎ Rinomina</button>
+                                  <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: sc.name, initialItem: null })} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, border: 'none' }}>+ Voce</button>
                                   {sc.items.length === 0 && (
-                                    <button onClick={() => removeSottocategoria(section.name, sc.name)} style={rowBtnStyle}>🗑</button>
+                                    <button onClick={() => removeSottocategoria(section.name, cat.name, sc.name)} style={rowBtnStyle}>🗑</button>
                                   )}
                                 </div>
                               </div>
@@ -2411,7 +2750,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                           {it.autoCode ? (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                               <span style={{ fontWeight: 700 }}>{it.qty}</span>
-                                              <button onClick={() => setVoceComputoCtx({ macroName: section.name, sottoName: sc.name, initialItem: it })} style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}>✎</button>
+                                              <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: sc.name, initialItem: it })} style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}>✎</button>
                                             </span>
                                           ) : (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -2421,7 +2760,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                                 style={{ width: 60, fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right' }}
                                               />
                                               <button
-                                                onClick={() => setVoceComputoCtx({ macroName: section.name, sottoName: sc.name, initialItem: it })}
+                                                onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: sc.name, initialItem: it })}
                                                 title="Apri il pannello misurazioni per questa voce (i dati del listino restano invariati finché non salvi)"
                                                 style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}
                                               >
@@ -2490,6 +2829,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                 </div>
                               )}
                             </div>
+                              ))}
+                            </div>
                           );
                         })}
 
@@ -2550,12 +2891,13 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                 {voceComputoCtx && (
                   <VoceComputoModal
                     macroName={voceComputoCtx.macroName}
+                    categoriaName={voceComputoCtx.categoriaName}
                     sottoName={voceComputoCtx.sottoName}
                     initialItem={voceComputoCtx.initialItem}
                     prefill={voceComputoCtx.prefill}
-                    mergeCandidates={(groupedSections.find((s) => s.name === voceComputoCtx.macroName)?.sottocategorie.find((sc) => sc.name === voceComputoCtx.sottoName)?.items || []).filter((it) => it.autoCode && it.id !== voceComputoCtx.initialItem?.id)}
+                    mergeCandidates={(groupedSections.find((s) => s.name === voceComputoCtx.macroName)?.categorie.find((c) => c.name === (voceComputoCtx.categoriaName || 'Generale'))?.sottocategorie.find((sc) => sc.name === voceComputoCtx.sottoName)?.items || []).filter((it) => it.autoCode && it.id !== voceComputoCtx.initialItem?.id)}
                     onClose={() => setVoceComputoCtx(null)}
-                    onSave={(voceData) => saveVoceComputo(voceComputoCtx.macroName, voceComputoCtx.sottoName, voceData)}
+                    onSave={(voceData) => saveVoceComputo(voceComputoCtx.macroName, voceComputoCtx.categoriaName || 'Generale', voceComputoCtx.sottoName, voceData)}
                   />
                 )}
               </div>
@@ -3065,6 +3407,20 @@ function ConfrontoPage({ projects }) {
     </div>
   );
 }
+
+// Impostazioni studio: dati anagrafici mostrati in automatico su intestazione/piè di pagina del PDF del
+// computo, più l'eventuale intestazione/piè di pagina "personalizzata" (immagini caricate dallo studio,
+// che sostituiscono del tutto l'intestazione/piè di pagina generata dai campi). Le immagini sono salvate
+// come data URL inline, con lo stesso meccanismo già usato per le planimetrie dei progetti.
+const DEFAULT_STUDIO_SETTINGS = {
+  nome: '', indirizzo: '', piva: '', cf: '', telefono: '', email: '', sito: '',
+  logo: null, // data URL
+  usaIntestazionePersonalizzata: false,
+  intestazioneImg: null, // data URL, mostrata al posto dei dati anagrafici in cima a ogni pagina stampata
+  usaPiePersonalizzato: false,
+  pieImg: null, // data URL, mostrata al posto del testo di piè di pagina predefinito
+  testoPiePagina: '',
+};
 
 const INITIAL_FORNITORI = [
   {
@@ -3741,6 +4097,121 @@ function TeamPage({ profile }) {
   );
 }
 
+// Pagina "Impostazioni studio": dati anagrafici usati per l'intestazione/piè di pagina automatici del PDF
+// del computo, più la possibilità di caricare un'intestazione e un piè di pagina "personalizzati" (immagini
+// pronte, es. carta intestata già impaginata) che sostituiscono del tutto quelli generati dai campi. Tutto
+// è salvato in cea.app_state insieme al resto del workspace, quindi condiviso da tutto il team.
+function ImpostazioniPage({ settings, onUpdate }) {
+  const set = (field) => (e) => onUpdate({ [field]: e.target.value });
+
+  const uploadImage = (field, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onUpdate({ [field]: reader.result });
+    reader.readAsDataURL(file);
+  };
+
+  const labelStyle = { fontSize: 11, fontWeight: 700, color: C.midGray };
+  const fieldStyle = { width: '100%', fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px', background: C.bg };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
+        <h1 style={h1Style}>Impostazioni studio</h1>
+        <span style={freshBadge}>Workspace condiviso</span>
+      </div>
+
+      <div style={{ ...card, marginBottom: 18 }}>
+        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Dati dello studio</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>Questi dati compaiono automaticamente in intestazione e piè di pagina di ogni computo metrico stampato in PDF, a meno di caricare un'intestazione/piè di pagina personalizzata qui sotto.</p>
+
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 260px' }}>
+            <label style={labelStyle}>Nome studio</label>
+            <input value={settings.nome} onChange={set('nome')} placeholder="Desearq Studio" style={fieldStyle} />
+          </div>
+          <div style={{ flex: '1 1 260px' }}>
+            <label style={labelStyle}>Indirizzo</label>
+            <input value={settings.indirizzo} onChange={set('indirizzo')} placeholder="Via, numero civico, città" style={fieldStyle} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 160px' }}>
+            <label style={labelStyle}>P.IVA</label>
+            <input value={settings.piva} onChange={set('piva')} style={fieldStyle} />
+          </div>
+          <div style={{ flex: '1 1 160px' }}>
+            <label style={labelStyle}>Codice fiscale</label>
+            <input value={settings.cf} onChange={set('cf')} style={fieldStyle} />
+          </div>
+          <div style={{ flex: '1 1 160px' }}>
+            <label style={labelStyle}>Telefono</label>
+            <input value={settings.telefono} onChange={set('telefono')} style={fieldStyle} />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={labelStyle}>Email</label>
+            <input value={settings.email} onChange={set('email')} style={fieldStyle} />
+          </div>
+          <div style={{ flex: '1 1 200px' }}>
+            <label style={labelStyle}>Sito web</label>
+            <input value={settings.sito} onChange={set('sito')} style={fieldStyle} />
+          </div>
+        </div>
+
+        <label style={labelStyle}>Logo studio</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 4px' }}>
+          {settings.logo && <img src={settings.logo} alt="Logo studio" style={{ height: 44, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
+          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+            {settings.logo ? 'Sostituisci logo' : 'Carica logo'}
+            <input type="file" accept="image/*" onChange={(e) => uploadImage('logo', e.target.files[0])} style={{ display: 'none' }} />
+          </label>
+          {settings.logo && <button onClick={() => onUpdate({ logo: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+        </div>
+      </div>
+
+      <div style={{ ...card, marginBottom: 18 }}>
+        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Intestazione personalizzata</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF.</p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
+          <input type="checkbox" checked={settings.usaIntestazionePersonalizzata} onChange={(e) => onUpdate({ usaIntestazionePersonalizzata: e.target.checked })} />
+          Usa l'immagine personalizzata invece dei dati anagrafici
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {settings.intestazioneImg && <img src={settings.intestazioneImg} alt="Intestazione personalizzata" style={{ maxHeight: 70, maxWidth: 260, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
+          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+            {settings.intestazioneImg ? 'Sostituisci immagine' : 'Carica immagine'}
+            <input type="file" accept="image/*" onChange={(e) => uploadImage('intestazioneImg', e.target.files[0])} style={{ display: 'none' }} />
+          </label>
+          {settings.intestazioneImg && <button onClick={() => onUpdate({ intestazioneImg: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+        </div>
+      </div>
+
+      <div style={{ ...card }}>
+        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Piè di pagina</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Un testo breve (es. dati di contatto o un promemoria legale) ripetuto in fondo a ogni pagina, oppure un'immagine personalizzata al posto del testo.</p>
+
+        <label style={labelStyle}>Testo piè di pagina</label>
+        <input value={settings.testoPiePagina} onChange={set('testoPiePagina')} placeholder="es. Desearq Studio — Via Roma 1, Milano — info@desearq.com" style={fieldStyle} />
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
+          <input type="checkbox" checked={settings.usaPiePersonalizzato} onChange={(e) => onUpdate({ usaPiePersonalizzato: e.target.checked })} />
+          Usa un'immagine personalizzata invece del testo
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {settings.pieImg && <img src={settings.pieImg} alt="Piè di pagina personalizzato" style={{ maxHeight: 50, maxWidth: 260, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
+          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+            {settings.pieImg ? 'Sostituisci immagine' : 'Carica immagine'}
+            <input type="file" accept="image/*" onChange={(e) => uploadImage('pieImg', e.target.files[0])} style={{ display: 'none' }} />
+          </label>
+          {settings.pieImg && <button onClick={() => onUpdate({ pieImg: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function LoginScreen({ onSignedIn }) {
   const [mode, setMode] = useState('signin'); // 'signin' | 'signup'
   const [name, setName] = useState('');
@@ -3842,6 +4313,7 @@ export default function GestionaleEdilePreview() {
   const [listini, setListini] = useState([{ id: 1, name: 'Listino standard 2026', macros: INITIAL_MACROS }]);
   const [activeListinoId, setActiveListinoId] = useState(1);
   const [fornitoriCatalog, setFornitoriCatalog] = useState(INITIAL_FORNITORI);
+  const [studioSettings, setStudioSettings] = useState(DEFAULT_STUDIO_SETTINGS);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // --- Autenticazione reale (Supabase Auth) ---
@@ -3893,6 +4365,7 @@ export default function GestionaleEdilePreview() {
       if (saved.listini) setListini(saved.listini);
       if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
       if (saved.fornitoriCatalog) setFornitoriCatalog(saved.fornitoriCatalog);
+      if (saved.studioSettings) setStudioSettings({ ...DEFAULT_STUDIO_SETTINGS, ...saved.studioSettings });
       setDataLoaded(true);
     });
   }, [profile]);
@@ -3902,13 +4375,13 @@ export default function GestionaleEdilePreview() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       cea.from('app_state').update({
-        data: { projects, listini, activeListinoId, fornitoriCatalog },
+        data: { projects, listini, activeListinoId, fornitoriCatalog, studioSettings },
         updated_at: new Date().toISOString(),
         updated_by: authUser?.id,
       }).eq('id', 1).then(({ error }) => { if (error) console.error('Salvataggio fallito:', error.message); });
     }, 900);
     return () => clearTimeout(saveTimer.current);
-  }, [projects, listini, activeListinoId, fornitoriCatalog, dataLoaded]);
+  }, [projects, listini, activeListinoId, fornitoriCatalog, studioSettings, dataLoaded]);
 
   const openProject = (id) => { setSelectedProjectId(id); setOpenRevisionId(null); setPage('progetto-dettaglio'); };
   const openRevisionInProject = (projectId, revisionId) => { setSelectedProjectId(projectId); setOpenRevisionId(revisionId); setPage('progetto-dettaglio'); };
@@ -3964,6 +4437,9 @@ export default function GestionaleEdilePreview() {
         @media print {
           .no-print { display: none !important; }
           .print-only { display: block !important; }
+          .print-only table { border-collapse: collapse; }
+          .print-only tr, .print-only thead { break-inside: avoid; page-break-inside: avoid; }
+          .print-only thead { display: table-header-group; }
         }
         .sidebar-item-btn:not(.active):hover { background: ${C.sidebarHover} !important; color: ${C.black} !important; }
         .btn-accent-pill:hover { background: #650F26 !important; }
@@ -4024,7 +4500,7 @@ export default function GestionaleEdilePreview() {
       `}</style>
       {printJob && (
         <div className="print-only">
-          <PrintableComputo project={printJob.project} revision={printJob.revision} clientOnly={printJob.clientOnly} />
+          <PrintableComputo project={printJob.project} revision={printJob.revision} clientOnly={printJob.clientOnly} studioSettings={studioSettings} />
         </div>
       )}
       <div className="no-print app-shell" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: PAGE_GRADIENT, backgroundAttachment: 'fixed' }}>
@@ -4125,6 +4601,7 @@ export default function GestionaleEdilePreview() {
           {page === 'confronto' && <ConfrontoPage projects={projects} />}
           {page === 'fornitori' && <FornitoriPage projects={projects} setProjects={setProjects} catalog={fornitoriCatalog} setCatalog={setFornitoriCatalog} />}
           {page === 'team' && <TeamPage profile={profile} />}
+          {page === 'impostazioni' && <ImpostazioniPage settings={studioSettings} onUpdate={(patch) => setStudioSettings((s) => ({ ...s, ...patch }))} />}
         </main>
       </div>
       </div>
