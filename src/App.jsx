@@ -1587,59 +1587,76 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   const footerActive = hasCustomFooter || !!ss.testoPiePagina;
   const PAGE_SIDE = 28; // margine orizzontale del contenuto e di intestazione/piè
 
+  // Font personalizzato dello studio (caricato in Impostazioni), incorporato via @font-face e usato al posto
+  // del font di sistema solo nel documento stampato. L'estensione del file scelto determina il formato dichiarato
+  // a @font-face (solo un suggerimento per il browser, non blocca il caricamento se sbagliato).
+  const hasCustomFont = ss.usaFontPersonalizzato && ss.fontPersonalizzato;
+  const fontExt = (ss.fontPersonalizzatoNome || '').split('.').pop().toLowerCase();
+  const fontFormat = { woff2: 'woff2', woff: 'woff', ttf: 'truetype', otf: 'opentype' }[fontExt] || 'woff2';
+  const effectiveFont = hasCustomFont ? `'StudioFontPersonalizzato', ${FONT}` : FONT;
+  const fontFaceCss = hasCustomFont
+    // font-display:swap (non "block"): mostra subito il testo con il font di riserva e passa al font
+    // personalizzato appena pronto. Con "block" il testo resta INVISIBILE finché il font non è pronto (fino
+    // a qualche secondo, per specifica) — troppo per una stampa che parte dopo poche centinaia di millisecondi,
+    // col rischio concreto di un PDF con pagine bianche anche se il font è incorporato come data URL.
+    ? `@font-face { font-family: 'StudioFontPersonalizzato'; src: url("${ss.fontPersonalizzato}") format("${fontFormat}"); font-display: swap; }`
+    : '';
+
   // Intestazione e piè di pagina sono le <thead>/<tfoot> di un'unica tabella che avvolge tutto il documento:
   // è lo stesso meccanismo, nativo dei browser e già usato per le intestazioni di colonna di ogni tabella di
   // voci più sotto, che ripete <thead>/<tfoot> in cima e in fondo a OGNI pagina stampata quando una tabella
   // supera l'altezza di una pagina — a differenza di un'intestazione "position: fixed", che nei test si è
   // rivelata inaffidabile nella generazione del PDF (poteva comparire spostata, a cavallo tra una pagina e
-  // l'altra). Con @page a margine zero, l'intestazione e il piè occupano il foglio a tutta larghezza, bordo
-  // a bordo; il contenuto vero e proprio (titolo, voci, totali) ha invece il proprio margine interno.
+  // l'altra). La regola @page {margin:0} è nel foglio di stile globale (sempre montato, non solo quando si
+  // stampa) così viene sicuramente letta dal motore di stampa prima che calcoli l'impaginazione: intestazione
+  // e piè occupano il foglio a tutta larghezza, bordo a bordo; il contenuto vero e proprio (titolo, voci,
+  // totali) ha invece il proprio margine interno. NOTA IMPORTANTE: la riga <tr> esterna che avvolge TUTTO il
+  // contenuto (sotto) non deve MAI avere break-inside:avoid — essendo alta quanto l'intero documento, forzare
+  // il browser a "non spezzarla" produce un'impaginazione rotta (righe tagliate, pagine confuse). L'unica
+  // protezione da interruzione va messa sulle singole righe piccole (voci, intestazioni di categoria, totali).
   return (
-    <div className="print-only" style={{ fontFamily: FONT, color: '#1A1A1A' }}>
-      <style>{'@page { margin: 0; }'}</style>
+    <div className="print-only" style={{ fontFamily: effectiveFont, color: '#1A1A1A' }}>
+      {fontFaceCss && <style>{fontFaceCss}</style>}
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         {headerActive && (
           <thead>
             <tr><td style={{ padding: 0 }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: `14px ${PAGE_SIDE}px`, borderBottom: '1px solid #E5E2DA', background: '#fff',
-              }}>
-                {hasCustomHeader ? (
-                  <img src={ss.intestazioneImg} alt="" style={{ maxHeight: 64, maxWidth: '100%', display: 'block' }} />
-                ) : (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                      {ss.logo && <img src={ss.logo} alt="" style={{ height: 42 }} />}
-                      {ss.nome && <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: 0.2, color: '#1A1A1A' }}>{ss.nome}</div>}
-                    </div>
-                    <div style={{ fontSize: 9, lineHeight: 1.6, color: '#8A8A8A', textAlign: 'right' }}>
-                      {(ss.indirizzo || ss.piva || ss.cf) && (
-                        <div>{[ss.indirizzo, ss.piva && `P.IVA ${ss.piva}`, ss.cf && `CF ${ss.cf}`].filter(Boolean).join('  ·  ')}</div>
-                      )}
-                      {(ss.telefono || ss.email || ss.sito) && (
-                        <div>{[ss.telefono, ss.email, ss.sito].filter(Boolean).join('  ·  ')}</div>
-                      )}
-                    </div>
+              {hasCustomHeader ? (
+                // Immagine personalizzata (es. carta intestata già impaginata): a piena larghezza, bordo a bordo.
+                <img src={ss.intestazioneImg} alt="" style={{ width: '100%', display: 'block' }} />
+              ) : (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 14,
+                  padding: `16px ${PAGE_SIDE}px`, borderBottom: '1px solid #E5E2DA', background: '#fff',
+                }}>
+                  {ss.logo && <img src={ss.logo} alt="" style={{ height: 42 }} />}
+                  <div>
+                    {ss.nome && <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: 0.2, color: '#1A1A1A' }}>{ss.nome}</div>}
+                    {(ss.indirizzo || ss.piva || ss.cf || ss.telefono || ss.email || ss.sito) && (
+                      <div style={{ fontSize: 9, color: '#8A8A8A', marginTop: 2 }}>
+                        {[ss.indirizzo, ss.piva && `P.IVA ${ss.piva}`, ss.telefono, ss.email].filter(Boolean).join('  ·  ')}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </div>
+              )}
             </td></tr>
           </thead>
         )}
         {footerActive && (
           <tfoot>
             <tr><td style={{ padding: 0 }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: `8px ${PAGE_SIDE}px`, borderTop: '1px solid #E5E2DA', background: '#fff',
-              }}>
-                {hasCustomFooter ? (
-                  <img src={ss.pieImg} alt="" style={{ maxHeight: 32, maxWidth: '100%' }} />
-                ) : (
+              {hasCustomFooter ? (
+                // Stessa logica dell'intestazione: immagine personalizzata a piena larghezza, bordo a bordo.
+                <img src={ss.pieImg} alt="" style={{ width: '100%', display: 'block' }} />
+              ) : (
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  padding: `8px ${PAGE_SIDE}px`, borderTop: '1px solid #E5E2DA', background: '#fff',
+                }}>
                   <p style={{ fontSize: 8.5, color: '#8A8A8A', margin: 0, letterSpacing: 0.3, textAlign: 'center' }}>{ss.testoPiePagina}</p>
-                )}
-              </div>
+                </div>
+              )}
             </td></tr>
           </tfoot>
         )}
@@ -3346,6 +3363,9 @@ const DEFAULT_STUDIO_SETTINGS = {
   usaPiePersonalizzato: false,
   pieImg: null, // data URL, mostrata al posto del testo di piè di pagina predefinito
   testoPiePagina: '',
+  usaFontPersonalizzato: false,
+  fontPersonalizzato: null, // data URL del file font (woff2/woff/ttf/otf), usato nel PDF al posto del font di sistema
+  fontPersonalizzatoNome: '', // nome del file caricato, solo per mostrarlo in Impostazioni
 };
 
 const INITIAL_FORNITORI = [
@@ -4037,6 +4057,13 @@ function ImpostazioniPage({ settings, onUpdate }) {
     reader.readAsDataURL(file);
   };
 
+  const uploadFont = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => onUpdate({ fontPersonalizzato: reader.result, fontPersonalizzatoNome: file.name, usaFontPersonalizzato: true });
+    reader.readAsDataURL(file);
+  };
+
   const labelStyle = { fontSize: 11, fontWeight: 700, color: C.midGray };
   const fieldStyle = { width: '100%', fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px', background: C.bg };
 
@@ -4099,7 +4126,7 @@ function ImpostazioniPage({ settings, onUpdate }) {
 
       <div style={{ ...card, marginBottom: 18 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Intestazione personalizzata</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF.</p>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF. Viene stampata a piena larghezza, bordo a bordo.</p>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
           <input type="checkbox" checked={settings.usaIntestazionePersonalizzata} onChange={(e) => onUpdate({ usaIntestazionePersonalizzata: e.target.checked })} />
           Usa l'immagine personalizzata invece dei dati anagrafici
@@ -4114,9 +4141,9 @@ function ImpostazioniPage({ settings, onUpdate }) {
         </div>
       </div>
 
-      <div style={{ ...card }}>
+      <div style={{ ...card, marginBottom: 18 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Piè di pagina</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Un testo breve (es. dati di contatto o un promemoria legale) ripetuto in fondo a ogni pagina, oppure un'immagine personalizzata al posto del testo.</p>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Un testo breve (es. dati di contatto o un promemoria legale) ripetuto in fondo a ogni pagina, oppure un'immagine personalizzata al posto del testo (anche questa a piena larghezza, bordo a bordo).</p>
 
         <label style={labelStyle}>Testo piè di pagina</label>
         <input value={settings.testoPiePagina} onChange={set('testoPiePagina')} placeholder="es. Desearq Studio — Via Roma 1, Milano — info@desearq.com" style={fieldStyle} />
@@ -4132,6 +4159,23 @@ function ImpostazioniPage({ settings, onUpdate }) {
             <input type="file" accept="image/*" onChange={(e) => uploadImage('pieImg', e.target.files[0])} style={{ display: 'none' }} />
           </label>
           {settings.pieImg && <button onClick={() => onUpdate({ pieImg: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+        </div>
+      </div>
+
+      <div style={{ ...card }}>
+        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Font personalizzato</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica il font del tuo studio (.woff2, .woff, .ttf o .otf) da usare nel testo dei computi metrici stampati in PDF, al posto del font di sistema.</p>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
+          <input type="checkbox" checked={settings.usaFontPersonalizzato} disabled={!settings.fontPersonalizzato} onChange={(e) => onUpdate({ usaFontPersonalizzato: e.target.checked })} />
+          Usa il font personalizzato nel PDF invece del font di sistema
+        </label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {settings.fontPersonalizzatoNome && <span style={{ fontSize: 12, color: C.darkGray }}>{settings.fontPersonalizzatoNome}</span>}
+          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+            {settings.fontPersonalizzato ? 'Sostituisci font' : 'Carica font'}
+            <input type="file" accept=".woff,.woff2,.ttf,.otf" onChange={(e) => uploadFont(e.target.files[0])} style={{ display: 'none' }} />
+          </label>
+          {settings.fontPersonalizzato && <button onClick={() => onUpdate({ fontPersonalizzato: null, fontPersonalizzatoNome: '', usaFontPersonalizzato: false })} style={rowBtnStyle}>🗑 Rimuovi</button>}
         </div>
       </div>
     </div>
@@ -4318,11 +4362,33 @@ export default function GestionaleEdilePreview() {
 
   React.useEffect(() => {
     if (!printJob) return;
-    const t = setTimeout(() => window.print(), 150);
+    let cancelled = false;
+    // Prima di stampare: un minimo di tempo perché il DOM di stampa si monti, poi — se è attivo un font
+    // personalizzato — lo si carica esplicitamente con la FontFace API invece di limitarsi a dichiararlo in
+    // CSS (@font-face) e sperare che il browser lo richieda in tempo: legato al solo CSS, un font incorporato
+    // come data URL può restare "in coda" e non essere pronto quando parte la stampa, col risultato che il PDF
+    // esce col font di riserva senza errori né avvisi. Un tetto massimo di attesa evita che un font rotto o
+    // troppo lento blocchi la stampa indefinitamente (si stampa comunque, col font di riserva).
+    const ssNow = studioSettings || DEFAULT_STUDIO_SETTINGS;
+    const hasCustomFontNow = ssNow.usaFontPersonalizzato && ssNow.fontPersonalizzato;
+    const minWait = new Promise((resolve) => setTimeout(resolve, 150));
+    const timeoutGuard = new Promise((resolve) => setTimeout(resolve, 1500));
+    const fontLoad = hasCustomFontNow
+      ? (async () => {
+          try {
+            const face = new FontFace('StudioFontPersonalizzato', `url(${JSON.stringify(ssNow.fontPersonalizzato)})`);
+            const loaded = await face.load();
+            document.fonts.add(loaded);
+          } catch (e) {
+            console.error('Caricamento del font personalizzato fallito, stampa con il font di riserva:', e);
+          }
+        })()
+      : Promise.resolve();
+    Promise.all([minWait, Promise.race([fontLoad, timeoutGuard])]).then(() => { if (!cancelled) window.print(); });
     const handleAfterPrint = () => setPrintJob(null);
     window.addEventListener('afterprint', handleAfterPrint);
-    return () => { clearTimeout(t); window.removeEventListener('afterprint', handleAfterPrint); };
-  }, [printJob]);
+    return () => { cancelled = true; window.removeEventListener('afterprint', handleAfterPrint); };
+  }, [printJob, studioSettings]);
 
   if (authUser === undefined) {
     return <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, color: C.gray, fontSize: 13 }}>Caricamento…</div>;
@@ -4360,12 +4426,14 @@ export default function GestionaleEdilePreview() {
         * { box-sizing: border-box; }
         html, body, #root { max-width: 100%; overflow-x: clip; }
         .print-only { display: none; }
+        @page { margin: 0; }
         @media print {
+          html, body { margin: 0 !important; padding: 0 !important; }
           .no-print { display: none !important; }
           .print-only { display: block !important; }
           .print-only table { border-collapse: collapse; }
-          .print-only tr, .print-only thead { break-inside: avoid; page-break-inside: avoid; }
-          .print-only thead { display: table-header-group; }
+          .print-only thead { display: table-header-group; break-inside: avoid; page-break-inside: avoid; }
+          .print-only tfoot { display: table-footer-group; }
         }
         .sidebar-item-btn:not(.active):hover { background: ${C.sidebarHover} !important; color: ${C.black} !important; }
         .btn-accent-pill:hover { background: #650F26 !important; }
