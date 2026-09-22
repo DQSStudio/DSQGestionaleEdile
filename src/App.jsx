@@ -792,7 +792,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: 16 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 640, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 4px', color: C.black }}>{isEdit ? 'Modifica voce' : 'Nuova voce'}</h2>
-        <p style={{ fontSize: 11, color: C.gray, margin: '0 0 16px' }}>{macroName} › {categoriaName || 'Generale'} › {sottoName}</p>
+        <p style={{ fontSize: 11, color: C.gray, margin: '0 0 16px' }}>{macroName} › {categoriaName || 'Generale'}</p>
 
         <label style={labelStyle}>Descrizione tecnica</label>
         <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrivi lavorazione, materiali e condizioni…" style={fieldStyle} />
@@ -1456,19 +1456,18 @@ function DraggableCatalogTree({ listino, onAdd }) {
   );
 }
 
-// Raggruppa le voci di una revisione su tre livelli (macrocategoria > categoria > sottocategoria),
-// rispettando l'ordine personalizzato salvato (macroOrder / categorieOrder / sottocategorieOrder) e i
-// gruppi creati ma ancora vuoti (extraSections / categorieDefinite / sottocategorie). Usata sia per la
-// visualizzazione a schermo del computo sia per la stampa PDF e l'export Excel, così restano sempre
-// coerenti tra loro. La sottocategoria è tenuta per chiave composta "macro|categoria" perché lo stesso
-// nome di sottocategoria può comparire sotto più categorie diverse.
+// Raggruppa le voci di una revisione su due livelli (macrocategoria > categoria), con le voci elencate
+// direttamente sotto la loro categoria (senza un'ulteriore intestazione di sottocategoria: nel listino la
+// sottocategoria è spesso quasi identica alla singola voce, quindi mostrarla come riga a parte era solo
+// rumore visivo — resta comunque salvata su ogni voce, non mostrata). Rispetta l'ordine personalizzato
+// salvato (macroOrder / categorieOrder) e i gruppi creati ma ancora vuoti (extraSections / categorieDefinite).
+// Usata sia per la visualizzazione a schermo del computo sia per la stampa PDF e l'export Excel, così
+// restano sempre coerenti tra loro.
 function buildComputoGroups(revision) {
   const items = revision?.items || [];
   const extraSections = revision?.extraSections || [];
   const categorieOrderSaved = revision?.categorieOrder || {};
   const categorieDefinedEmpty = revision?.categorieDefinite || {};
-  const sottoOrderSaved = revision?.sottocategorieOrder || {};
-  const sottoDefinedEmpty = revision?.sottocategorie || {};
 
   const rawMacroNames = [];
   extraSections.forEach((name) => { if (!rawMacroNames.includes(name)) rawMacroNames.push(name); });
@@ -1491,22 +1490,10 @@ function buildComputoGroups(revision) {
     });
     const catNames = orderNames(rawCatNames, categorieOrderSaved[name]);
 
-    const categorie = catNames.map((catName) => {
-      const catKey = `${name}|${catName}`;
-      const catItems = realSectionItems.filter((it) => (it.categoria || 'Generale') === catName);
-      const rawSottoNames = [];
-      (sottoDefinedEmpty[catKey] || []).forEach((s) => { if (!rawSottoNames.includes(s)) rawSottoNames.push(s); });
-      catItems.forEach((it) => {
-        const s = it.sottocategoria || 'Generale';
-        if (!rawSottoNames.includes(s)) rawSottoNames.push(s);
-      });
-      const sottoNames = orderNames(rawSottoNames, sottoOrderSaved[catKey]);
-      const sottocategorie = sottoNames.map((sName) => ({
-        name: sName,
-        items: catItems.filter((it) => (it.sottocategoria || 'Generale') === sName),
-      }));
-      return { name: catName, items: catItems, sottocategorie };
-    });
+    const categorie = catNames.map((catName) => ({
+      name: catName,
+      items: realSectionItems.filter((it) => (it.categoria || 'Generale') === catName),
+    }));
 
     return { name, color: SECTION_COLORS[idx % SECTION_COLORS.length], items: sectionItems, categorie, subtotalMarkers };
   });
@@ -1522,40 +1509,38 @@ function exportComputoExcel(project, revision, clientOnly) {
   rows.push(['Data modifica', revision.dateModified]);
   rows.push([]);
   rows.push(clientOnly
-    ? ['Sezione', 'Categoria', 'Sottocategoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente']
-    : ['Sezione', 'Categoria', 'Sottocategoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo impresa', 'Totale impresa', 'Prezzo cliente', 'Totale cliente']);
+    ? ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente']
+    : ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo impresa', 'Totale impresa', 'Prezzo cliente', 'Totale cliente']);
 
   groups.forEach((g) => {
     let runImpresa = 0;
     let runCliente = 0;
     g.categorie.forEach((cat) => {
-      cat.sottocategorie.forEach((sotto) => {
-        sotto.items.forEach((it) => {
-          const qty = parseEuro(it.qty);
-          const totImpresa = parseEuro(it.unitPriceImpresa) * qty;
-          const totCliente = parseEuro(it.unitPriceCliente) * qty;
-          runImpresa += totImpresa;
-          runCliente += totCliente;
-          rows.push(clientOnly
-            ? [g.name, cat.name, sotto.name, it.code, it.desc, it.qty, it.unit, it.unitPriceCliente, formatEuro(totCliente)]
-            : [g.name, cat.name, sotto.name, it.code, it.desc, it.qty, it.unit, it.unitPriceImpresa, formatEuro(totImpresa), it.unitPriceCliente, formatEuro(totCliente)]);
-        });
+      cat.items.forEach((it) => {
+        const qty = parseEuro(it.qty);
+        const totImpresa = parseEuro(it.unitPriceImpresa) * qty;
+        const totCliente = parseEuro(it.unitPriceCliente) * qty;
+        runImpresa += totImpresa;
+        runCliente += totCliente;
+        rows.push(clientOnly
+          ? [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceCliente, formatEuro(totCliente)]
+          : [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceImpresa, formatEuro(totImpresa), it.unitPriceCliente, formatEuro(totCliente)]);
       });
     });
     g.subtotalMarkers.forEach((it) => {
       const hasVat = it.vatRate !== null && it.vatRate !== undefined;
       if (hasVat) {
         if (!clientOnly) {
-          rows.push([g.name, '', '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(runImpresa)]);
-          rows.push([g.name, '', '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(runImpresa * (it.vatRate / 100))]);
-          rows.push([g.name, '', '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(runImpresa * (1 + it.vatRate / 100))]);
+          rows.push([g.name, '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(runImpresa)]);
+          rows.push([g.name, '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(runImpresa * (it.vatRate / 100))]);
+          rows.push([g.name, '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(runImpresa * (1 + it.vatRate / 100))]);
         } else {
-          rows.push([g.name, '', '', '', `${it.title} — IVA esclusa`, '', '', formatEuro(runCliente)]);
-          rows.push([g.name, '', '', '', `${it.title} — ${it.vatLabel}`, '', '', formatEuro(runCliente * (it.vatRate / 100))]);
-          rows.push([g.name, '', '', '', `${it.title} — IVA inclusa`, '', '', formatEuro(runCliente * (1 + it.vatRate / 100))]);
+          rows.push([g.name, '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(runCliente)]);
+          rows.push([g.name, '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(runCliente * (it.vatRate / 100))]);
+          rows.push([g.name, '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(runCliente * (1 + it.vatRate / 100))]);
         }
       } else {
-        rows.push([g.name, '', '', '', `— ${it.title} —`]);
+        rows.push([g.name, '', '', `— ${it.title} —`]);
       }
       runImpresa = 0;
       runCliente = 0;
@@ -1679,31 +1664,22 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                   <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <td colSpan={clientOnly ? 6 : 8} style={{ padding: '6px 3px 2px', fontWeight: 700, fontSize: 11.5, borderBottom: '1px solid #ccc' }}>{cat.name}</td>
                   </tr>
-                  {cat.sottocategorie.map((sotto, si) => (
-                    <React.Fragment key={si}>
-                      {sotto.name !== 'Generale' && (
-                        <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                          <td colSpan={clientOnly ? 6 : 8} style={{ padding: '3px 3px 2px 12px', fontWeight: 600, fontStyle: 'italic' }}>{sotto.name}</td>
-                        </tr>
-                      )}
-                      {sotto.items.map((it, ii) => {
-                        runI += parseEuro(it.unitPriceImpresa) * parseEuro(it.qty);
-                        runC += parseEuro(it.unitPriceCliente) * parseEuro(it.qty);
-                        return (
-                        <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                          <td style={{ padding: '3px' }}>{it.code}</td>
-                          <td style={{ padding: '3px' }}>{it.desc}</td>
-                          <td style={{ padding: '3px', textAlign: 'right' }}>{it.qty}</td>
-                          <td style={{ padding: '3px' }}>{it.unit}</td>
-                          {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceImpresa} €</td>}
-                          {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
-                          <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceCliente} €</td>
-                          <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
-                        </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  ))}
+                  {cat.items.map((it, ii) => {
+                    runI += parseEuro(it.unitPriceImpresa) * parseEuro(it.qty);
+                    runC += parseEuro(it.unitPriceCliente) * parseEuro(it.qty);
+                    return (
+                    <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                      <td style={{ padding: '3px' }}>{it.code}</td>
+                      <td style={{ padding: '3px' }}>{it.desc}</td>
+                      <td style={{ padding: '3px', textAlign: 'right' }}>{it.qty}</td>
+                      <td style={{ padding: '3px' }}>{it.unit}</td>
+                      {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceImpresa} €</td>}
+                      {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
+                      <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceCliente} €</td>
+                      <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
+                    </tr>
+                    );
+                  })}
                 </React.Fragment>
               ))}
               {g.subtotalMarkers.map((it, ii) => {
@@ -1928,27 +1904,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, section: sectionName, categoria: 'Generale', sottocategoria: 'Generale' } : it)));
   };
 
-  const moveItemToCategoria = (id, categoriaName) => {
-    applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, categoria: categoriaName, sottocategoria: 'Generale' } : it)));
-  };
-
-  const moveItemToSottocategoria = (id, sottoName) => {
-    applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, sottocategoria: sottoName } : it)));
-  };
-
-  // Sposta una voce su/giù, scambiandola con la voce precedente/successiva della stessa sottocategoria
-  // (all'interno della stessa categoria e macrocategoria): è quest'ordine, insieme a quello di macro,
-  // categorie e sottocategorie, a determinare il codice automatico di ogni voce.
+  // Sposta una voce su/giù, scambiandola con la voce precedente/successiva della stessa categoria
+  // (all'interno della stessa macrocategoria): è quest'ordine, insieme a quello di macro e categorie,
+  // a determinare il codice automatico di ogni voce.
   const moveItemInSection = (id, direction) => {
     applyItemsChange((its) => {
       const item = its.find((it) => it.id === id);
       if (!item) return its;
       const sectionName = item.section || item.macro || 'Voci varie';
       const catName = item.categoria || 'Generale';
-      const sottoName = item.sottocategoria || 'Generale';
       const sameGroupIdx = its
         .map((it, idx) => ({ it, idx }))
-        .filter((o) => (o.it.section || o.it.macro || 'Voci varie') === sectionName && (o.it.categoria || 'Generale') === catName && (o.it.sottocategoria || 'Generale') === sottoName)
+        .filter((o) => (o.it.section || o.it.macro || 'Voci varie') === sectionName && (o.it.categoria || 'Generale') === catName)
         .map((o) => o.idx);
       const idxA = its.indexOf(item);
       const posInSection = sameGroupIdx.indexOf(idxA);
@@ -2009,78 +1976,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const renameCategoria = (macroName, oldName) => {
     const newName = prompt('Rinomina categoria:', oldName);
     if (!newName || newName === oldName) return;
-    applyRevisionChange((rev) => {
-      const oldKey = `${macroName}|${oldName}`;
-      const newKey = `${macroName}|${newName}`;
-      const rekey = (obj) => {
-        const next = { ...obj };
-        if (oldKey in next) { next[newKey] = next[oldKey]; delete next[oldKey]; }
-        return next;
-      };
-      return {
-        items: (rev.items || []).map((it) => ((it.section || it.macro) === macroName && (it.categoria || 'Generale') === oldName ? { ...it, categoria: newName } : it)),
-        categorieDefinite: { ...(rev.categorieDefinite || {}), [macroName]: ((rev.categorieDefinite || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
-        categorieOrder: { ...(rev.categorieOrder || {}), [macroName]: ((rev.categorieOrder || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
-        sottocategorie: rekey(rev.sottocategorie || {}),
-        sottocategorieOrder: rekey(rev.sottocategorieOrder || {}),
-      };
-    });
+    applyRevisionChange((rev) => ({
+      items: (rev.items || []).map((it) => ((it.section || it.macro) === macroName && (it.categoria || 'Generale') === oldName ? { ...it, categoria: newName } : it)),
+      categorieDefinite: { ...(rev.categorieDefinite || {}), [macroName]: ((rev.categorieDefinite || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
+      categorieOrder: { ...(rev.categorieOrder || {}), [macroName]: ((rev.categorieOrder || {})[macroName] || []).map((n) => (n === oldName ? newName : n)) },
+    }));
   };
 
   const removeCategoria = (macroName, catName) => {
     if (!confirm(`Rimuovere la categoria "${catName}"? (possibile solo se vuota)`)) return;
-    applyRevisionChange((rev) => {
-      const key = `${macroName}|${catName}`;
-      return {
-        categorieDefinite: { ...(rev.categorieDefinite || {}), [macroName]: ((rev.categorieDefinite || {})[macroName] || []).filter((n) => n !== catName) },
-        categorieOrder: { ...(rev.categorieOrder || {}), [macroName]: ((rev.categorieOrder || {})[macroName] || []).filter((n) => n !== catName) },
-        sottocategorie: Object.fromEntries(Object.entries(rev.sottocategorie || {}).filter(([k]) => k !== key)),
-        sottocategorieOrder: Object.fromEntries(Object.entries(rev.sottocategorieOrder || {}).filter(([k]) => k !== key)),
-      };
-    });
-  };
-
-  // Sposta una sottocategoria su/giù all'interno della sua categoria (chiave composta "macro|categoria",
-  // perché la stessa sottocategoria può comparire sotto più categorie diverse nella stessa macrocategoria).
-  const moveSottocategoria = (macroName, catName, sName, direction) => {
-    const section = groupedSections.find((s) => s.name === macroName);
-    const cat = section ? section.categorie.find((c) => c.name === catName) : null;
-    const current = cat ? cat.sottocategorie.map((sc) => sc.name) : [];
-    const idx = current.indexOf(sName);
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-    if (swapIdx < 0 || swapIdx >= current.length) return;
-    const next = [...current];
-    [next[idx], next[swapIdx]] = [next[swapIdx], next[idx]];
-    const key = `${macroName}|${catName}`;
-    applyRevisionChange((rev) => ({ sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [key]: next } }));
-  };
-
-  const addSottocategoria = (macroName, catName) => {
-    const name = prompt('Nome della nuova sottocategoria:');
-    if (!name) return;
-    const key = `${macroName}|${catName}`;
     applyRevisionChange((rev) => ({
-      sottocategorie: { ...(rev.sottocategorie || {}), [key]: [...((rev.sottocategorie || {})[key] || []), name] },
-    }));
-  };
-
-  const renameSottocategoria = (macroName, catName, oldName) => {
-    const newName = prompt('Rinomina sottocategoria:', oldName);
-    if (!newName || newName === oldName) return;
-    const key = `${macroName}|${catName}`;
-    applyRevisionChange((rev) => ({
-      items: (rev.items || []).map((it) => ((it.section || it.macro) === macroName && (it.categoria || 'Generale') === catName && (it.sottocategoria || 'Generale') === oldName ? { ...it, sottocategoria: newName } : it)),
-      sottocategorie: { ...(rev.sottocategorie || {}), [key]: ((rev.sottocategorie || {})[key] || []).map((n) => (n === oldName ? newName : n)) },
-      sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [key]: ((rev.sottocategorieOrder || {})[key] || []).map((n) => (n === oldName ? newName : n)) },
-    }));
-  };
-
-  const removeSottocategoria = (macroName, catName, sName) => {
-    if (!confirm(`Rimuovere la sottocategoria "${sName}"? (possibile solo se vuota)`)) return;
-    const key = `${macroName}|${catName}`;
-    applyRevisionChange((rev) => ({
-      sottocategorie: { ...(rev.sottocategorie || {}), [key]: ((rev.sottocategorie || {})[key] || []).filter((n) => n !== sName) },
-      sottocategorieOrder: { ...(rev.sottocategorieOrder || {}), [key]: ((rev.sottocategorieOrder || {})[key] || []).filter((n) => n !== sName) },
+      categorieDefinite: { ...(rev.categorieDefinite || {}), [macroName]: ((rev.categorieDefinite || {})[macroName] || []).filter((n) => n !== catName) },
+      categorieOrder: { ...(rev.categorieOrder || {}), [macroName]: ((rev.categorieOrder || {})[macroName] || []).filter((n) => n !== catName) },
     }));
   };
 
@@ -2623,7 +2530,6 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                           <p style={{ fontSize: 12, color: C.gray, padding: '10px 14px' }}>Nessuna categoria ancora in questa macrocategoria.</p>
                         ) : section.categorie.map((cat, catIdx) => {
                           const catKey = `${section.name}|${cat.name}`;
-                          const catHasItems = cat.sottocategorie.some((sc) => sc.items.length > 0);
                           return (
                             <div
                               key={cat.name}
@@ -2653,53 +2559,15 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                   <button onClick={() => moveCategoria(section.name, cat.name, 'up')} disabled={catIdx === 0} style={{ ...iconBtn, height: 22, opacity: catIdx === 0 ? 0.4 : 1 }}>▲</button>
                                   <button onClick={() => moveCategoria(section.name, cat.name, 'down')} disabled={catIdx === section.categorie.length - 1} style={{ ...iconBtn, height: 22, opacity: catIdx === section.categorie.length - 1 ? 0.4 : 1 }}>▼</button>
                                   <button onClick={() => renameCategoria(section.name, cat.name)} style={rowBtnStyle}>✎ Rinomina</button>
-                                  <button onClick={() => addSottocategoria(section.name, cat.name)} style={rowBtnStyle}>+ Sottocategoria</button>
                                   <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: 'Generale', initialItem: null })} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, border: 'none' }}>+ Voce</button>
-                                  {!catHasItems && (
+                                  {cat.items.length === 0 && (
                                     <button onClick={() => removeCategoria(section.name, cat.name)} style={rowBtnStyle}>🗑</button>
                                   )}
                                 </div>
                               </div>
 
-                              {cat.sottocategorie.length === 0 ? (
-                                <p style={{ fontSize: 12, color: C.gray, padding: '8px 14px 8px 22px' }}>Nessuna sottocategoria ancora in questa categoria.</p>
-                              ) : cat.sottocategorie.map((sc, scIdx) => (
-                            <div
-                              key={sc.name}
-                              style={{
-                                borderTop: `1px solid ${C.paleGray}`,
-                                background: dragOverTarget === `${catKey}|${sc.name}` ? 'rgba(128,20,48,0.06)' : 'transparent',
-                              }}
-                              data-sotto-row={`${catKey}|${sc.name}`}
-                            >
-                              {/* Stesso motivo della card macro/categoria: solo la riga di intestazione della
-                                  sottocategoria è un bersaglio di trascinamento "forzato", non l'intera tabella di voci sotto. */}
-                              <div
-                                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setDragOverTarget(`${catKey}|${sc.name}`); }}
-                                onDragLeave={() => setDragOverTarget((t) => (t === `${catKey}|${sc.name}` ? null : t))}
-                                onDrop={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  setDragOverTarget(null);
-                                  const data = e.dataTransfer.getData('application/json');
-                                  if (!data) return;
-                                  addVoceToTarget(JSON.parse(data), section.name, cat.name, sc.name);
-                                }}
-                                style={{ background: '#f7f5f0', padding: '6px 14px 6px 22px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}
-                              >
-                                <span style={{ fontWeight: 700, fontSize: 12, color: C.black }}>{sc.name}</span>
-                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                                  <button onClick={() => moveSottocategoria(section.name, cat.name, sc.name, 'up')} disabled={scIdx === 0} style={{ ...iconBtn, height: 22, opacity: scIdx === 0 ? 0.4 : 1 }}>▲</button>
-                                  <button onClick={() => moveSottocategoria(section.name, cat.name, sc.name, 'down')} disabled={scIdx === cat.sottocategorie.length - 1} style={{ ...iconBtn, height: 22, opacity: scIdx === cat.sottocategorie.length - 1 ? 0.4 : 1 }}>▼</button>
-                                  <button onClick={() => renameSottocategoria(section.name, cat.name, sc.name)} style={rowBtnStyle}>✎ Rinomina</button>
-                                  <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: sc.name, initialItem: null })} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, border: 'none' }}>+ Voce</button>
-                                  {sc.items.length === 0 && (
-                                    <button onClick={() => removeSottocategoria(section.name, cat.name, sc.name)} style={rowBtnStyle}>🗑</button>
-                                  )}
-                                </div>
-                              </div>
-                              {sc.items.length === 0 ? (
-                                <p style={{ fontSize: 12, color: C.gray, padding: '8px 14px' }}>Nessuna voce ancora in questa sottocategoria.</p>
+                              {cat.items.length === 0 ? (
+                                <p style={{ fontSize: 12, color: C.gray, padding: '8px 14px' }}>Nessuna voce ancora in questa categoria.</p>
                               ) : (
                                 <div className="table-scroll">
                                 <table style={{ width: '100%', minWidth: 960, borderCollapse: 'collapse', fontSize: 12 }}>
@@ -2719,7 +2587,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                     </tr>
                                   </thead>
                                   <tbody>
-                                    {sc.items.map((it) => {
+                                    {cat.items.map((it) => {
                                       const detailRows = (it.misurazioni || []).flatMap((g) => g.rows || []);
                                       const hasDetail = detailRows.length > 0 || !!it.note;
                                       const isExpanded = !!expandedItems[it.id];
@@ -2750,7 +2618,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                           {it.autoCode ? (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                                               <span style={{ fontWeight: 700 }}>{it.qty}</span>
-                                              <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: sc.name, initialItem: it })} style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}>✎</button>
+                                              <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: it.sottocategoria || 'Generale', initialItem: it })} style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}>✎</button>
                                             </span>
                                           ) : (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -2760,7 +2628,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                                 style={{ width: 60, fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right' }}
                                               />
                                               <button
-                                                onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: sc.name, initialItem: it })}
+                                                onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: it.sottocategoria || 'Generale', initialItem: it })}
                                                 title="Apri il pannello misurazioni per questa voce (i dati del listino restano invariati finché non salvi)"
                                                 style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}
                                               >
@@ -2829,8 +2697,6 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                 </div>
                               )}
                             </div>
-                              ))}
-                            </div>
                           );
                         })}
 
@@ -2895,7 +2761,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                     sottoName={voceComputoCtx.sottoName}
                     initialItem={voceComputoCtx.initialItem}
                     prefill={voceComputoCtx.prefill}
-                    mergeCandidates={(groupedSections.find((s) => s.name === voceComputoCtx.macroName)?.categorie.find((c) => c.name === (voceComputoCtx.categoriaName || 'Generale'))?.sottocategorie.find((sc) => sc.name === voceComputoCtx.sottoName)?.items || []).filter((it) => it.autoCode && it.id !== voceComputoCtx.initialItem?.id)}
+                    mergeCandidates={(groupedSections.find((s) => s.name === voceComputoCtx.macroName)?.categorie.find((c) => c.name === (voceComputoCtx.categoriaName || 'Generale'))?.items || []).filter((it) => it.autoCode && it.id !== voceComputoCtx.initialItem?.id)}
                     onClose={() => setVoceComputoCtx(null)}
                     onSave={(voceData) => saveVoceComputo(voceComputoCtx.macroName, voceComputoCtx.categoriaName || 'Generale', voceComputoCtx.sottoName, voceData)}
                   />
