@@ -2652,8 +2652,21 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                         <td style={{ padding: '8px 6px', textAlign: 'right', color: C.maroon }}>{it.unitPriceCliente} €</td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
                                         <td style={{ padding: '8px 6px' }}>
-                                          <select value={cat.name} onChange={(e) => moveItemToCategoria(it.id, e.target.value)} style={{ fontSize: 11, padding: '4px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}>
+                                          <select
+                                            value={cat.name}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              if (val === '__new__') {
+                                                const name = prompt('Nome della nuova categoria (es. Opere di demolizione, Opere di costruzione...):');
+                                                if (name) moveItemToCategoria(it.id, name);
+                                                return;
+                                              }
+                                              moveItemToCategoria(it.id, val);
+                                            }}
+                                            style={{ fontSize: 11, padding: '4px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}
+                                          >
                                             {section.categorie.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                            <option value="__new__">+ Nuova categoria…</option>
                                           </select>
                                         </td>
                                         <td style={{ padding: '8px 6px' }}>
