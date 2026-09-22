@@ -1585,7 +1585,10 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   const hasStudioInfo = ss.nome || ss.indirizzo || ss.piva || ss.cf || ss.telefono || ss.email || ss.sito || ss.logo;
   const headerActive = hasCustomHeader || hasStudioInfo;
   const footerActive = hasCustomFooter || !!ss.testoPiePagina;
-  const PAGE_SIDE = 28; // margine orizzontale del contenuto e di intestazione/piè
+  // Piccolo respiro interno per intestazione/piè/contenuto: il vero margine del foglio ora lo dà @page
+  // (vedi sotto), quindi qui basta poco — non va sommato a un margine già presente, altrimenti il bordo
+  // finale risulterebbe doppio.
+  const PAGE_SIDE = 4;
 
   // Font personalizzato dello studio (caricato in Impostazioni), incorporato via @font-face e usato al posto
   // del font di sistema solo nel documento stampato. L'estensione del file scelto determina il formato dichiarato
@@ -1607,13 +1610,15 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   // voci più sotto, che ripete <thead>/<tfoot> in cima e in fondo a OGNI pagina stampata quando una tabella
   // supera l'altezza di una pagina — a differenza di un'intestazione "position: fixed", che nei test si è
   // rivelata inaffidabile nella generazione del PDF (poteva comparire spostata, a cavallo tra una pagina e
-  // l'altra). La regola @page {margin:0} è nel foglio di stile globale (sempre montato, non solo quando si
-  // stampa) così viene sicuramente letta dal motore di stampa prima che calcoli l'impaginazione: intestazione
-  // e piè occupano il foglio a tutta larghezza, bordo a bordo; il contenuto vero e proprio (titolo, voci,
-  // totali) ha invece il proprio margine interno. NOTA IMPORTANTE: la riga <tr> esterna che avvolge TUTTO il
+  // l'altra). La regola @page (sotto, nel foglio di stile globale) imposta un vero margine di stampa su tutti
+  // i lati: niente più tocca il bordo fisico del foglio, intestazione e piè inclusi — l'immagine personalizzata
+  // di intestazione/piè riempie la larghezza disponibile DENTRO quel margine (non il foglio fisico), con una
+  // scala regolabile dall'utente in Impostazioni. NOTA IMPORTANTE: la riga <tr> esterna che avvolge TUTTO il
   // contenuto (sotto) non deve MAI avere break-inside:avoid — essendo alta quanto l'intero documento, forzare
   // il browser a "non spezzarla" produce un'impaginazione rotta (righe tagliate, pagine confuse). L'unica
   // protezione da interruzione va messa sulle singole righe piccole (voci, intestazioni di categoria, totali).
+  const headerScale = ss.intestazioneScala || 100;
+  const footerScale = ss.pieScala || 100;
   return (
     <div className="print-only" style={{ fontFamily: effectiveFont, color: '#1A1A1A' }}>
       {fontFaceCss && <style>{fontFaceCss}</style>}
@@ -1622,8 +1627,9 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
           <thead>
             <tr><td style={{ padding: 0 }}>
               {hasCustomHeader ? (
-                // Immagine personalizzata (es. carta intestata già impaginata): a piena larghezza, bordo a bordo.
-                <img src={ss.intestazioneImg} alt="" style={{ width: '100%', display: 'block' }} />
+                <div style={{ display: 'flex', justifyContent: 'center', padding: `10px ${PAGE_SIDE}px`, borderBottom: '1px solid #E5E2DA', background: '#fff' }}>
+                  <img src={ss.intestazioneImg} alt="" style={{ width: `${headerScale}%`, maxWidth: '100%', display: 'block' }} />
+                </div>
               ) : (
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: 14,
@@ -1647,8 +1653,9 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
           <tfoot>
             <tr><td style={{ padding: 0 }}>
               {hasCustomFooter ? (
-                // Stessa logica dell'intestazione: immagine personalizzata a piena larghezza, bordo a bordo.
-                <img src={ss.pieImg} alt="" style={{ width: '100%', display: 'block' }} />
+                <div style={{ display: 'flex', justifyContent: 'center', padding: `8px ${PAGE_SIDE}px`, borderTop: '1px solid #E5E2DA', background: '#fff' }}>
+                  <img src={ss.pieImg} alt="" style={{ width: `${footerScale}%`, maxWidth: '100%', display: 'block' }} />
+                </div>
               ) : (
                 <div style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1661,7 +1668,7 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
           </tfoot>
         )}
         <tbody>
-          <tr><td style={{ padding: `20px ${PAGE_SIDE}px` }}>
+          <tr><td style={{ padding: `16px ${PAGE_SIDE}px` }}>
 
       <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
       <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Progetto: {project.name} — Cliente: {project.client}</p>
@@ -3360,8 +3367,10 @@ const DEFAULT_STUDIO_SETTINGS = {
   logo: null, // data URL
   usaIntestazionePersonalizzata: false,
   intestazioneImg: null, // data URL, mostrata al posto dei dati anagrafici in cima a ogni pagina stampata
+  intestazioneScala: 100, // % della larghezza disponibile (dentro il margine di pagina) occupata dall'immagine
   usaPiePersonalizzato: false,
   pieImg: null, // data URL, mostrata al posto del testo di piè di pagina predefinito
+  pieScala: 100, // % della larghezza disponibile occupata dall'immagine del piè di pagina
   testoPiePagina: '',
   usaFontPersonalizzato: false,
   fontPersonalizzato: null, // data URL del file font (woff2/woff/ttf/otf), usato nel PDF al posto del font di sistema
@@ -4126,12 +4135,12 @@ function ImpostazioniPage({ settings, onUpdate }) {
 
       <div style={{ ...card, marginBottom: 18 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Intestazione personalizzata</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF. Viene stampata a piena larghezza, bordo a bordo.</p>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF, dentro il margine della pagina.</p>
         <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
           <input type="checkbox" checked={settings.usaIntestazionePersonalizzata} onChange={(e) => onUpdate({ usaIntestazionePersonalizzata: e.target.checked })} />
           Usa l'immagine personalizzata invece dei dati anagrafici
         </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: settings.intestazioneImg ? 14 : 0 }}>
           {settings.intestazioneImg && <img src={settings.intestazioneImg} alt="Intestazione personalizzata" style={{ maxHeight: 70, maxWidth: 260, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
           <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
             {settings.intestazioneImg ? 'Sostituisci immagine' : 'Carica immagine'}
@@ -4139,11 +4148,18 @@ function ImpostazioniPage({ settings, onUpdate }) {
           </label>
           {settings.intestazioneImg && <button onClick={() => onUpdate({ intestazioneImg: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
         </div>
+        {settings.intestazioneImg && (
+          <div>
+            <label style={labelStyle}>Dimensione immagine ({settings.intestazioneScala || 100}% della larghezza disponibile)</label>
+            <input type="range" min="25" max="200" step="5" value={settings.intestazioneScala || 100}
+              onChange={(e) => onUpdate({ intestazioneScala: Number(e.target.value) })} style={{ width: '100%', maxWidth: 320, display: 'block', margin: '4px 0 0' }} />
+          </div>
+        )}
       </div>
 
       <div style={{ ...card, marginBottom: 18 }}>
         <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Piè di pagina</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Un testo breve (es. dati di contatto o un promemoria legale) ripetuto in fondo a ogni pagina, oppure un'immagine personalizzata al posto del testo (anche questa a piena larghezza, bordo a bordo).</p>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Un testo breve (es. dati di contatto o un promemoria legale) ripetuto in fondo a ogni pagina, oppure un'immagine personalizzata al posto del testo, anche questa dentro il margine della pagina.</p>
 
         <label style={labelStyle}>Testo piè di pagina</label>
         <input value={settings.testoPiePagina} onChange={set('testoPiePagina')} placeholder="es. Desearq Studio — Via Roma 1, Milano — info@desearq.com" style={fieldStyle} />
@@ -4152,7 +4168,7 @@ function ImpostazioniPage({ settings, onUpdate }) {
           <input type="checkbox" checked={settings.usaPiePersonalizzato} onChange={(e) => onUpdate({ usaPiePersonalizzato: e.target.checked })} />
           Usa un'immagine personalizzata invece del testo
         </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: settings.pieImg ? 14 : 0 }}>
           {settings.pieImg && <img src={settings.pieImg} alt="Piè di pagina personalizzato" style={{ maxHeight: 50, maxWidth: 260, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
           <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
             {settings.pieImg ? 'Sostituisci immagine' : 'Carica immagine'}
@@ -4160,6 +4176,13 @@ function ImpostazioniPage({ settings, onUpdate }) {
           </label>
           {settings.pieImg && <button onClick={() => onUpdate({ pieImg: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
         </div>
+        {settings.pieImg && (
+          <div>
+            <label style={labelStyle}>Dimensione immagine ({settings.pieScala || 100}% della larghezza disponibile)</label>
+            <input type="range" min="25" max="200" step="5" value={settings.pieScala || 100}
+              onChange={(e) => onUpdate({ pieScala: Number(e.target.value) })} style={{ width: '100%', maxWidth: 320, display: 'block', margin: '4px 0 0' }} />
+          </div>
+        )}
       </div>
 
       <div style={{ ...card }}>
@@ -4426,7 +4449,11 @@ export default function GestionaleEdilePreview() {
         * { box-sizing: border-box; }
         html, body, #root { max-width: 100%; overflow-x: clip; }
         .print-only { display: none; }
-        @page { margin: 0; }
+        /* Margine vero della pagina stampata: niente (testo, tabelle, intestazione, piè) tocca più il bordo
+           fisico del foglio. Le immagini personalizzate di intestazione/piè riempiono la larghezza DISPONIBILE
+           dentro questo margine, non il foglio intero — la loro dimensione si regola con la "scala" in
+           Impostazioni studio, non allargando il margine della pagina. */
+        @page { margin: 16mm 14mm; }
         @media print {
           html, body { margin: 0 !important; padding: 0 !important; }
           .no-print { display: none !important; }
