@@ -1370,7 +1370,10 @@ function ComputoSectionsView({ sections }) {
   );
 }
 
-const SECTION_COLORS = [C.maroon, C.darkGray, '#94706C', C.sidebar];
+// Colori di sfondo delle intestazioni di macrosezione (testo sempre bianco sopra): tutti scelti abbastanza
+// scuri/saturi da garantire un contrasto leggibile col testo bianco. In precedenza l'ultimo colore del ciclo
+// era C.sidebar (#F6F4EF, quasi bianco) — su testo bianco risultava illeggibile dalla quarta macrosezione in poi.
+const SECTION_COLORS = [C.maroon, C.darkGray, '#94706C', '#4A3F35'];
 
 function DraggableCatalogTree({ listino, onAdd }) {
   const [expanded, setExpanded] = useState({});
@@ -1902,6 +1905,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
 
   const moveItemToSection = (id, sectionName) => {
     applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, section: sectionName, categoria: 'Generale', sottocategoria: 'Generale' } : it)));
+  };
+
+  // Sposta una voce in un'altra categoria della STESSA macrosezione (senza toccare macro o sottocategoria).
+  const moveItemToCategoria = (id, categoriaName) => {
+    applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, categoria: categoriaName } : it)));
   };
 
   // Sposta una voce su/giù, scambiandola con la voce precedente/successiva della stessa categoria
@@ -2582,6 +2590,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                       <th style={{ padding: '8px 6px', textAlign: 'right' }}>Totale impresa</th>
                                       <th style={{ padding: '8px 6px', textAlign: 'right' }}>Costo unitario cliente</th>
                                       <th style={{ padding: '8px 6px', textAlign: 'right' }}>Totale cliente</th>
+                                      <th style={{ padding: '8px 6px' }}>Categoria</th>
                                       <th style={{ padding: '8px 6px' }}>Macrosezione</th>
                                       <th style={{ padding: '8px 6px' }}></th>
                                     </tr>
@@ -2643,6 +2652,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                         <td style={{ padding: '8px 6px', textAlign: 'right', color: C.maroon }}>{it.unitPriceCliente} €</td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
                                         <td style={{ padding: '8px 6px' }}>
+                                          <select value={cat.name} onChange={(e) => moveItemToCategoria(it.id, e.target.value)} style={{ fontSize: 11, padding: '4px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}>
+                                            {section.categorie.map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+                                          </select>
+                                        </td>
+                                        <td style={{ padding: '8px 6px' }}>
                                           <select value={section.name} onChange={(e) => moveItemToSection(it.id, e.target.value)} style={{ fontSize: 11, padding: '4px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}>
                                             {allSectionNames.map((n) => <option key={n} value={n}>{n}</option>)}
                                           </select>
@@ -2654,7 +2668,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                       {isExpanded && hasDetail && (
                                         <tr style={{ background: '#f7f5f0' }}>
                                           <td></td>
-                                          <td colSpan={9} style={{ padding: '8px 6px 12px' }}>
+                                          <td colSpan={10} style={{ padding: '8px 6px 12px' }}>
                                             {detailRows.length > 0 && (
                                               <div className="table-scroll">
                                                 <table style={{ width: '100%', minWidth: 420, borderCollapse: 'collapse', fontSize: 11 }}>
