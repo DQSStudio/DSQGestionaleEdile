@@ -1583,60 +1583,85 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   const hasCustomHeader = ss.usaIntestazionePersonalizzata && ss.intestazioneImg;
   const hasCustomFooter = ss.usaPiePersonalizzato && ss.pieImg;
   const hasStudioInfo = ss.nome || ss.indirizzo || ss.piva || ss.cf || ss.telefono || ss.email || ss.sito || ss.logo;
+  const headerActive = hasCustomHeader || hasStudioInfo;
+  const footerActive = hasCustomFooter || !!ss.testoPiePagina;
+  const PAGE_SIDE = 28; // margine orizzontale del contenuto e di intestazione/piè
 
+  // Intestazione e piè di pagina sono le <thead>/<tfoot> di un'unica tabella che avvolge tutto il documento:
+  // è lo stesso meccanismo, nativo dei browser e già usato per le intestazioni di colonna di ogni tabella di
+  // voci più sotto, che ripete <thead>/<tfoot> in cima e in fondo a OGNI pagina stampata quando una tabella
+  // supera l'altezza di una pagina — a differenza di un'intestazione "position: fixed", che nei test si è
+  // rivelata inaffidabile nella generazione del PDF (poteva comparire spostata, a cavallo tra una pagina e
+  // l'altra). Con @page a margine zero, l'intestazione e il piè occupano il foglio a tutta larghezza, bordo
+  // a bordo; il contenuto vero e proprio (titolo, voci, totali) ha invece il proprio margine interno.
   return (
-    <div className="print-only" style={{ fontFamily: FONT, color: '#000' }}>
-      {/* Intestazione ripetuta su ogni pagina stampata (position: fixed si ripete su ogni pagina in
-          stampa dai browser basati su Chromium, incluso il "Salva come PDF"). */}
-      {(hasCustomHeader || hasStudioInfo) && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, padding: '10px 24px', borderBottom: '1px solid #ccc', background: '#fff' }}>
-          {hasCustomHeader ? (
-            <img src={ss.intestazioneImg} alt="" style={{ maxHeight: 60, maxWidth: '100%', display: 'block', margin: '0 auto' }} />
-          ) : (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              {ss.logo && <img src={ss.logo} alt="" style={{ height: 40 }} />}
-              <div style={{ fontSize: 10.5, lineHeight: 1.4 }}>
-                {ss.nome && <div style={{ fontWeight: 700, fontSize: 12 }}>{ss.nome}</div>}
-                <div>
-                  {[ss.indirizzo, ss.piva && `P.IVA ${ss.piva}`, ss.cf && `CF ${ss.cf}`].filter(Boolean).join(' — ')}
-                </div>
-                <div>{[ss.telefono, ss.email, ss.sito].filter(Boolean).join(' — ')}</div>
+    <div className="print-only" style={{ fontFamily: FONT, color: '#1A1A1A' }}>
+      <style>{'@page { margin: 0; }'}</style>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        {headerActive && (
+          <thead>
+            <tr><td style={{ padding: 0 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: `14px ${PAGE_SIDE}px`, borderBottom: '1px solid #E5E2DA', background: '#fff',
+              }}>
+                {hasCustomHeader ? (
+                  <img src={ss.intestazioneImg} alt="" style={{ maxHeight: 64, maxWidth: '100%', display: 'block' }} />
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      {ss.logo && <img src={ss.logo} alt="" style={{ height: 42 }} />}
+                      {ss.nome && <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: 0.2, color: '#1A1A1A' }}>{ss.nome}</div>}
+                    </div>
+                    <div style={{ fontSize: 9, lineHeight: 1.6, color: '#8A8A8A', textAlign: 'right' }}>
+                      {(ss.indirizzo || ss.piva || ss.cf) && (
+                        <div>{[ss.indirizzo, ss.piva && `P.IVA ${ss.piva}`, ss.cf && `CF ${ss.cf}`].filter(Boolean).join('  ·  ')}</div>
+                      )}
+                      {(ss.telefono || ss.email || ss.sito) && (
+                        <div>{[ss.telefono, ss.email, ss.sito].filter(Boolean).join('  ·  ')}</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-        </div>
-      )}
-      {/* Piè di pagina ripetuto su ogni pagina, stesso meccanismo dell'intestazione. */}
-      {(hasCustomFooter || ss.testoPiePagina) && (
-        <div style={{ position: 'fixed', bottom: 0, left: 0, right: 0, padding: '6px 24px', borderTop: '1px solid #ccc', background: '#fff', textAlign: 'center' }}>
-          {hasCustomFooter ? (
-            <img src={ss.pieImg} alt="" style={{ maxHeight: 34, maxWidth: '100%' }} />
-          ) : (
-            <p style={{ fontSize: 9.5, color: '#333', margin: 0 }}>{ss.testoPiePagina}</p>
-          )}
-        </div>
-      )}
-      <div style={{
-        padding: '24px',
-        paddingTop: (hasCustomHeader || hasStudioInfo) ? 90 : 24,
-        paddingBottom: (hasCustomFooter || ss.testoPiePagina) ? 40 : 24,
-      }}>
-      <h1 style={{ fontSize: 20, marginBottom: 4 }}>{clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
-      <p style={{ fontSize: 12, margin: '2px 0' }}>Progetto: {project.name} — Cliente: {project.client}</p>
-      <p style={{ fontSize: 12, margin: '2px 0' }}>Versione: {revision.customName || revision.label} — Modificata il {revision.dateModified}</p>
+            </td></tr>
+          </thead>
+        )}
+        {footerActive && (
+          <tfoot>
+            <tr><td style={{ padding: 0 }}>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: `8px ${PAGE_SIDE}px`, borderTop: '1px solid #E5E2DA', background: '#fff',
+              }}>
+                {hasCustomFooter ? (
+                  <img src={ss.pieImg} alt="" style={{ maxHeight: 32, maxWidth: '100%' }} />
+                ) : (
+                  <p style={{ fontSize: 8.5, color: '#8A8A8A', margin: 0, letterSpacing: 0.3, textAlign: 'center' }}>{ss.testoPiePagina}</p>
+                )}
+              </div>
+            </td></tr>
+          </tfoot>
+        )}
+        <tbody>
+          <tr><td style={{ padding: `20px ${PAGE_SIDE}px` }}>
+
+      <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
+      <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Progetto: {project.name} — Cliente: {project.client}</p>
+      <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Versione: {revision.customName || revision.label} — Modificata il {revision.dateModified}</p>
       {(header.descrizione || header.ubicazione) && (
-        <p style={{ fontSize: 12, margin: '2px 0' }}>{header.descrizione} {header.ubicazione && `— ${header.ubicazione}`}</p>
+        <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>{header.descrizione} {header.ubicazione && `— ${header.ubicazione}`}</p>
       )}
       {project.clientSheet && (
-        <div style={{ marginTop: 12, padding: '10px 12px', border: '1px solid #ccc', borderRadius: 6, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-          <p style={{ fontSize: 12, fontWeight: 700, margin: '0 0 4px' }}>Scheda cliente</p>
-          <p style={{ fontSize: 11, margin: '2px 0' }}>{project.clientSheet.name}{project.clientSheet.type && ` — ${project.clientSheet.type}`}</p>
-          {project.clientSheet.address && <p style={{ fontSize: 11, margin: '2px 0' }}>{project.clientSheet.address}</p>}
-          <p style={{ fontSize: 11, margin: '2px 0' }}>
+        <div style={{ marginTop: 14, padding: '12px 14px', border: '1px solid #E5E2DA', borderRadius: 8, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <p style={{ fontSize: 10, fontWeight: 600, margin: '0 0 5px', color: '#1A1A1A', textTransform: 'uppercase', letterSpacing: 0.5 }}>Scheda cliente</p>
+          <p style={{ fontSize: 10.5, margin: '2px 0' }}>{project.clientSheet.name}{project.clientSheet.type && ` — ${project.clientSheet.type}`}</p>
+          {project.clientSheet.address && <p style={{ fontSize: 10.5, margin: '2px 0' }}>{project.clientSheet.address}</p>}
+          <p style={{ fontSize: 10.5, margin: '2px 0' }}>
             {[project.clientSheet.phone, project.clientSheet.email].filter(Boolean).join(' — ')}
           </p>
           {(project.clientSheet.piva || project.clientSheet.cf) && (
-            <p style={{ fontSize: 11, margin: '2px 0' }}>
+            <p style={{ fontSize: 10.5, margin: '2px 0' }}>
               {[project.clientSheet.piva && `P.IVA ${project.clientSheet.piva}`, project.clientSheet.cf && `CF ${project.clientSheet.cf}`].filter(Boolean).join(' — ')}
             </p>
           )}
@@ -1645,41 +1670,46 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
       {groups.map((g, gi) => {
         let runI = 0;
         let runC = 0;
+        const thStyle = { textAlign: 'left', borderBottom: '1.5px solid #1A1A1A', padding: '4px 4px', fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#8A8A8A', fontWeight: 600 };
         return (
-        <div key={gi} style={{ marginTop: 14 }}>
-          <h3 style={{ fontSize: 13, margin: '0 0 6px', borderBottom: '1px solid #000', paddingBottom: 2, pageBreakAfter: 'avoid', breakAfter: 'avoid' }}>{g.name}</h3>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+        <div key={gi} style={{ marginTop: 24 }}>
+          <h3 style={{
+            fontSize: 11.5, fontWeight: 700, margin: '0 0 9px', padding: '1px 0 1px 10px',
+            borderLeft: `3px solid ${C.maroon}`, textTransform: 'uppercase', letterSpacing: 0.6,
+            color: '#1A1A1A', pageBreakAfter: 'avoid', breakAfter: 'avoid',
+          }}>{g.name}</h3>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #999', padding: 3 }}>Codice</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #999', padding: 3 }}>Descrizione</th>
-                <th style={{ textAlign: 'right', borderBottom: '1px solid #999', padding: 3 }}>Qtà</th>
-                <th style={{ textAlign: 'left', borderBottom: '1px solid #999', padding: 3 }}>U.M.</th>
-                {!clientOnly && <th style={{ textAlign: 'right', borderBottom: '1px solid #999', padding: 3 }}>Prezzo impresa</th>}
-                {!clientOnly && <th style={{ textAlign: 'right', borderBottom: '1px solid #999', padding: 3 }}>Totale impresa</th>}
-                <th style={{ textAlign: 'right', borderBottom: '1px solid #999', padding: 3 }}>Prezzo cliente</th>
-                <th style={{ textAlign: 'right', borderBottom: '1px solid #999', padding: 3 }}>Totale cliente</th>
+                <th style={thStyle}>Codice</th>
+                <th style={thStyle}>Descrizione</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Qtà</th>
+                <th style={thStyle}>U.M.</th>
+                {!clientOnly && <th style={{ ...thStyle, textAlign: 'right' }}>Prezzo impresa</th>}
+                {!clientOnly && <th style={{ ...thStyle, textAlign: 'right' }}>Totale impresa</th>}
+                <th style={{ ...thStyle, textAlign: 'right' }}>Prezzo cliente</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>Totale cliente</th>
               </tr>
             </thead>
             <tbody>
               {g.categorie.map((cat, ci) => (
                 <React.Fragment key={ci}>
-                  <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                    <td colSpan={clientOnly ? 6 : 8} style={{ padding: '6px 3px 2px', fontWeight: 700, fontSize: 11.5, borderBottom: '1px solid #ccc' }}>{cat.name}</td>
+                  <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid', breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>
+                    <td colSpan={clientOnly ? 6 : 8} style={{ padding: '9px 4px 4px', fontWeight: 600, fontSize: 10, color: '#3A3A3A' }}>{cat.name}</td>
                   </tr>
                   {cat.items.map((it, ii) => {
                     runI += parseEuro(it.unitPriceImpresa) * parseEuro(it.qty);
                     runC += parseEuro(it.unitPriceCliente) * parseEuro(it.qty);
                     return (
-                    <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                      <td style={{ padding: '3px' }}>{it.code}</td>
-                      <td style={{ padding: '3px' }}>{it.desc}</td>
-                      <td style={{ padding: '3px', textAlign: 'right' }}>{it.qty}</td>
-                      <td style={{ padding: '3px' }}>{it.unit}</td>
-                      {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceImpresa} €</td>}
-                      {!clientOnly && <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
-                      <td style={{ padding: '3px', textAlign: 'right' }}>{it.unitPriceCliente} €</td>
-                      <td style={{ padding: '3px', textAlign: 'right' }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
+                    <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid', borderBottom: '1px solid #F0EEE8' }}>
+                      <td style={{ padding: '5px 4px', color: '#5A5A5A' }}>{it.code}</td>
+                      <td style={{ padding: '5px 4px' }}>{it.desc}</td>
+                      <td style={{ padding: '5px 4px', textAlign: 'right' }}>{it.qty}</td>
+                      <td style={{ padding: '5px 4px', color: '#8A8A8A' }}>{it.unit}</td>
+                      {!clientOnly && <td style={{ padding: '5px 4px', textAlign: 'right', color: '#5A5A5A' }}>{it.unitPriceImpresa} €</td>}
+                      {!clientOnly && <td style={{ padding: '5px 4px', textAlign: 'right', fontWeight: 600 }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
+                      <td style={{ padding: '5px 4px', textAlign: 'right', color: C.maroon }}>{it.unitPriceCliente} €</td>
+                      <td style={{ padding: '5px 4px', textAlign: 'right', fontWeight: 600, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
                     </tr>
                     );
                   })}
@@ -1689,10 +1719,10 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                 const hasVat = it.vatRate !== null && it.vatRate !== undefined;
                 const rowEl = (
                   <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-                    <td colSpan={clientOnly ? 6 : 8} style={{ padding: '4px 3px', fontWeight: 700 }}>
+                    <td colSpan={clientOnly ? 6 : 8} style={{ padding: '8px 4px', fontWeight: 700, borderTop: '1px solid #E5E2DA' }}>
                       {it.title}
                       {hasVat && (
-                        <span style={{ fontWeight: 400 }}>
+                        <span style={{ fontWeight: 400, color: '#8A8A8A' }}>
                           {' '}— IVA esclusa {formatEuro(clientOnly ? runC : runI)}, {it.vatLabel} {formatEuro((clientOnly ? runC : runI) * (it.vatRate / 100))}, IVA inclusa {formatEuro((clientOnly ? runC : runI) * (1 + it.vatRate / 100))}
                         </span>
                       )}
@@ -1707,20 +1737,23 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
         </div>
         );
       })}
-      <div style={{ marginTop: 20, maxWidth: 300, marginLeft: 'auto' }}>
+      <div style={{ marginTop: 30, maxWidth: 320, marginLeft: 'auto', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         {!clientOnly && (
           <>
-            <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}><span>Totale generale IVA esclusa (impresa)</span><strong>{formatEuro(impresaTot)}</strong></p>
-            <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}><span>{vatLabel}</span><span>{formatEuro(impresaTot * (vatRate / 100))}</span></p>
-            <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Totale generale IVA inclusa (impresa)</span><span>{formatEuro(impresaTot * (1 + vatRate / 100))}</span></p>
-            <hr />
+            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (impresa)</span><span>{formatEuro(impresaTot)}</span></p>
+            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{vatLabel}</span><span>{formatEuro(impresaTot * (vatRate / 100))}</span></p>
+            <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', fontWeight: 700, margin: '6px 0 0', paddingTop: 6, borderTop: '1px solid #E5E2DA' }}><span>Totale generale IVA inclusa (impresa)</span><span>{formatEuro(impresaTot * (1 + vatRate / 100))}</span></p>
+            <div style={{ height: 16 }} />
           </>
         )}
-        <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}><span>Totale generale IVA esclusa (cliente)</span><strong>{formatEuro(clienteTot)}</strong></p>
-        <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between' }}><span>{vatLabel}</span><span>{formatEuro(clienteTot * (vatRate / 100))}</span></p>
-        <p style={{ fontSize: 14, display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}><span>Totale generale IVA inclusa (cliente)</span><span>{formatEuro(clienteTot * (1 + vatRate / 100))}</span></p>
+        <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (cliente)</span><span>{formatEuro(clienteTot)}</span></p>
+        <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{vatLabel}</span><span>{formatEuro(clienteTot * (vatRate / 100))}</span></p>
+        <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '6px 0 0', paddingTop: 6, borderTop: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA inclusa (cliente)</span><span>{formatEuro(clienteTot * (1 + vatRate / 100))}</span></p>
       </div>
-      </div>
+
+          </td></tr>
+        </tbody>
+      </table>
     </div>
   );
 }
