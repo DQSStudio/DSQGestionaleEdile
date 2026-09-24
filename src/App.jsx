@@ -4465,11 +4465,14 @@ function LoginScreen({ onSignedIn }) {
     onSignedIn();
   };
 
+  // Questa pagina usa "Inter" invece del Poppins del resto dell'app: è il font del design originale
+  // (lo stesso schema di Quant/Estimly), caricato da Google Fonts nell'index.html.
+  const LOGIN_FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
   const fieldLabelStyle = { display: 'block', fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: C.darkGray, marginBottom: 8 };
-  const fieldInputStyle = { width: '100%', fontFamily: FONT, fontSize: 15, padding: '9px 0', border: 'none', borderBottom: `1px solid ${C.paleGray}`, background: 'transparent', color: C.black, outline: 'none' };
+  const fieldInputStyle = { width: '100%', fontFamily: LOGIN_FONT, fontSize: 15, padding: '9px 0', border: 'none', borderBottom: `1px solid ${C.paleGray}`, background: 'transparent', color: C.black, outline: 'none' };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', fontFamily: FONT }}>
+    <div style={{ minHeight: '100vh', display: 'flex', fontFamily: LOGIN_FONT }}>
       {/* Split screen: lato scuro decorativo a sinistra, lato chiaro con il form a destra.
           Sotto una certa larghezza (schermi stretti/mobile) il lato scuro si nasconde e resta solo il form. */}
       <style>{`
