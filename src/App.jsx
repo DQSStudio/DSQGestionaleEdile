@@ -68,6 +68,25 @@ function evalClientPrice(formula, impresaPrice) {
     return impresaPrice;
   }
 }
+// Trova una voce in un albero macro→categorie→sottocategorie→voci cercando per "code" (l'unico identificativo
+// stabile di una voce: la sua posizione può cambiare se qualcuno riordina o modifica il listino nel frattempo).
+// Usata per riportare nel listino vero e proprio un costo impresa approvato da un fornitore.
+function findVoceByCode(macros, code) {
+  for (let mi = 0; mi < (macros || []).length; mi++) {
+    const categorie = macros[mi].categorie || [];
+    for (let ci = 0; ci < categorie.length; ci++) {
+      const sottocategorie = categorie[ci].sottocategorie || [];
+      for (let si = 0; si < sottocategorie.length; si++) {
+        const voci = sottocategorie[si].voci || [];
+        for (let vi = 0; vi < voci.length; vi++) {
+          if (voci[vi].code === code) return [mi, ci, si, vi];
+        }
+      }
+    }
+  }
+  return null;
+}
+
 const nowLabel = () => new Date().toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 const sumImpresa = (items) => (items || []).reduce((sum, it) => sum + parseEuro(it.unitPriceImpresa) * parseEuro(it.qty), 0);
 const sumCliente = (items) => (items || []).reduce((sum, it) => sum + parseEuro(it.unitPriceCliente) * parseEuro(it.qty), 0);
@@ -518,6 +537,19 @@ function Dashboard({ onNavigate, onOpenProject, projects }) {
 
 function ListinoPage({ listini, setListini, activeId, setActiveId }) {
   const active = listini.find((l) => l.id === activeId);
+  const [showFornitoreSharing, setShowFornitoreSharing] = useState(false);
+  const [pendingCount, setPendingCount] = useState(0);
+
+  // Solo per mostrare un pallino con il numero di richieste in attesa sul bottone, senza dover aprire il
+  // pannello: un piccolo conteggio caricato all'apertura della pagina e ogni volta che il pannello si chiude
+  // (così il numero si aggiorna subito dopo aver approvato/rifiutato qualcosa).
+  React.useEffect(() => {
+    let cancelled = false;
+    cea.from('fornitore_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending').then(({ count }) => {
+      if (!cancelled) setPendingCount(count || 0);
+    });
+    return () => { cancelled = true; };
+  }, [showFornitoreSharing]);
 
   const setMacrosForActive = (macros) => {
     setListini(listini.map((l) => (l.id === activeId ? { ...l, macros } : l)));
@@ -575,10 +607,201 @@ function ListinoPage({ listini, setListini, activeId, setActiveId }) {
           <button onClick={duplicateListino} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⧉ Duplica</button>
           <button onClick={renameListino} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>✎ Rinomina</button>
           <button onClick={deleteListino} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>🗑 Elimina</button>
+          <button onClick={() => setShowFornitoreSharing(true)} style={{ position: 'relative', background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>
+            🔗 Fornitori
+            {pendingCount > 0 && (
+              <span style={{ position: 'absolute', top: -6, right: -6, background: C.maroon, color: C.white, borderRadius: 999, minWidth: 18, height: 18, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{pendingCount}</span>
+            )}
+          </button>
         </div>
       </div>
 
       <EditableCatalog macros={active.macros} setMacros={setMacrosForActive} />
+
+      {showFornitoreSharing && (
+        <FornitoreSharingModal listini={listini} setListini={setListini} activeId={activeId} onClose={() => setShowFornitoreSharing(false)} />
+      )}
+    </div>
+  );
+}
+
+// Pannello "Fornitori": genera link (+ PIN) con cui un fornitore esterno, senza account, può proporre il
+// costo impresa per le voci di un listino scelto, e mostra le proposte in attesa perché qualcuno in studio
+// le approvi (a quel punto il valore entra davvero nel listino) o le rifiuti. Tutto passa dalle tabelle
+// cea.fornitore_links / cea.fornitore_submissions e dalle funzioni RPC pubbliche che le proteggono con PIN.
+function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
+  const [tab, setTab] = useState('richieste'); // 'richieste' | 'link'
+  const [links, setLinks] = useState(null);
+  const [submissions, setSubmissions] = useState(null);
+  const [currentUserId, setCurrentUserId] = useState(null);
+  const [newListinoId, setNewListinoId] = useState(activeId);
+  const [newNome, setNewNome] = useState('');
+  const [justCreated, setJustCreated] = useState(null); // { url, pin }
+  const [busyId, setBusyId] = useState(null);
+
+  const reload = () => {
+    cea.from('fornitore_links').select('*').order('created_at', { ascending: false }).then(({ data }) => setLinks(data || []));
+    cea.from('fornitore_submissions').select('*').order('submitted_at', { ascending: false }).then(({ data }) => setSubmissions(data || []));
+  };
+
+  React.useEffect(() => {
+    reload();
+    supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id || null));
+  }, []);
+
+  const listinoName = (id) => listini.find((l) => l.id === id)?.name || 'Listino eliminato';
+  const linkFor = (linkId) => (links || []).find((l) => l.id === linkId);
+
+  const createLink = async () => {
+    const token = (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`);
+    const pin = String(Math.floor(1000 + Math.random() * 9000));
+    const { error } = await cea.from('fornitore_links').insert({ token, pin, listino_id: newListinoId, nome_fornitore: newNome.trim() || null });
+    if (error) { alert('Creazione del link non riuscita: ' + error.message); return; }
+    const url = `${window.location.origin}${window.location.pathname}?fornitore=${token}`;
+    setJustCreated({ url, pin });
+    setNewNome('');
+    reload();
+  };
+
+  const revokeLink = async (link) => {
+    if (!confirm(`Disattivare il link per "${link.nome_fornitore || 'questo fornitore'}"? Non potrà più aprirlo.`)) return;
+    await cea.from('fornitore_links').update({ active: !link.active }).eq('id', link.id);
+    reload();
+  };
+
+  const copyLink = (token) => {
+    const url = `${window.location.origin}${window.location.pathname}?fornitore=${token}`;
+    navigator.clipboard?.writeText(url).then(() => alert('Link copiato.')).catch(() => alert(url));
+  };
+
+  const approve = async (sub) => {
+    const link = linkFor(sub.link_id);
+    if (!link) { alert('Il link collegato a questa richiesta non esiste più.'); return; }
+    const listino = listini.find((l) => l.id === link.listino_id);
+    if (!listino) { alert('Il listino collegato a questa richiesta è stato eliminato: non posso applicare il valore.'); return; }
+    const path = findVoceByCode(listino.macros, sub.voce_code);
+    if (!path) { alert(`La voce "${sub.voce_desc || sub.voce_code}" non esiste più in questo listino (forse eliminata o rinominata): approvala manualmente dopo averla ricreata, se serve.`); return; }
+    setBusyId(sub.id);
+    const [mi, ci, si, vi] = path;
+    const nextListini = structuredClone(listini);
+    const nextListino = nextListini.find((l) => l.id === link.listino_id);
+    nextListino.macros[mi].categorie[ci].sottocategorie[si].voci[vi].priceImpresa = sub.costo_impresa_proposto;
+    setListini(nextListini);
+    const { error } = await cea.from('fornitore_submissions').update({ status: 'approved', reviewed_at: new Date().toISOString(), reviewed_by: currentUserId }).eq('id', sub.id);
+    setBusyId(null);
+    if (error) { alert('Aggiornamento dello stato non riuscito: ' + error.message); return; }
+    reload();
+  };
+
+  const reject = async (sub) => {
+    if (!confirm('Rifiutare questa proposta? Il costo indicato dal fornitore non entrerà nel listino.')) return;
+    setBusyId(sub.id);
+    const { error } = await cea.from('fornitore_submissions').update({ status: 'rejected', reviewed_at: new Date().toISOString(), reviewed_by: currentUserId }).eq('id', sub.id);
+    setBusyId(null);
+    if (error) { alert('Aggiornamento dello stato non riuscito: ' + error.message); return; }
+    reload();
+  };
+
+  const pending = (submissions || []).filter((s) => s.status === 'pending');
+  const decided = (submissions || []).filter((s) => s.status !== 'pending').slice(0, 20);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,23,23,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, width: 680, maxWidth: '100%', maxHeight: '88vh', overflowY: 'auto', padding: 24 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Fornitori</h2>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 18, color: C.gray, cursor: 'pointer' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, marginBottom: 18 }}>
+          <button onClick={() => setTab('richieste')} style={{ background: tab === 'richieste' ? C.black : C.white, color: tab === 'richieste' ? C.white : C.black, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            Richieste in attesa{pending.length > 0 ? ` (${pending.length})` : ''}
+          </button>
+          <button onClick={() => setTab('link')} style={{ background: tab === 'link' ? C.black : C.white, color: tab === 'link' ? C.white : C.black, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            Link di condivisione
+          </button>
+        </div>
+
+        {tab === 'richieste' && (
+          <div>
+            {submissions === null && <p style={{ fontSize: 12, color: C.gray }}>Caricamento…</p>}
+            {submissions !== null && pending.length === 0 && <p style={{ fontSize: 12, color: C.gray }}>Nessuna richiesta in attesa.</p>}
+            {pending.map((sub) => {
+              const link = linkFor(sub.link_id);
+              return (
+                <div key={sub.id} style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: C.gray, marginBottom: 4 }}>
+                    {link ? listinoName(link.listino_id) : '—'}{link?.nome_fornitore ? ` · ${link.nome_fornitore}` : ''} · {sub.submitted_at ? new Date(sub.submitted_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}
+                  </div>
+                  <div style={{ fontSize: 13, color: C.black, marginBottom: 2 }}>{sub.voce_desc || sub.voce_code} <span style={{ color: C.gray, fontSize: 11 }}>({sub.voce_code})</span></div>
+                  <div style={{ fontSize: 13, color: C.maroon, fontWeight: 600, marginBottom: sub.note ? 4 : 8 }}>Costo impresa proposto: {sub.costo_impresa_proposto} €</div>
+                  {sub.note && <div style={{ fontSize: 12, color: C.darkGray, marginBottom: 8, fontStyle: 'italic' }}>“{sub.note}”</div>}
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button disabled={busyId === sub.id} onClick={() => approve(sub)} style={{ background: C.success, color: C.white, border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: busyId === sub.id ? 'default' : 'pointer', opacity: busyId === sub.id ? 0.6 : 1 }}>✓ Approva</button>
+                    <button disabled={busyId === sub.id} onClick={() => reject(sub)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: C.maroon, cursor: busyId === sub.id ? 'default' : 'pointer', opacity: busyId === sub.id ? 0.6 : 1 }}>✕ Rifiuta</button>
+                  </div>
+                </div>
+              );
+            })}
+            {decided.length > 0 && (
+              <>
+                <p style={{ fontSize: 11, fontWeight: 700, color: C.midGray, margin: '18px 0 8px' }}>Decise di recente</p>
+                {decided.map((sub) => (
+                  <div key={sub.id} style={{ fontSize: 12, color: C.darkGray, padding: '6px 0', borderTop: `1px solid ${C.paleGray}`, display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{sub.voce_desc || sub.voce_code}</span>
+                    <span style={{ color: sub.status === 'approved' ? C.success : C.maroon, fontWeight: 600 }}>{sub.status === 'approved' ? 'Approvata' : 'Rifiutata'}</span>
+                  </div>
+                ))}
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === 'link' && (
+          <div>
+            <div style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: 14, marginBottom: 18 }}>
+              <p style={{ fontSize: 12, color: C.darkGray, margin: '0 0 12px' }}>Genera un nuovo link: chi lo apre non ha bisogno di un account, gli basta il PIN che gli comunichi separatamente.</p>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+                <div style={{ flex: '1 1 200px' }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Listino da condividere</label>
+                  <select value={newListinoId} onChange={(e) => setNewListinoId(Number(e.target.value))} style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }}>
+                    {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ flex: '1 1 200px' }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Nome fornitore (facoltativo)</label>
+                  <input value={newNome} onChange={(e) => setNewNome(e.target.value)} placeholder="Es. Impresa Rossi" style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
+                </div>
+              </div>
+              <button onClick={createLink} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Genera link</button>
+
+              {justCreated && (
+                <div style={{ marginTop: 14, background: C.sidebar, borderRadius: 10, padding: 12 }}>
+                  <div style={{ fontSize: 11, color: C.midGray, marginBottom: 4 }}>Link</div>
+                  <div style={{ fontSize: 12, color: C.black, wordBreak: 'break-all', marginBottom: 8 }}>{justCreated.url}</div>
+                  <div style={{ fontSize: 11, color: C.midGray, marginBottom: 4 }}>PIN</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, letterSpacing: '0.2em', color: C.black, marginBottom: 10 }}>{justCreated.pin}</div>
+                  <button onClick={() => navigator.clipboard?.writeText(justCreated.url)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Copia link</button>
+                </div>
+              )}
+            </div>
+
+            <p style={{ fontSize: 11, fontWeight: 700, color: C.midGray, margin: '0 0 8px' }}>Link esistenti</p>
+            {links === null && <p style={{ fontSize: 12, color: C.gray }}>Caricamento…</p>}
+            {links !== null && links.length === 0 && <p style={{ fontSize: 12, color: C.gray }}>Nessun link creato finora.</p>}
+            {(links || []).map((link) => (
+              <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${C.paleGray}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, color: C.black }}>{link.nome_fornitore || 'Senza nome'} <span style={{ color: C.gray, fontSize: 11 }}>· {listinoName(link.listino_id)}</span></div>
+                  <div style={{ fontSize: 11, color: C.gray }}>PIN {link.pin} · {link.active ? 'attivo' : 'disattivato'}</div>
+                </div>
+                <button onClick={() => copyLink(link.token)} style={rowBtnStyle}>Copia link</button>
+                <button onClick={() => revokeLink(link)} style={{ ...rowBtnStyle, color: link.active ? C.maroon : C.success }}>{link.active ? 'Disattiva' : 'Riattiva'}</button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -4343,7 +4566,166 @@ function LoginScreen({ onSignedIn }) {
   );
 }
 
+// Vista pubblica per un fornitore esterno: niente account, si accede con un link + PIN che lo studio genera
+// dalla pagina "Listino prezzi" (bottone "Condividi con fornitore"). Il fornitore vede le voci del listino
+// scelto — con il costo cliente, come riferimento — e può proporre il proprio costo impresa voce per voce.
+// L'invio NON tocca subito il listino dello studio: resta "in attesa" nella tabella cea.fornitore_submissions
+// finché qualcuno in studio non lo approva dalla stessa pagina "Listino prezzi".
+function FornitoreShareView({ token }) {
+  const [pin, setPin] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState('');
+  const [data, setData] = useState(null); // { nomeFornitore, listinoNome, macros }
+  const [values, setValues] = useState({}); // code -> { impresa, note }
+  const [expanded, setExpanded] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const [sentAt, setSentAt] = useState(null);
+
+  const unlock = async () => {
+    if (!pin.trim() || checking) return;
+    setChecking(true); setError('');
+    const { data: result, error: err } = await cea.rpc('fornitore_get_listino', { p_token: token, p_pin: pin.trim() });
+    setChecking(false);
+    if (err) { setError('Link o PIN non validi. Controlla con lo studio.'); return; }
+    setData(result);
+    const initial = {};
+    (result.macros || []).forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((s) => (s.voci || []).forEach((v) => {
+      initial[v.code] = { impresa: v.priceImpresa || '', note: '' };
+    }))));
+    setValues(initial);
+  };
+
+  const setImpresa = (code, val) => setValues((prev) => ({ ...prev, [code]: { ...prev[code], impresa: val } }));
+  const setNote = (code, val) => setValues((prev) => ({ ...prev, [code]: { ...prev[code], note: val } }));
+
+  const submit = async () => {
+    const items = [];
+    (data.macros || []).forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((s) => (s.voci || []).forEach((v) => {
+      const val = values[v.code];
+      if (val && String(val.impresa).trim() !== '') {
+        items.push({ code: v.code, desc: v.desc, costoImpresa: String(val.impresa).trim(), note: (val.note || '').trim() });
+      }
+    }))));
+    if (items.length === 0) { alert('Inserisci almeno un costo impresa prima di inviare.'); return; }
+    setSubmitting(true);
+    const { error: err } = await cea.rpc('fornitore_submit', { p_token: token, p_pin: pin.trim(), p_items: items });
+    setSubmitting(false);
+    if (err) { alert('Invio non riuscito: ' + err.message); return; }
+    setSentAt(nowLabel());
+  };
+
+  if (!data) {
+    return (
+      <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, padding: 16 }}>
+        <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, maxWidth: '100%' }}>
+          <div style={{ width: 40, height: 40, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, marginBottom: 16 }}>SCE</div>
+          <h1 style={{ fontSize: 20, fontWeight: 700, color: C.black, margin: '0 0 4px' }}>Listino fornitore</h1>
+          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px' }}>Inserisci il PIN che ti ha dato lo studio per vedere e compilare le voci.</p>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>PIN</label>
+          <input
+            value={pin}
+            onChange={(e) => setPin(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && unlock()}
+            placeholder="••••"
+            style={{ width: '100%', fontSize: 15, letterSpacing: '0.2em', padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px' }}
+          />
+          {error && <p style={{ fontSize: 12, color: C.maroon, margin: '0 0 10px' }}>{error}</p>}
+          <button disabled={checking} onClick={unlock} style={{ width: '100%', background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '11px 0', fontSize: 13, fontWeight: 600, cursor: checking ? 'default' : 'pointer', opacity: checking ? 0.7 : 1 }}>
+            {checking ? 'Un attimo…' : 'Continua'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, fontFamily: FONT }}>
+      <div style={{ background: C.black, color: C.white, padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ width: 32, height: 32, borderRadius: 999, background: '#F4EEE5', color: C.black, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 11, flexShrink: 0 }}>SCE</div>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{data.listinoNome}</div>
+          <div style={{ fontSize: 11, color: '#AAA39A' }}>Desearq Studio{data.nomeFornitore ? ` — proposta per ${data.nomeFornitore}` : ''}</div>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 880, margin: '0 auto', padding: '24px 16px 110px' }}>
+        <div style={{ ...card, marginBottom: 18, fontSize: 12.5, color: C.darkGray, lineHeight: 1.6 }}>
+          Per ogni voce trovi il <strong>costo cliente</strong> (come riferimento) e un campo dove indicare il tuo <strong>costo impresa</strong>. I valori inviati restano in attesa di approvazione dello studio prima di entrare nel listino.
+        </div>
+
+        {(data.macros || []).map((m, mi) => (
+          <div key={mi} style={{ ...card, marginBottom: 14 }}>
+            <div onClick={() => setExpanded((e) => ({ ...e, [mi]: e[mi] === false ? true : false }))} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+              <h2 style={{ fontSize: 16, margin: 0, color: C.black, fontFamily: FONT }}>{m.name}</h2>
+              <span style={{ fontSize: 12, color: C.gray }}>{expanded[mi] === false ? 'Mostra ▾' : 'Nascondi ▴'}</span>
+            </div>
+            {expanded[mi] !== false && (m.categorie || []).map((c, ci) => (
+              <div key={ci} style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: C.midGray, marginBottom: 6 }}>{c.name}</div>
+                {(c.sottocategorie || []).map((s, si) => (
+                  <div key={si} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: C.gray, marginBottom: 6 }}>{s.name}</div>
+                    {(s.voci || []).map((v) => {
+                      const impresaForCliente = parseEuro(values[v.code]?.impresa || v.priceImpresa);
+                      const cliente = evalClientPrice(v.priceCliente, impresaForCliente);
+                      return (
+                        <div key={v.code} style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, padding: '10px 0', borderTop: `1px solid ${C.paleGray}` }}>
+                          <div style={{ flex: '1 1 240px', minWidth: 200 }}>
+                            <div style={{ fontSize: 13, color: C.black }}>{v.desc}</div>
+                            <div style={{ fontSize: 11, color: C.gray }}>{v.code} · {v.unit}</div>
+                          </div>
+                          <div style={{ width: 110, textAlign: 'right' }}>
+                            <div style={{ fontSize: 10, color: C.gray, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Costo cliente</div>
+                            <div style={{ fontSize: 13, color: C.midGray }}>{formatEuro(cliente)}</div>
+                          </div>
+                          <div style={{ width: 140 }}>
+                            <div style={{ fontSize: 10, color: C.gray, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Costo impresa</div>
+                            <input
+                              value={values[v.code]?.impresa || ''}
+                              onChange={(e) => setImpresa(v.code, e.target.value)}
+                              placeholder="0,00"
+                              style={{ width: '100%', fontSize: 13, padding: '7px 9px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}
+                            />
+                          </div>
+                          <div style={{ width: 170 }}>
+                            <div style={{ fontSize: 10, color: C.gray, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Nota (opzionale)</div>
+                            <input
+                              value={values[v.code]?.note || ''}
+                              onChange={(e) => setNote(v.code, e.target.value)}
+                              placeholder="Es. non disponibile"
+                              style={{ width: '100%', fontSize: 12, padding: '7px 9px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: C.white, borderTop: `1px solid ${C.paleGray}`, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 16 }}>
+        {sentAt && <span style={{ fontSize: 12, color: C.success }}>Inviato alle {sentAt.split(', ')[1]} ✓</span>}
+        <button disabled={submitting} onClick={submit} style={{ background: C.black, color: C.white, border: 'none', borderRadius: 999, padding: '12px 28px', fontSize: 13, fontWeight: 600, cursor: submitting ? 'default' : 'pointer', opacity: submitting ? 0.7 : 1 }}>
+          {submitting ? 'Invio…' : sentAt ? 'Invia di nuovo' : 'Invia allo studio'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function GestionaleEdilePreview() {
+  // Vista pubblica per il fornitore (link + PIN, nessun account): va controllata primissima cosa, prima di
+  // qualsiasi hook legato all'autenticazione dello studio, così chi apre questo link non passa mai dalla
+  // schermata di accesso né tocca i dati del team.
+  const fornitoreToken = new URLSearchParams(window.location.search).get('fornitore');
+  if (fornitoreToken) {
+    return <FornitoreShareView token={fornitoreToken} />;
+  }
+
   const [page, setPage] = useState('dashboard');
   const [projects, setProjects] = useState(PROJECTS);
   const [selectedProjectId, setSelectedProjectId] = useState(null);
