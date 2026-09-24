@@ -4505,111 +4505,121 @@ function LoginScreen({ onSignedIn }) {
     onSignedIn();
   };
 
-  // Questa pagina usa "Inter" invece del Poppins del resto dell'app: è il font del design originale
-  // (lo stesso schema di Quant/Estimly), caricato da Google Fonts nell'index.html.
-  const LOGIN_FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
-  const fieldLabelStyle = { display: 'block', fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: C.darkGray, marginBottom: 8 };
-  const fieldInputStyle = { width: '100%', fontFamily: LOGIN_FONT, fontSize: 15, padding: '9px 0', border: 'none', borderBottom: `1px solid ${C.paleGray}`, background: 'transparent', color: C.black, outline: 'none' };
-
+  // Questa pagina è portata testualmente dal file CSS/HTML del design (Quant-Login.dc.html): stesse regole
+  // CSS (nomi classe compresi), scoperte sotto ".dc-login" per non toccare il resto dell'app. Unica modifica
+  // strutturale voluta: ".login" usa min-height:100vh invece di 900px fisso (altrimenti sotto schermi più alti
+  // di 900px restava una fascia bianca in fondo). Il testo aggiuntivo su chi diventa admin (".helper") è
+  // posizionato in basso in modo assoluto apposta per non alterare l'altezza della card e quindi il suo
+  // centraggio verticale — con quel testo dentro al flusso normale la card risultava più alta e quindi
+  // visibilmente spostata rispetto al file originale.
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', fontFamily: LOGIN_FONT }}>
-      {/* Split screen: lato scuro decorativo a sinistra, lato chiaro con il form a destra.
-          Sotto una certa larghezza (schermi stretti/mobile) il lato scuro si nasconde e resta solo il form. */}
+    <div className="dc-login">
       <style>{`
-        .login-split { min-height: 100vh; width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+        .dc-login { --paper:#f7f5ef; --ink:#090909; --muted:#77756f; --line:#d8d4cc; --bordeaux:#6e2635; --dark:#171411; }
+        .dc-login, .dc-login * { box-sizing: border-box; }
+        .dc-login { margin:0; background:var(--paper); color:var(--ink); font-family:'Inter',Arial,Helvetica,sans-serif; -webkit-font-smoothing:antialiased; }
+        .dc-login a { color:inherit; text-decoration:none; }
+        .dc-login .login { min-height:100vh; display:grid; grid-template-columns:1fr 1fr; }
+        .dc-login .side { padding:56px; display:flex; flex-direction:column; justify-content:space-between; }
+        .dc-login .side.dark { background:var(--dark); color:#f4eee5; }
+        .dc-login .side.light { background:var(--paper); align-items:center; justify-content:center; display:flex; position:relative; }
+        .dc-login .back { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:#bdb6ad; display:inline-flex; align-items:center; gap:8px; }
+        .dc-login .back:hover { color:#f4eee5; }
+        .dc-login .eyebrow { font-size:11px; text-transform:uppercase; letter-spacing:.18em; color:var(--muted); }
+        .dc-login .side.dark .eyebrow { color:#aaa39a; }
+        .dc-login .copy h1 { font-size:52px; font-weight:400; letter-spacing:-.045em; line-height:.98; margin:22px 0 20px; max-width:480px; }
+        .dc-login .copy p { font-size:16px; line-height:1.55; color:#c9c2b8; max-width:420px; margin:0; }
+        .dc-login .logo-mark { width:70px; aspect-ratio:1; object-fit:cover; display:block; }
+        .dc-login .card { width:100%; max-width:380px; }
+        .dc-login .card .eyebrow { margin-bottom:18px; }
+        .dc-login .card h2 { font-size:34px; font-weight:400; letter-spacing:-.03em; margin:0 0 14px; color:var(--bordeaux); }
+        .dc-login .card>p { font-size:15px; line-height:1.55; color:#5d5952; margin:0 0 38px; max-width:360px; }
+        .dc-login form { display:flex; flex-direction:column; gap:24px; }
+        .dc-login .field label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin-bottom:10px; }
+        .dc-login .field input { width:100%; border:0; border-bottom:1px solid var(--line); background:transparent; padding:10px 0; font-size:16px; font-family:inherit; color:var(--ink); }
+        .dc-login .field input:focus { outline:0; border-bottom-color:var(--ink); }
+        .dc-login .row { display:flex; justify-content:flex-end; margin-top:-12px; }
+        .dc-login .row a, .dc-login .row span { font-size:12px; color:var(--muted); cursor:pointer; }
+        .dc-login .row a:hover, .dc-login .row span:hover { color:var(--bordeaux); }
+        .dc-login .submit { display:flex; align-items:center; justify-content:center; gap:16px; padding:16px; border:1px solid var(--ink); background:var(--ink); color:#fff; font-size:12px; text-transform:uppercase; letter-spacing:.09em; width:100%; cursor:pointer; margin-top:4px; }
+        .dc-login .submit:hover { transform:translateY(-1px); }
+        .dc-login .submit:disabled { opacity:.7; cursor:default; transform:none; }
+        .dc-login .arrow { display:inline-grid; place-items:center; width:20px; height:20px; border:1px solid currentColor; border-radius:50%; font-size:12px; }
+        .dc-login .altline { display:flex; align-items:center; gap:14px; margin:32px 0; color:var(--muted); font-size:11px; letter-spacing:.08em; text-transform:uppercase; }
+        .dc-login .altline:before, .dc-login .altline:after { content:""; flex:1; height:1px; background:var(--line); }
+        .dc-login .request { font-size:14px; color:#5d5952; text-align:center; margin:0; }
+        .dc-login .request span { color:var(--bordeaux); border-bottom:1px solid currentColor; cursor:pointer; }
+        .dc-login .foot { margin-top:40px; font-size:11px; color:var(--muted); text-align:center; text-transform:uppercase; letter-spacing:.08em; }
+        .dc-login .helper { position:absolute; left:32px; right:32px; bottom:20px; font-size:11px; color:var(--muted); text-align:center; line-height:1.5; }
+        .dc-login .msg-error { font-size:12px; color:var(--bordeaux); margin:0 0 -8px; }
+        .dc-login .msg-info { font-size:12px; color:#2e7d4f; margin:0 0 -8px; }
         @media (max-width: 860px) {
-          .login-split { grid-template-columns: 1fr; }
-          .login-dark-side { display: none !important; }
+          .dc-login .login { grid-template-columns: 1fr; }
+          .dc-login .side.dark { display: none !important; }
         }
       `}</style>
-      <div className="login-split">
-        <div className="login-dark-side" style={{ background: C.black, color: '#F4EEE5', padding: '48px 52px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <img src="/quant-logo.png" alt="Quant" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, objectFit: 'cover' }} />
-            <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A' }}>Desearq Studio — Quant</span>
+      <div className="login">
+        <div className="side dark">
+          <a className="back" href="https://desearq.com" target="_blank" rel="noopener noreferrer">← Desearq Lab</a>
+          <div className="copy">
+            <div className="eyebrow">DESEARQ LAB&nbsp; — QUANT</div>
+            <h1>Benvenuto su Quant.</h1>
+            <p>Computi metrici più ordinati, il tuo listino sempre sotto controllo.</p>
           </div>
-          <div>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A', marginBottom: 20 }}>Software di Computazione Edile</div>
-            <h1 style={{ fontSize: 42, fontWeight: 400, letterSpacing: '-0.03em', lineHeight: 1.05, margin: '0 0 18px', maxWidth: 420, color: '#F4EEE5' }}>Benvenuto su Quant.</h1>
-            <p style={{ fontSize: 15, lineHeight: 1.6, color: '#C9C2B8', maxWidth: 380, margin: 0 }}>Computi metrici più ordinati, il tuo listino sempre sotto controllo.</p>
-          </div>
-          <div style={{ width: 96, aspectRatio: '1', border: '1px solid #3F3A33', borderRadius: '50%', position: 'relative' }}>
-            <div style={{ position: 'absolute', inset: '16%', border: '1px solid #3F3A33', borderRadius: '50%' }} />
-            <div style={{ position: 'absolute', inset: '33%', border: '1px solid #3F3A33', borderRadius: '50%' }} />
-          </div>
+          <img className="logo-mark" src="/quant-logo.png" alt="Quant" />
         </div>
 
-        <div style={{ background: C.sidebar, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 32px' }}>
-          <div style={{ width: '100%', maxWidth: 380, maxHeight: '90vh', overflowY: 'auto' }}>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: C.darkGray, marginBottom: 16 }}>{mode === 'signin' ? 'Accesso' : 'Registrazione'}</div>
-            <h2 style={{ fontSize: 28, fontWeight: 400, letterSpacing: '-0.02em', color: C.maroon, margin: '0 0 12px' }}>{mode === 'signin' ? 'Accedi al tuo account' : 'Crea il tuo account'}</h2>
-            <p style={{ fontSize: 13, lineHeight: 1.55, color: C.darkGray, margin: '0 0 30px', maxWidth: 340 }}>{mode === 'signin' ? 'Inserisci le tue credenziali per entrare nel gestionale.' : 'Inserisci i tuoi dati per creare il tuo account.'}</p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        <div className="side light">
+          <div className="card">
+            <div className="eyebrow">{mode === 'signin' ? 'Accesso' : 'Registrazione'}</div>
+            <h2>{mode === 'signin' ? 'Accedi al tuo account' : 'Crea il tuo account'}</h2>
+            <p>{mode === 'signin' ? 'Inserisci le tue credenziali per entrare in Quant.' : 'Inserisci i tuoi dati per creare il tuo account.'}</p>
+            <form onSubmit={(e) => e.preventDefault()}>
               {mode === 'signup' && (
-                <div>
-                  <label style={fieldLabelStyle}>Nome</label>
-                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Il tuo nome" style={fieldInputStyle} />
+                <div className="field">
+                  <label htmlFor="name">Nome</label>
+                  <input id="name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Il tuo nome" autoComplete="name" />
                 </div>
               )}
-              <div>
-                <label style={fieldLabelStyle}>Email</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="nome@studio.it"
-                  style={fieldInputStyle}
-                />
+              <div className="field">
+                <label htmlFor="email">Email</label>
+                <input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nome@studio.it" autoComplete="email" />
               </div>
-              <div>
-                <label style={fieldLabelStyle}>Password</label>
+              <div className="field">
+                <label htmlFor="password">Password</label>
                 <input
+                  id="password"
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && (mode === 'signin' ? handleSignIn() : handleSignUp())}
-                  style={fieldInputStyle}
+                  placeholder="••••••••"
+                  autoComplete="current-password"
                 />
               </div>
-            </div>
-
-            {mode === 'signin' && (
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -12 }}>
-                <span onClick={handleForgotPassword} style={{ fontSize: 12, color: C.darkGray, cursor: 'pointer' }}>Password dimenticata?</span>
-              </div>
-            )}
-
-            {error && <p style={{ fontSize: 12, color: C.maroon, margin: '16px 0 0' }}>{error}</p>}
-            {info && <p style={{ fontSize: 12, color: C.success, margin: '16px 0 0' }}>{info}</p>}
-
-            <button
-              disabled={loading}
-              onClick={mode === 'signin' ? handleSignIn : handleSignUp}
-              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, background: C.black, color: C.white, border: `1px solid ${C.black}`, padding: '15px 0', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', cursor: loading ? 'default' : 'pointer', marginTop: 24, opacity: loading ? 0.7 : 1 }}
-            >
-              {loading ? 'Un attimo…' : mode === 'signin' ? 'Accedi' : 'Crea account'}
-              {!loading && <span style={{ display: 'inline-grid', placeItems: 'center', width: 18, height: 18, border: '1px solid currentColor', borderRadius: '50%', fontSize: 11 }}>→</span>}
-            </button>
-
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '28px 0', color: C.gray, fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-              <span style={{ flex: 1, height: 1, background: C.paleGray }} />
-              oppure
-              <span style={{ flex: 1, height: 1, background: C.paleGray }} />
-            </div>
-
-            <p style={{ fontSize: 13, color: C.darkGray, margin: 0, textAlign: 'center' }}>
+              {mode === 'signin' && (
+                <div className="row"><span onClick={handleForgotPassword}>Password dimenticata?</span></div>
+              )}
+              {error && <p className="msg-error">{error}</p>}
+              {info && <p className="msg-info">{info}</p>}
+              <button type="button" className="submit" disabled={loading} onClick={mode === 'signin' ? handleSignIn : handleSignUp}>
+                {loading ? 'Un attimo…' : mode === 'signin' ? 'Accedi' : 'Crea account'}
+                {!loading && <span className="arrow">→</span>}
+              </button>
+            </form>
+            <div className="altline">oppure</div>
+            <p className="request">
               {mode === 'signin' ? (
-                <>Non hai ancora un account? <span onClick={() => { setMode('signup'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer', borderBottom: `1px solid ${C.maroon}` }}>Crea un account</span></>
+                <>Non hai ancora un account? <span onClick={() => { setMode('signup'); setError(''); setInfo(''); }}>Richiedi l'accesso</span></>
               ) : (
-                <>Hai già un account? <span onClick={() => { setMode('signin'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer', borderBottom: `1px solid ${C.maroon}` }}>Accedi</span></>
+                <>Hai già un account? <span onClick={() => { setMode('signin'); setError(''); setInfo(''); }}>Accedi</span></>
               )}
             </p>
-            <p style={{ fontSize: 11, color: C.gray, margin: '20px 0 0', lineHeight: 1.5, textAlign: 'center' }}>
-              Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo riceve l'accesso già pronto (email e password) dall'admin nella sezione Team: userà direttamente "Accedi" qui sopra, senza bisogno di registrarsi.
-            </p>
-            <div style={{ fontSize: 11, color: C.gray, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '28px 0 0' }}>© 2026 Desearq Studio</div>
+            <div className="foot">© 2026 Desearq Lab</div>
           </div>
+          <p className="helper">
+            Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo riceve l'accesso già pronto (email e password) dall'admin nella sezione Team: userà direttamente "Accedi" qui sopra, senza bisogno di registrarsi.
+          </p>
         </div>
       </div>
     </div>
