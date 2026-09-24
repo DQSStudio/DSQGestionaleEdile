@@ -634,10 +634,20 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
   const [links, setLinks] = useState(null);
   const [submissions, setSubmissions] = useState(null);
   const [currentUserId, setCurrentUserId] = useState(null);
+  const macrosOf = (listinoId) => (listini.find((l) => l.id === listinoId)?.macros || []).map((m) => m.name);
   const [newListinoId, setNewListinoId] = useState(activeId);
   const [newNome, setNewNome] = useState('');
+  // Macrocategorie del listino visibili al fornitore per il link che si sta per creare: per default tutte
+  // quelle del listino scelto (il fornitore vede tutto), l'admin toglie la spunta a quelle da nascondere.
+  // Cambiare listino nel select qui sotto reimposta questa lista sulle macrocategorie del nuovo listino.
+  const [newMacroNames, setNewMacroNames] = useState(() => macrosOf(activeId));
   const [justCreated, setJustCreated] = useState(null); // { url, pin }
   const [busyId, setBusyId] = useState(null);
+
+  const changeNewListino = (id) => { setNewListinoId(id); setNewMacroNames(macrosOf(id)); };
+  const toggleMacro = (name) => {
+    setNewMacroNames((prev) => (prev.includes(name) ? prev.filter((n) => n !== name) : [...prev, name]));
+  };
 
   const reload = () => {
     cea.from('fornitore_links').select('*').order('created_at', { ascending: false }).then(({ data }) => setLinks(data || []));
@@ -653,9 +663,16 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
   const linkFor = (linkId) => (links || []).find((l) => l.id === linkId);
 
   const createLink = async () => {
+    if (newMacroNames.length === 0) { alert('Seleziona almeno una macrocategoria da condividere.'); return; }
     const token = (crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`);
     const pin = String(Math.floor(1000 + Math.random() * 9000));
-    const { error } = await cea.from('fornitore_links').insert({ token, pin, listino_id: newListinoId, nome_fornitore: newNome.trim() || null });
+    // Tutte le macrocategorie selezionate = nessuna restrizione (null), come per i link creati prima di questa
+    // funzione: più semplice da leggere in "Link esistenti" che ripetere l'elenco completo.
+    const allSelected = newMacroNames.length === macrosOf(newListinoId).length;
+    const { error } = await cea.from('fornitore_links').insert({
+      token, pin, listino_id: newListinoId, nome_fornitore: newNome.trim() || null,
+      macro_names: allSelected ? null : newMacroNames,
+    });
     if (error) { alert('Creazione del link non riuscita: ' + error.message); return; }
     const url = `${window.location.origin}${window.location.pathname}?fornitore=${token}`;
     setJustCreated({ url, pin });
@@ -764,7 +781,7 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
                 <div style={{ flex: '1 1 200px' }}>
                   <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Listino da condividere</label>
-                  <select value={newListinoId} onChange={(e) => setNewListinoId(Number(e.target.value))} style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }}>
+                  <select value={newListinoId} onChange={(e) => changeNewListino(Number(e.target.value))} style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }}>
                     {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
@@ -773,6 +790,18 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
                   <input value={newNome} onChange={(e) => setNewNome(e.target.value)} placeholder="Es. Impresa Rossi" style={{ width: '100%', fontSize: 13, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }} />
                 </div>
               </div>
+
+              <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray, display: 'block', marginBottom: 6 }}>Macrocategorie visibili a questo fornitore</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {macrosOf(newListinoId).map((name) => (
+                  <label key={name} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: C.black, background: C.sidebar, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '5px 12px', cursor: 'pointer' }}>
+                    <input type="checkbox" checked={newMacroNames.includes(name)} onChange={() => toggleMacro(name)} />
+                    {name}
+                  </label>
+                ))}
+                {macrosOf(newListinoId).length === 0 && <span style={{ fontSize: 12, color: C.gray }}>Questo listino non ha ancora macrocategorie.</span>}
+              </div>
+
               <button onClick={createLink} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Genera link</button>
 
               {justCreated && (
@@ -793,7 +822,9 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
               <div key={link.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${C.paleGray}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: C.black }}>{link.nome_fornitore || 'Senza nome'} <span style={{ color: C.gray, fontSize: 11 }}>· {listinoName(link.listino_id)}</span></div>
-                  <div style={{ fontSize: 11, color: C.gray }}>PIN {link.pin} · {link.active ? 'attivo' : 'disattivato'}</div>
+                  <div style={{ fontSize: 11, color: C.gray }}>
+                    PIN {link.pin} · {link.active ? 'attivo' : 'disattivato'} · {link.macro_names && link.macro_names.length > 0 ? `${link.macro_names.length} macrocategori${link.macro_names.length === 1 ? 'a' : 'e'}: ${link.macro_names.join(', ')}` : 'tutte le macrocategorie'}
+                  </div>
                 </div>
                 <button onClick={() => copyLink(link.token)} style={rowBtnStyle}>Copia link</button>
                 <button onClick={() => revokeLink(link)} style={{ ...rowBtnStyle, color: link.active ? C.maroon : C.success }}>{link.active ? 'Disattiva' : 'Riattiva'}</button>
