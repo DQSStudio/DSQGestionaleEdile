@@ -4476,6 +4476,15 @@ function LoginScreen({ onSignedIn }) {
     onSignedIn();
   };
 
+  const handleForgotPassword = async () => {
+    if (!email.trim()) { setError('Inserisci prima la tua email, poi clicca su "Password dimenticata?".'); return; }
+    setError(''); setInfo(''); setLoading(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email.trim());
+    setLoading(false);
+    if (err) { setError(err.message); return; }
+    setInfo('Ti abbiamo inviato un\'email con le istruzioni per reimpostare la password.');
+  };
+
   const handleSignUp = async () => {
     setError(''); setInfo(''); setLoading(true);
     const { data, error: err } = await supabase.auth.signUp({ email: email.trim(), password });
@@ -4516,13 +4525,13 @@ function LoginScreen({ onSignedIn }) {
       <div className="login-split">
         <div className="login-dark-side" style={{ background: C.black, color: '#F4EEE5', padding: '48px 52px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ width: 36, height: 36, borderRadius: 999, background: '#F4EEE5', color: C.black, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>SCE</div>
-            <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A' }}>Desearq Studio</span>
+            <img src="/quant-logo.png" alt="Quant" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, objectFit: 'cover' }} />
+            <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A' }}>Desearq Studio — Quant</span>
           </div>
           <div>
-            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A', marginBottom: 20 }}>Gestionale Edile</div>
-            <h1 style={{ fontSize: 42, fontWeight: 400, letterSpacing: '-0.03em', lineHeight: 1.05, margin: '0 0 18px', maxWidth: 420, color: '#F4EEE5' }}>Benvenuto.</h1>
-            <p style={{ fontSize: 15, lineHeight: 1.6, color: '#C9C2B8', maxWidth: 380, margin: 0 }}>Software di Computazione Edile — computi metrici più ordinati, il tuo listino sempre sotto controllo.</p>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A', marginBottom: 20 }}>Software di Computazione Edile</div>
+            <h1 style={{ fontSize: 42, fontWeight: 400, letterSpacing: '-0.03em', lineHeight: 1.05, margin: '0 0 18px', maxWidth: 420, color: '#F4EEE5' }}>Benvenuto su Quant.</h1>
+            <p style={{ fontSize: 15, lineHeight: 1.6, color: '#C9C2B8', maxWidth: 380, margin: 0 }}>Computi metrici più ordinati, il tuo listino sempre sotto controllo.</p>
           </div>
           <div style={{ width: 96, aspectRatio: '1', border: '1px solid #3F3A33', borderRadius: '50%', position: 'relative' }}>
             <div style={{ position: 'absolute', inset: '16%', border: '1px solid #3F3A33', borderRadius: '50%' }} />
@@ -4533,8 +4542,8 @@ function LoginScreen({ onSignedIn }) {
         <div style={{ background: C.sidebar, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 32px' }}>
           <div style={{ width: '100%', maxWidth: 380, maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: C.darkGray, marginBottom: 16 }}>{mode === 'signin' ? 'Accesso' : 'Registrazione'}</div>
-            <h2 style={{ fontSize: 28, fontWeight: 400, letterSpacing: '-0.02em', color: C.maroon, margin: '0 0 12px' }}>{mode === 'signin' ? 'Accedi' : 'Crea il tuo account'}</h2>
-            <p style={{ fontSize: 13, lineHeight: 1.55, color: C.darkGray, margin: '0 0 30px', maxWidth: 340 }}>Software di Computazione Edile — Desearq Studio</p>
+            <h2 style={{ fontSize: 28, fontWeight: 400, letterSpacing: '-0.02em', color: C.maroon, margin: '0 0 12px' }}>{mode === 'signin' ? 'Accedi al tuo account' : 'Crea il tuo account'}</h2>
+            <p style={{ fontSize: 13, lineHeight: 1.55, color: C.darkGray, margin: '0 0 30px', maxWidth: 340 }}>{mode === 'signin' ? 'Inserisci le tue credenziali per entrare nel gestionale.' : 'Inserisci i tuoi dati per creare il tuo account.'}</p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
               {mode === 'signup' && (
@@ -4565,6 +4574,12 @@ function LoginScreen({ onSignedIn }) {
               </div>
             </div>
 
+            {mode === 'signin' && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: -12 }}>
+                <span onClick={handleForgotPassword} style={{ fontSize: 12, color: C.darkGray, cursor: 'pointer' }}>Password dimenticata?</span>
+              </div>
+            )}
+
             {error && <p style={{ fontSize: 12, color: C.maroon, margin: '16px 0 0' }}>{error}</p>}
             {info && <p style={{ fontSize: 12, color: C.success, margin: '16px 0 0' }}>{info}</p>}
 
@@ -4585,14 +4600,15 @@ function LoginScreen({ onSignedIn }) {
 
             <p style={{ fontSize: 13, color: C.darkGray, margin: 0, textAlign: 'center' }}>
               {mode === 'signin' ? (
-                <>Prima volta? <span onClick={() => { setMode('signup'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer', borderBottom: `1px solid ${C.maroon}` }}>Crea un account</span></>
+                <>Non hai ancora un account? <span onClick={() => { setMode('signup'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer', borderBottom: `1px solid ${C.maroon}` }}>Crea un account</span></>
               ) : (
                 <>Hai già un account? <span onClick={() => { setMode('signin'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer', borderBottom: `1px solid ${C.maroon}` }}>Accedi</span></>
               )}
             </p>
-            <p style={{ fontSize: 11, color: C.gray, margin: '28px 0 0', lineHeight: 1.5, textAlign: 'center' }}>
+            <p style={{ fontSize: 11, color: C.gray, margin: '20px 0 0', lineHeight: 1.5, textAlign: 'center' }}>
               Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo riceve l'accesso già pronto (email e password) dall'admin nella sezione Team: userà direttamente "Accedi" qui sopra, senza bisogno di registrarsi.
             </p>
+            <div style={{ fontSize: 11, color: C.gray, textAlign: 'center', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '28px 0 0' }}>© 2026 Desearq Studio</div>
           </div>
         </div>
       </div>
@@ -4652,7 +4668,7 @@ function FornitoreShareView({ token }) {
     return (
       <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, padding: 16 }}>
         <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, maxWidth: '100%' }}>
-          <div style={{ width: 40, height: 40, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, marginBottom: 16 }}>SCE</div>
+          <img src="/quant-logo.png" alt="Quant" style={{ width: 40, height: 40, borderRadius: 11, marginBottom: 16, objectFit: 'cover' }} />
           <h1 style={{ fontSize: 20, fontWeight: 700, color: C.black, margin: '0 0 4px' }}>Listino fornitore</h1>
           <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px' }}>Inserisci il PIN che ti ha dato lo studio per vedere e compilare le voci.</p>
           <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>PIN</label>
@@ -4675,7 +4691,7 @@ function FornitoreShareView({ token }) {
   return (
     <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, fontFamily: FONT }}>
       <div style={{ background: C.black, color: C.white, padding: '16px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <div style={{ width: 32, height: 32, borderRadius: 999, background: '#F4EEE5', color: C.black, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 11, flexShrink: 0 }}>SCE</div>
+        <img src="/quant-logo.png" alt="Quant" style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0, objectFit: 'cover' }} />
         <div>
           <div style={{ fontSize: 14, fontWeight: 600 }}>{data.listinoNome}</div>
           <div style={{ fontSize: 11, color: '#AAA39A' }}>Desearq Studio{data.nomeFornitore ? ` — proposta per ${data.nomeFornitore}` : ''}</div>
@@ -4989,7 +5005,7 @@ export default function GestionaleEdilePreview() {
       <div className={`sidebar-backdrop${mobileNavOpen ? ' open' : ''}`} onClick={() => setMobileNavOpen(false)} />
       <aside className={`sidebar-aside${mobileNavOpen ? ' open' : ''}`} style={{ width: 280, flexShrink: 0, background: C.sidebar, color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '22px 14px' }}>
         <div style={{ padding: '0 6px 20px', borderBottom: `1px solid ${C.paleGray}`, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, flexShrink: 0 }}>SCE</div>
+          <img src="/quant-logo.png" alt="Quant" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, objectFit: 'cover' }} />
           <div>
             <p style={{ fontFamily: FONT, fontWeight: 700, fontSize: 15, color: C.black, margin: 0 }}>Software di Computazione Edile</p>
             <p style={{ fontSize: 11, margin: '2px 0 0', lineHeight: 1.4, color: C.gray }}>Desearq Studio</p>
