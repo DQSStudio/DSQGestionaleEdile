@@ -4242,57 +4242,102 @@ function LoginScreen({ onSignedIn }) {
     onSignedIn();
   };
 
+  const fieldLabelStyle = { display: 'block', fontSize: 10.5, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em', color: C.darkGray, marginBottom: 8 };
+  const fieldInputStyle = { width: '100%', fontFamily: FONT, fontSize: 15, padding: '9px 0', border: 'none', borderBottom: `1px solid ${C.paleGray}`, background: 'transparent', color: C.black, outline: 'none' };
+
   return (
-    <div style={{ minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT }}>
-      <div style={{ background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 360, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ width: 40, height: 40, borderRadius: 999, background: C.black, color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 14, marginBottom: 16 }}>SCE</div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, color: C.black, margin: '0 0 4px' }}>{mode === 'signin' ? 'Accedi' : 'Crea il tuo account'}</h1>
-        <p style={{ fontSize: 13, color: C.gray, margin: '0 0 24px' }}>Software di Computazione Edile — Desearq Studio</p>
+    <div style={{ minHeight: '100vh', display: 'flex', fontFamily: FONT }}>
+      {/* Split screen: lato scuro decorativo a sinistra, lato chiaro con il form a destra.
+          Sotto una certa larghezza (schermi stretti/mobile) il lato scuro si nasconde e resta solo il form. */}
+      <style>{`
+        .login-split { min-height: 100vh; width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+        @media (max-width: 860px) {
+          .login-split { grid-template-columns: 1fr; }
+          .login-dark-side { display: none !important; }
+        }
+      `}</style>
+      <div className="login-split">
+        <div className="login-dark-side" style={{ background: C.black, color: '#F4EEE5', padding: '48px 52px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 36, height: 36, borderRadius: 999, background: '#F4EEE5', color: C.black, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>SCE</div>
+            <span style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A' }}>Desearq Studio</span>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: '#AAA39A', marginBottom: 20 }}>Gestionale Edile</div>
+            <h1 style={{ fontSize: 42, fontWeight: 400, letterSpacing: '-0.03em', lineHeight: 1.05, margin: '0 0 18px', maxWidth: 420, color: '#F4EEE5' }}>Benvenuto.</h1>
+            <p style={{ fontSize: 15, lineHeight: 1.6, color: '#C9C2B8', maxWidth: 380, margin: 0 }}>Software di Computazione Edile — computi metrici più ordinati, il tuo listino sempre sotto controllo.</p>
+          </div>
+          <div style={{ width: 96, aspectRatio: '1', border: '1px solid #3F3A33', borderRadius: '50%', position: 'relative' }}>
+            <div style={{ position: 'absolute', inset: '16%', border: '1px solid #3F3A33', borderRadius: '50%' }} />
+            <div style={{ position: 'absolute', inset: '33%', border: '1px solid #3F3A33', borderRadius: '50%' }} />
+          </div>
+        </div>
 
-        {mode === 'signup' && (
-          <>
-            <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Nome</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Il tuo nome" style={{ width: '100%', fontSize: 13, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px' }} />
-          </>
-        )}
+        <div style={{ background: C.sidebar, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 32px' }}>
+          <div style={{ width: '100%', maxWidth: 380, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.18em', color: C.darkGray, marginBottom: 16 }}>{mode === 'signin' ? 'Accesso' : 'Registrazione'}</div>
+            <h2 style={{ fontSize: 28, fontWeight: 400, letterSpacing: '-0.02em', color: C.maroon, margin: '0 0 12px' }}>{mode === 'signin' ? 'Accedi' : 'Crea il tuo account'}</h2>
+            <p style={{ fontSize: 13, lineHeight: 1.55, color: C.darkGray, margin: '0 0 30px', maxWidth: 340 }}>Software di Computazione Edile — Desearq Studio</p>
 
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Email</label>
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="nome@studio.it"
-          style={{ width: '100%', fontSize: 13, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px' }}
-        />
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Password</label>
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && (mode === 'signin' ? handleSignIn() : handleSignUp())}
-          style={{ width: '100%', fontSize: 13, padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 8px' }}
-        />
-        {error && <p style={{ fontSize: 12, color: C.maroon, margin: '4px 0 8px' }}>{error}</p>}
-        {info && <p style={{ fontSize: 12, color: C.success, margin: '4px 0 8px' }}>{info}</p>}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+              {mode === 'signup' && (
+                <div>
+                  <label style={fieldLabelStyle}>Nome</label>
+                  <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Il tuo nome" style={fieldInputStyle} />
+                </div>
+              )}
+              <div>
+                <label style={fieldLabelStyle}>Email</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="nome@studio.it"
+                  style={fieldInputStyle}
+                />
+              </div>
+              <div>
+                <label style={fieldLabelStyle}>Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (mode === 'signin' ? handleSignIn() : handleSignUp())}
+                  style={fieldInputStyle}
+                />
+              </div>
+            </div>
 
-        <button
-          disabled={loading}
-          onClick={mode === 'signin' ? handleSignIn : handleSignUp}
-          style={{ width: '100%', background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '11px 0', fontSize: 13, fontWeight: 600, cursor: loading ? 'default' : 'pointer', marginTop: 12, opacity: loading ? 0.7 : 1 }}
-        >
-          {loading ? 'Un attimo…' : mode === 'signin' ? 'Accedi' : 'Crea account'}
-        </button>
+            {error && <p style={{ fontSize: 12, color: C.maroon, margin: '16px 0 0' }}>{error}</p>}
+            {info && <p style={{ fontSize: 12, color: C.success, margin: '16px 0 0' }}>{info}</p>}
 
-        <p style={{ fontSize: 12, color: C.gray, margin: '18px 0 0', textAlign: 'center' }}>
-          {mode === 'signin' ? (
-            <>Prima volta? <span onClick={() => { setMode('signup'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer' }}>Crea un account</span></>
-          ) : (
-            <>Hai già un account? <span onClick={() => { setMode('signin'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer' }}>Accedi</span></>
-          )}
-        </p>
-        <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0', lineHeight: 1.5 }}>
-          Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo riceve l'accesso già pronto (email e password) dall'admin nella sezione Team: userà direttamente "Accedi" qui sopra, senza bisogno di registrarsi.
-        </p>
+            <button
+              disabled={loading}
+              onClick={mode === 'signin' ? handleSignIn : handleSignUp}
+              style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, background: C.black, color: C.white, border: `1px solid ${C.black}`, padding: '15px 0', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', cursor: loading ? 'default' : 'pointer', marginTop: 24, opacity: loading ? 0.7 : 1 }}
+            >
+              {loading ? 'Un attimo…' : mode === 'signin' ? 'Accedi' : 'Crea account'}
+              {!loading && <span style={{ display: 'inline-grid', placeItems: 'center', width: 18, height: 18, border: '1px solid currentColor', borderRadius: '50%', fontSize: 11 }}>→</span>}
+            </button>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '28px 0', color: C.gray, fontSize: 10.5, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+              <span style={{ flex: 1, height: 1, background: C.paleGray }} />
+              oppure
+              <span style={{ flex: 1, height: 1, background: C.paleGray }} />
+            </div>
+
+            <p style={{ fontSize: 13, color: C.darkGray, margin: 0, textAlign: 'center' }}>
+              {mode === 'signin' ? (
+                <>Prima volta? <span onClick={() => { setMode('signup'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer', borderBottom: `1px solid ${C.maroon}` }}>Crea un account</span></>
+              ) : (
+                <>Hai già un account? <span onClick={() => { setMode('signin'); setError(''); setInfo(''); }} style={{ color: C.maroon, fontWeight: 600, cursor: 'pointer', borderBottom: `1px solid ${C.maroon}` }}>Accedi</span></>
+              )}
+            </p>
+            <p style={{ fontSize: 11, color: C.gray, margin: '28px 0 0', lineHeight: 1.5, textAlign: 'center' }}>
+              Se sei il primo ad accedere diventi automaticamente admin. Chi arriva dopo riceve l'accesso già pronto (email e password) dall'admin nella sezione Team: userà direttamente "Accedi" qui sopra, senza bisogno di registrarsi.
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );
