@@ -4659,14 +4659,22 @@ function FornitoreShareView({ token }) {
   const setNote = (code, val) => setValues((prev) => ({ ...prev, [code]: { ...prev[code], note: val } }));
 
   const submit = async () => {
+    // Invia solo le voci che il fornitore ha davvero cambiato rispetto al costo impresa già presente nel
+    // listino (o a cui ha aggiunto una nota) — non tutte le voci con un campo compilato: ogni voce arriva
+    // precompilata con il costo attuale, quindi mandarle tutte riempirebbe "Richieste in attesa" di proposte
+    // identiche a quello che c'è già, anche se il fornitore non ha toccato nulla.
     const items = [];
     (data.macros || []).forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((s) => (s.voci || []).forEach((v) => {
       const val = values[v.code];
-      if (val && String(val.impresa).trim() !== '') {
-        items.push({ code: v.code, desc: v.desc, costoImpresa: String(val.impresa).trim(), note: (val.note || '').trim() });
-      }
+      if (!val) return;
+      const proposedImpresa = String(val.impresa).trim();
+      if (proposedImpresa === '') return;
+      const originalImpresa = String(v.priceImpresa ?? '').trim();
+      const note = (val.note || '').trim();
+      if (proposedImpresa === originalImpresa && note === '') return;
+      items.push({ code: v.code, desc: v.desc, costoImpresa: proposedImpresa, note });
     }))));
-    if (items.length === 0) { alert('Inserisci almeno un costo impresa prima di inviare.'); return; }
+    if (items.length === 0) { alert('Non hai modificato nessuna voce: cambia almeno un costo impresa (o aggiungi una nota) prima di inviare.'); return; }
     setSubmitting(true);
     const { error: err } = await cea.rpc('fornitore_submit', { p_token: token, p_pin: pin.trim(), p_items: items });
     setSubmitting(false);
