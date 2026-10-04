@@ -2747,7 +2747,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           </div>
 
           <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column' }}>
+            <div className="listino-catalog-card" style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexShrink: 0 }}>
                 <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Listino</p>
               </div>
@@ -2755,7 +2755,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                 {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
               </select>
               <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px', flexShrink: 0 }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
-              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+              <div className="listino-catalog-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
                 <DraggableCatalogTree listino={activeListino} onAdd={openVoceFromListino} />
               </div>
             </div>
@@ -4969,9 +4969,31 @@ export default function GestionaleEdilePreview() {
         .sidebar-backdrop { display: none; }
         .form-grid { display: grid; }
 
-        /* Su schermi stretti, qualunque riga flessibile può andare a capo invece di traboccare */
+        /* Su schermi stretti, qualunque riga flessibile può andare a capo invece di traboccare.
+           Esclusi i contenitori "flex-direction:column" (:not([style*="column"])): per una colonna, andare
+           a capo significa aprire una SECONDA COLONNA affiancata invece di impilare — è esattamente il bug
+           della card "Listino" nel computo (sticky, con scroll interno): il suo contenuto veniva spinto fuori
+           a destra, oltre il bordo della card, su schermo stretto. Le colonne non hanno comunque bisogno di
+           andare a capo: i loro figli sono già impilati verticalmente dalla flex-direction stessa. */
         @media (max-width: 760px) {
-          [style*="display:flex"], [style*="display: flex"] { flex-wrap: wrap; min-width: 0; }
+          [style*="display:flex"]:not([style*="column"]), [style*="display: flex"]:not([style*="column"]) { flex-wrap: wrap; min-width: 0; }
+
+          /* La card "Listino" nel computo è pensata per stare FISSA ("sticky") accanto al computo quando le
+             due colonne sono affiancate su schermi larghi: resta visibile mentre si scorre il computo per
+             trascinare le voci. Sotto i 760px le due colonne vanno già a capo (impilate, per via della regola
+             sopra) e quel comportamento "sticky" smette di avere senso: la card, restando agganciata in alto,
+             finirebbe per sovrapporsi al computo che ora le scorre sotto nello stesso spazio orizzontale,
+             coprendone parte del contenuto. Su mobile diventa quindi un blocco normale a piena larghezza. */
+          .listino-catalog-card {
+            position: static !important;
+            width: 100% !important;
+            max-height: none !important;
+          }
+          .listino-catalog-scroll {
+            flex: none !important;
+            min-height: 0 !important;
+            max-height: 420px;
+          }
         }
 
         @media (max-width: 880px) {
