@@ -91,6 +91,12 @@ const nowLabel = () => new Date().toLocaleString('it-IT', { day: '2-digit', mont
 const sumImpresa = (items) => (items || []).reduce((sum, it) => sum + parseEuro(it.unitPriceImpresa) * parseEuro(it.qty), 0);
 const sumCliente = (items) => (items || []).reduce((sum, it) => sum + parseEuro(it.unitPriceCliente) * parseEuro(it.qty), 0);
 
+// --- Date in formato ISO (yyyy-mm-dd) per il cronoprogramma: comode da salvare e da usare con <input type="date">.
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const addDaysISO = (iso, days) => { const d = new Date(`${iso}T00:00:00`); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
+const formatDateIT = (iso) => { if (!iso) return ''; const d = new Date(`${iso}T00:00:00`); return d.toLocaleDateString('it-IT', { day: '2-digit', month: 'short' }); };
+const daysBetweenISO = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Date(`${a}T00:00:00`)) / 86400000);
+
 // --- Voci del computo con misurazioni reali (par.ug × lung × larg × H/peso, come in un computo metrico
 // estimativo tradizionale). Una voce può avere più "gruppi" di misurazione (uno per ogni misurazione
 // separata, col segno per le detrazioni): la quantità della voce è la somma di tutti i gruppi, ed è quella
@@ -1756,6 +1762,22 @@ function buildComputoGroups(revision) {
   });
 }
 
+// Propone una lavorazione di cronoprogramma per ogni categoria del computo (stessa granularità e stessi
+// colori di "Stati avanzamento pagamenti", che raggruppa invece per macrosezione): "Murature", "Tinteggiatura"
+// ecc. invece di una riga per singola voce, troppo minuta per una schedulazione lavori. Ogni proposta porta con
+// sé i codici delle voci di quella categoria, così la lavorazione generata resta collegata al computo.
+function buildCronoSuggestions(revision) {
+  const groups = buildComputoGroups(revision);
+  const suggestions = [];
+  groups.forEach((g) => {
+    g.categorie.forEach((cat) => {
+      if (cat.items.length === 0) return;
+      suggestions.push({ name: cat.name, color: g.color, linkedCodes: cat.items.map((it) => it.code).filter(Boolean) });
+    });
+  });
+  return suggestions;
+}
+
 function exportComputoExcel(project, revision, clientOnly) {
   const groups = buildComputoGroups(revision);
   const rows = [];
@@ -2048,6 +2070,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const [dragOverTarget, setDragOverTarget] = useState(null); // "macroName", "macroName|categoriaName" o "macroName|categoriaName|sottoName" evidenziato durante il drag
   const [showImportPdf, setShowImportPdf] = useState(false);
   const [voceComputoCtx, setVoceComputoCtx] = useState(null); // { macroName, categoriaName, sottoName, initialItem }
+  const [expandedCronoTask, setExpandedCronoTask] = useState(null); // id della lavorazione di cronoprogramma con l'editor dei collegamenti aperto
   const [expandedItems, setExpandedItems] = useState({}); // { [itemId]: true } — dettaglio misurazioni/note aperto
 
   // --- Scheda cliente importata da Desearq Studio Manager (stesso progetto Supabase, schema "public") ---
@@ -2580,6 +2603,59 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     const current = cantiereSal[categoria] || { impresa: '', fatture: [] };
     const fatture = (current.fatture || []).filter((f) => f.id !== fatturaId);
     onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, fatture } } });
+  };
+
+  // --- Cronoprogramma: lavorazioni con data di inizio e durata, salvate su project.cronoprogramma =
+  // { startDate, tasks: [{id, name, color, startDay, durationDays, linkedCodes, manual}] }. startDay è
+  // l'offset in giorni da startDate (più semplice da ricalcolare che una data assoluta per ogni lavorazione).
+  // "Genera dal computo" propone una lavorazione per ogni categoria del computo APPROVATO (stesso riferimento
+  // di "Stati avanzamento pagamenti" qui sotto) che non ha già una lavorazione con lo stesso nome: non tocca
+  // mai quelle esistenti, per non perdere date spostate a mano quando il computo cambia.
+  const crono = project.cronoprogramma || { startDate: todayISO(), tasks: [] };
+  const updateCrono = (patch) => onUpdateProject({ ...project, cronoprogramma: { ...crono, ...patch } });
+  const nextCronoCursor = (tasks) => tasks.reduce((max, t) => Math.max(max, t.startDay + t.durationDays), 0);
+
+  const generateCronoFromComputo = () => {
+    const approved = latestApprovedRevision(project);
+    if (!approved) { alert('Nessuna revisione approvata: approva prima un computo (dalle Revisioni salvate qui sotto) per poter generare le lavorazioni.'); return; }
+    const suggestions = buildCronoSuggestions(approved);
+    const existingNames = new Set(crono.tasks.map((t) => t.name));
+    const toAdd = suggestions.filter((s) => !existingNames.has(s.name));
+    if (toAdd.length === 0) { alert('Tutte le categorie del computo approvato hanno già una lavorazione corrispondente nel cronoprogramma.'); return; }
+    let cursor = nextCronoCursor(crono.tasks);
+    const newTasks = toAdd.map((s) => {
+      const task = { id: Date.now() + Math.random(), name: s.name, color: s.color, startDay: cursor, durationDays: 5, linkedCodes: s.linkedCodes, manual: false };
+      cursor += 5;
+      return task;
+    });
+    updateCrono({ tasks: [...crono.tasks, ...newTasks] });
+  };
+
+  const addManualCronoTask = () => {
+    const name = prompt('Nome della lavorazione:');
+    if (!name) return;
+    const cursor = nextCronoCursor(crono.tasks);
+    const task = { id: Date.now() + Math.random(), name, color: C.midGray, startDay: cursor, durationDays: 5, linkedCodes: [], manual: true };
+    updateCrono({ tasks: [...crono.tasks, task] });
+  };
+
+  const updateCronoTask = (id, patch) => updateCrono({ tasks: crono.tasks.map((t) => (t.id === id ? { ...t, ...patch } : t)) });
+  const renameCronoTask = (id, currentName) => { const name = prompt('Nome lavorazione:', currentName); if (!name) return; updateCronoTask(id, { name }); };
+  const removeCronoTask = (id) => { if (confirm('Rimuovere questa lavorazione dal cronoprogramma?')) updateCrono({ tasks: crono.tasks.filter((t) => t.id !== id) }); };
+
+  const cronoLinkableCategories = (() => {
+    const ref = latestApprovedRevision(project) || revisions[revisions.length - 1];
+    return ref ? buildCronoSuggestions(ref) : [];
+  })();
+  const toggleCronoTaskCategoria = (id, categoria) => {
+    const task = crono.tasks.find((t) => t.id === id);
+    if (!task) return;
+    const linked = task.linkedCodes || [];
+    const allLinked = categoria.linkedCodes.every((c) => linked.includes(c));
+    const next = allLinked
+      ? linked.filter((c) => !categoria.linkedCodes.includes(c))
+      : [...new Set([...linked, ...categoria.linkedCodes])];
+    updateCronoTask(id, { linkedCodes: next });
   };
 
   const headerField = (label, field, placeholder) => (
@@ -3288,6 +3364,106 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           </div>
         );
       })()}
+
+      <div style={{ ...card, marginBottom: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Cronoprogramma</p>
+            <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>
+              Lavorazioni di cantiere con data di inizio e durata. "Genera dal computo" propone una lavorazione per ogni categoria del computo approvato, già collegata alle sue voci — modificabile e integrabile a mano.
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <div>
+              <label style={{ fontSize: 10, color: C.gray, display: 'block', marginBottom: 2 }}>Inizio lavori</label>
+              <input type="date" value={crono.startDate} onChange={(e) => updateCrono({ startDate: e.target.value })} style={{ fontSize: 12, padding: '7px 8px', borderRadius: 8, border: `1px solid ${C.paleGray}` }} />
+            </div>
+            <button onClick={generateCronoFromComputo} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Genera dal computo</button>
+            <button onClick={addManualCronoTask} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>+ Lavorazione manuale</button>
+          </div>
+        </div>
+
+        {crono.tasks.length === 0 ? (
+          <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna lavorazione ancora. Genera il cronoprogramma dal computo approvato, oppure aggiungine una a mano.</p>
+        ) : (() => {
+          const maxDay = Math.max(14, ...crono.tasks.map((t) => t.startDay + t.durationDays)) + 2;
+          const todayOffset = daysBetweenISO(crono.startDate, todayISO());
+          const weekMarks = [];
+          for (let d = 0; d <= maxDay; d += 7) weekMarks.push(d);
+          return (
+            <div>
+              <div style={{ position: 'relative', height: 18, marginBottom: 4, marginLeft: 180 }}>
+                {weekMarks.map((d) => (
+                  <span key={d} style={{ position: 'absolute', left: `${(d / maxDay) * 100}%`, fontSize: 10, color: C.gray, transform: 'translateX(-50%)' }}>
+                    {formatDateIT(addDaysISO(crono.startDate, d))}
+                  </span>
+                ))}
+              </div>
+              {crono.tasks.map((t) => {
+                const linkedCount = (t.linkedCodes || []).length;
+                const isExpanded = expandedCronoTask === t.id;
+                return (
+                  <div key={t.id} style={{ padding: '8px 0', borderTop: `1px solid ${C.paleGray}` }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ width: 170, flexShrink: 0, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                        <span style={{ width: 9, height: 9, borderRadius: 999, background: t.color, flexShrink: 0 }} />
+                        <button onClick={() => renameCronoTask(t.id, t.name)} title="Rinomina" style={{ background: 'none', border: 'none', padding: 0, textAlign: 'left', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.name}</button>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 120, position: 'relative', height: 22, background: C.surfaceSubtle, borderRadius: 6 }}>
+                        {todayOffset >= 0 && todayOffset <= maxDay && (
+                          <div style={{ position: 'absolute', left: `${(todayOffset / maxDay) * 100}%`, top: -2, bottom: -2, width: 1, background: C.maroon, opacity: 0.5 }} />
+                        )}
+                        <div
+                          title={`${formatDateIT(addDaysISO(crono.startDate, t.startDay))} → ${formatDateIT(addDaysISO(crono.startDate, t.startDay + t.durationDays))}`}
+                          style={{ position: 'absolute', left: `${(t.startDay / maxDay) * 100}%`, width: `${Math.max((t.durationDays / maxDay) * 100, 2)}%`, top: 2, bottom: 2, background: t.color, borderRadius: 4 }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                        <input type="number" min={0} value={t.startDay} onChange={(e) => updateCronoTask(t.id, { startDay: Math.max(0, Number(e.target.value) || 0) })} style={{ width: 46, fontSize: 11, padding: '4px 5px', borderRadius: 6, border: `1px solid ${C.paleGray}` }} title="Giorni dall'inizio lavori" />
+                        <span style={{ fontSize: 10, color: C.gray }}>×</span>
+                        <input type="number" min={1} value={t.durationDays} onChange={(e) => updateCronoTask(t.id, { durationDays: Math.max(1, Number(e.target.value) || 1) })} style={{ width: 46, fontSize: 11, padding: '4px 5px', borderRadius: 6, border: `1px solid ${C.paleGray}` }} title="Durata in giorni" />
+                        <span style={{ fontSize: 10, color: C.gray }}>gg</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        <button onClick={() => setExpandedCronoTask(isExpanded ? null : t.id)} style={rowBtnStyle}>{linkedCount > 0 ? `🔗 ${linkedCount}` : '🔗 Collega'}</button>
+                        <button onClick={() => removeCronoTask(t.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+                      </div>
+                    </div>
+                    {isExpanded && (
+                      <div style={{ marginTop: 8, marginLeft: 180, padding: 10, background: C.surfaceSubtle, borderRadius: 8 }}>
+                        <p style={{ fontSize: 11, color: C.gray, margin: '0 0 6px' }}>Voci del computo collegate a questa lavorazione (per categoria):</p>
+                        {cronoLinkableCategories.length === 0 ? (
+                          <p style={{ fontSize: 11, color: C.gray, margin: 0 }}>Il computo non ha ancora voci da collegare.</p>
+                        ) : (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                            {cronoLinkableCategories.map((cat) => {
+                              const allLinked = cat.linkedCodes.every((c) => (t.linkedCodes || []).includes(c));
+                              return (
+                                <button
+                                  key={cat.name}
+                                  onClick={() => toggleCronoTaskCategoria(t.id, cat)}
+                                  style={{
+                                    fontSize: 11, padding: '5px 10px', borderRadius: 999, cursor: 'pointer',
+                                    border: `1px solid ${allLinked ? cat.color : C.paleGray}`,
+                                    background: allLinked ? cat.color : C.white,
+                                    color: allLinked ? C.white : C.black, fontWeight: 600,
+                                  }}
+                                >
+                                  {allLinked ? '✓ ' : ''}{cat.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+      </div>
 
       <div style={{ ...card, marginBottom: 18 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
