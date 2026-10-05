@@ -3534,8 +3534,18 @@ function addComputoItemToProject(project, voce, qty = '1') {
 // usano l'altezza media tra le due come approssimazione (calcolo trapezoidale) — se l'altezza è costante
 // basta lasciare la massima uguale alla minima.
 function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
-  const [projectId, setProjectId] = useState(initialProjectId || projects[0]?.id);
-  const project = projects.find((p) => p.id === projectId) || projects[0];
+  // Il progetto scelto si tiene per INDICE nell'array (non per "id"): così la selezione funziona anche se,
+  // nei dati reali, due progetti finissero per condividere lo stesso id (es. importati/creati in blocco) —
+  // un confronto per id in quel caso troverebbe sempre il primo progetto con quell'id, indipendentemente
+  // da quale sia stato scelto nel menu a tendina.
+  const [projectIdx, setProjectIdx] = useState(() => {
+    if (initialProjectId != null) {
+      const idx = projects.findIndex((p) => p.id === initialProjectId);
+      if (idx >= 0) return idx;
+    }
+    return 0;
+  });
+  const project = projects[projectIdx] || projects[0];
   const [listinoId, setListinoId] = useState(listini[0]?.id);
   const activeListino = listini.find((l) => l.id === listinoId) || listini[0];
 
@@ -3557,7 +3567,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     );
   }
 
-  const onUpdateProject = (updated) => setProjects(projects.map((p) => (p.id === updated.id ? updated : p)));
+  // Aggiorna per indice (non per id) per lo stesso motivo della selezione sopra: se due progetti condividessero
+  // lo stesso id, un confronto per id aggiornerebbe entrambi insieme invece che solo quello scelto qui.
+  const onUpdateProject = (updated) => setProjects(projects.map((p, i) => (i === projectIdx ? updated : p)));
 
   const uploadPlanimetria = (file) => {
     const reader = new FileReader();
@@ -3746,8 +3758,8 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
       <div style={{ ...card, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Progetto</label>
-          <select value={projectId} onChange={(e) => setProjectId(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 220 }}>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <select value={projectIdx} onChange={(e) => setProjectIdx(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 220 }}>
+            {projects.map((p, i) => <option key={p.id ?? i} value={i}>{p.name}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
