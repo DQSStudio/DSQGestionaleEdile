@@ -36,6 +36,7 @@ const NAV_ITEMS = [
   { key: 'progetti', label: 'Progetti', Icon: Building2 },
   { key: 'computi', label: 'Computi', Icon: Calculator },
   { key: 'confronto', label: 'Confronto revisioni', Icon: GitCompare },
+  { key: 'rilievo', label: 'Rilievo planimetrico', Icon: MapPin },
   { key: 'fornitori', label: 'Fornitori', Icon: Truck },
   { key: 'team', label: 'Team', Icon: Users },
   { key: 'impostazioni', label: 'Impostazioni studio', Icon: Settings },
@@ -2058,7 +2059,7 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   );
 }
 
-function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialRevisionId, requestPdf }) {
+function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialRevisionId, requestPdf, onOpenRilievo }) {
   const revisions = project.revisions;
   const latestRevision = revisions[revisions.length - 1];
   const [selectedRevisionId, setSelectedRevisionId] = useState(initialRevisionId || latestRevision?.id);
@@ -2190,43 +2191,9 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
     });
   };
 
-  // Plugin 2: planimetrie con punti cliccabili collegati al listino, che finiscono nel computo.
-  const uploadPlanimetria = (file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const planimetria = { id: Date.now(), name: file.name, image: reader.result, markers: [] };
-      onUpdateProject({ ...project, planimetrie: [...(project.planimetrie || []), planimetria] });
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const removePlanimetria = (id) => {
-    if (!confirm('Eliminare questa planimetria e tutti i suoi punti?')) return;
-    onUpdateProject({ ...project, planimetrie: (project.planimetrie || []).filter((p) => p.id !== id) });
-  };
-
-  const addPuntoOnPlanimetria = (planimetriaId, xPct, yPct) => {
-    const catalogItems = flattenListino(activeListino);
-    const code = prompt('Codice voce di listino da collegare a questo punto (es. IT.EL.01.005 per un punto luce):');
-    if (!code) return;
-    const voce = catalogItems.find((v) => v.code.toLowerCase() === code.trim().toLowerCase());
-    if (!voce) { alert('Codice non trovato nel listino attivo.'); return; }
-    const qty = prompt(`Quantità di "${voce.desc}" per questo punto:`, '1') || '1';
-    addComputoItem(voce, qty);
-    onUpdateProject({
-      ...project,
-      planimetrie: (project.planimetrie || []).map((p) => (p.id === planimetriaId
-        ? { ...p, markers: [...p.markers, { id: Date.now() + Math.random(), x: xPct, y: yPct, code: voce.code, desc: voce.desc }] }
-        : p)),
-    });
-  };
-
-  const removePunto = (planimetriaId, markerId) => {
-    onUpdateProject({
-      ...project,
-      planimetrie: (project.planimetrie || []).map((p) => (p.id === planimetriaId ? { ...p, markers: p.markers.filter((m) => m.id !== markerId) } : p)),
-    });
-  };
+  // Il rilievo da planimetria (punti, aree, lunghezze, volumi) ha una sua sezione dedicata nel menu laterale
+  // ("Rilievo planimetrico", componente RilievoPage più sotto in questo file) — qui nella scheda progetto
+  // resta solo un rimando, per non duplicare logica e stato.
 
   const updateQty = (id, qty) => {
     applyItemsChange((its) => its.map((it) => (it.id === id ? { ...it, qty } : it)));
@@ -3501,59 +3468,21 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
         </p>
       </div>
 
-      <div style={{ ...card, marginBottom: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-          <div>
-            <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Planimetrie</p>
-            <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>Carica una planimetria e clicca sopra per aggiungere punti (es. punti luce) collegati a una voce di listino: finiscono in automatico nel computo.</p>
-          </div>
-          <label style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-            + Carica planimetria
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadPlanimetria(e.target.files[0]); e.target.value = ''; }} />
-          </label>
+      <div style={{ ...card, marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+        <div>
+          <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Rilievo planimetrico</p>
+          <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>
+            {(project.planimetrie || []).length > 0
+              ? `${project.planimetrie.length} planimetria/e caricata/e per questo progetto. Carica, calibra e disegna aree/lunghezze/volumi collegate al listino dalla sezione dedicata nel menu laterale.`
+              : 'Carica una planimetria, calibra la scala e disegna aree (m²/m³) e lunghezze (ml) collegate al listino, dalla sezione dedicata nel menu laterale — finiscono in automatico nel computo.'}
+          </p>
         </div>
-        {(!project.planimetrie || project.planimetrie.length === 0) && (
-          <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna planimetria caricata ancora. Accetta immagini JPG/PNG (i PDF vanno caricati come documento nella sezione sopra).</p>
+        {onOpenRilievo && (
+          <button onClick={onOpenRilievo} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+            <MapPin size={13} strokeWidth={2} style={{ verticalAlign: -2, marginRight: 4 }} />
+            Vai al Rilievo planimetrico
+          </button>
         )}
-        {(project.planimetrie || []).map((pl) => (
-          <div key={pl.id} style={{ marginBottom: 18, border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.surfaceSubtle }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>{pl.name}</span>
-              <button onClick={() => removePlanimetria(pl.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
-            </div>
-            <div
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                const xPct = ((e.clientX - rect.left) / rect.width) * 100;
-                const yPct = ((e.clientY - rect.top) / rect.height) * 100;
-                addPuntoOnPlanimetria(pl.id, xPct, yPct);
-              }}
-              style={{ position: 'relative', cursor: 'crosshair', lineHeight: 0 }}
-            >
-              <img src={pl.image} alt={pl.name} style={{ width: '100%', display: 'block' }} />
-              {pl.markers.map((m) => (
-                <div
-                  key={m.id}
-                  onClick={(e) => { e.stopPropagation(); if (confirm(`Rimuovere il punto "${m.desc}"?`)) removePunto(pl.id, m.id); }}
-                  title={`${m.code} — ${m.desc} (clicca per rimuovere)`}
-                  style={{
-                    position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: 'translate(-50%, -50%)',
-                    width: 22, height: 22, borderRadius: 999, background: C.maroon, color: C.white,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
-                    border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', cursor: 'pointer',
-                  }}
-                >
-                  {pl.markers.indexOf(m) + 1}
-                </div>
-              ))}
-            </div>
-            {pl.markers.length > 0 && (
-              <div style={{ padding: '8px 12px', fontSize: 11, color: C.darkGray }}>
-                {pl.markers.length} punti aggiunti al computo · clicca un punto per rimuoverlo
-              </div>
-            )}
-          </div>
-        ))}
       </div>
 
       <div style={card}>
@@ -3577,6 +3506,394 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
 }
 
 const rowBtnStyle = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 6, fontSize: 11, fontWeight: 600, padding: '5px 10px', cursor: 'pointer', color: C.midGray };
+
+// Aggiunge una voce di listino alla revisione più recente di un progetto, fuori dal contesto della scheda
+// di dettaglio (usata dalla sezione "Rilievo planimetrico", che lavora su un progetto scelto dall'utente
+// senza aprire la relativa pagina di dettaglio). Stessa logica di "addComputoItem" lì dentro, ma ritorna
+// il progetto aggiornato invece di affidarsi allo stato locale di quella pagina (selectedRevision, ecc.).
+function addComputoItemToProject(project, voce, qty = '1') {
+  const revisions = project.revisions || [];
+  const latestRevision = revisions[revisions.length - 1];
+  if (!latestRevision) return { project, ok: false };
+  const impresaVal = voce.impresaValue !== undefined ? voce.impresaValue : parseEuro(voce.priceImpresa);
+  const clienteVal = voce.clienteValue !== undefined ? voce.clienteValue : evalClientPrice(voce.priceCliente, impresaVal);
+  const item = { id: Date.now() + Math.random(), code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: String(qty), macro: voce.macro, section: voce.macro };
+  const nextItems = regenerateItemCodes([...(latestRevision.items || []), item]);
+  const realNextItems = nextItems.filter((it) => it.type !== 'subtotal');
+  const total = formatEuro(sumImpresa(realNextItems));
+  const totalCliente = formatEuro(sumCliente(realNextItems));
+  const updatedRevisions = revisions.map((r) => (r.id === latestRevision.id ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r));
+  return { project: { ...project, revisions: updatedRevisions, value: total }, ok: true };
+}
+
+// --- Rilievo planimetrico: sezione a sé nel menu laterale. Prima si scegli il progetto di riferimento
+// (e il listino da collegare), poi si carica la planimetria e si disegna sopra — stessa logica di calibrazione
+// scala / punti / aree / lunghezze / volumi vista nella scheda progetto, ma qui il progetto non è un prop
+// fisso: si scegli da un menu a tendina. Le aree e le lunghezze accettano anche due altezze (minima e
+// massima) per le forme a falda (es. tetti a pendenza, pareti sotto falda): il volume o i m² di parete
+// usano l'altezza media tra le due come approssimazione (calcolo trapezoidale) — se l'altezza è costante
+// basta lasciare la massima uguale alla minima.
+function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
+  const [projectId, setProjectId] = useState(initialProjectId || projects[0]?.id);
+  const project = projects.find((p) => p.id === projectId) || projects[0];
+  const [listinoId, setListinoId] = useState(listini[0]?.id);
+  const activeListino = listini.find((l) => l.id === listinoId) || listini[0];
+
+  // planMode/planDraft sono stato locale di sola interazione (modalità attiva e punti del disegno in corso):
+  // non vengono salvati, contano solo mentre questa pagina è aperta — chiave per planimetria, come nel resto del rilievo.
+  const [planMode, setPlanModeRaw] = useState({});
+  const [planDraft, setPlanDraft] = useState({});
+  const setPlanMode = (plId, mode) => { setPlanModeRaw((m) => ({ ...m, [plId]: mode })); setPlanDraft((d) => ({ ...d, [plId]: [] })); };
+
+  if (!projects || projects.length === 0 || !project) {
+    return (
+      <div>
+        <p style={breadcrumb}>Gestionale / Rilievo planimetrico</p>
+        <h1 style={h1Style}>Rilievo planimetrico</h1>
+        <div style={{ ...card, marginTop: 18 }}>
+          <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Crea prima un progetto per poter caricare una planimetria e fare il rilievo.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const onUpdateProject = (updated) => setProjects(projects.map((p) => (p.id === updated.id ? updated : p)));
+
+  const uploadPlanimetria = (file) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const planimetria = { id: Date.now(), name: file.name, image: reader.result, markers: [], shapes: [], scale: null, naturalWidth: null, naturalHeight: null };
+      onUpdateProject({ ...project, planimetrie: [...(project.planimetrie || []), planimetria] });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removePlanimetria = (id) => {
+    if (!confirm('Eliminare questa planimetria e tutti i suoi punti?')) return;
+    onUpdateProject({ ...project, planimetrie: (project.planimetrie || []).filter((p) => p.id !== id) });
+  };
+
+  // Nota: la voce di listino e il marker vanno aggiornati con UNA sola onUpdateProject (partendo dal progetto
+  // già aggiornato con la voce in computo), non due chiamate separate — altrimenti la seconda, basata ancora
+  // sul progetto "vecchio", sovrascriverebbe la modifica della prima (il computo perderebbe la voce appena aggiunta).
+  const addPuntoOnPlanimetria = (planimetriaId, xPct, yPct) => {
+    const catalogItems = flattenListino(activeListino);
+    const code = prompt('Codice voce di listino da collegare a questo punto (es. IT.EL.01.005 per un punto luce):');
+    if (!code) return;
+    const voce = catalogItems.find((v) => v.code.toLowerCase() === code.trim().toLowerCase());
+    if (!voce) { alert('Codice non trovato nel listino attivo.'); return; }
+    const qty = prompt(`Quantità di "${voce.desc}" per questo punto:`, '1') || '1';
+    const { project: withItem, ok } = addComputoItemToProject(project, voce, qty);
+    if (!ok) { alert('Questo progetto non ha ancora un computo: crealo prima dalla sua pagina di dettaglio, poi torna qui a collegare i punti.'); return; }
+    onUpdateProject({
+      ...withItem,
+      planimetrie: (withItem.planimetrie || []).map((p) => (p.id === planimetriaId
+        ? { ...p, markers: [...p.markers, { id: Date.now() + Math.random(), x: xPct, y: yPct, code: voce.code, desc: voce.desc }] }
+        : p)),
+    });
+  };
+
+  const removePunto = (planimetriaId, markerId) => {
+    onUpdateProject({
+      ...project,
+      planimetrie: (project.planimetrie || []).map((p) => (p.id === planimetriaId ? { ...p, markers: p.markers.filter((m) => m.id !== markerId) } : p)),
+    });
+  };
+
+  const backfillNaturalSize = (plId, w, h) => {
+    onUpdateProject({
+      ...project,
+      planimetrie: (project.planimetrie || []).map((p) => (p.id === plId && !p.naturalWidth ? { ...p, naturalWidth: w, naturalHeight: h } : p)),
+    });
+  };
+
+  const metersPerPixel = (pl) => {
+    if (!pl.scale || !pl.naturalWidth) return null;
+    const { p1, p2, realDistance } = pl.scale;
+    const dx = ((p2.x - p1.x) / 100) * pl.naturalWidth;
+    const dy = ((p2.y - p1.y) / 100) * pl.naturalHeight;
+    const pxDist = Math.sqrt(dx * dx + dy * dy);
+    return pxDist > 0 ? realDistance / pxDist : null;
+  };
+  const pointToMeters = (pl, mpp, pt) => ({ x: (pt.x / 100) * pl.naturalWidth * mpp, y: (pt.y / 100) * pl.naturalHeight * mpp });
+  const polygonAreaM2 = (pl, mpp, points) => {
+    const mp = points.map((p) => pointToMeters(pl, mpp, p));
+    let sum = 0;
+    for (let i = 0; i < mp.length; i++) { const a = mp[i]; const b = mp[(i + 1) % mp.length]; sum += a.x * b.y - b.x * a.y; }
+    return Math.abs(sum) / 2;
+  };
+  const polylineLengthM = (pl, mpp, points) => {
+    const mp = points.map((p) => pointToMeters(pl, mpp, p));
+    let sum = 0;
+    for (let i = 0; i < mp.length - 1; i++) sum += Math.hypot(mp[i + 1].x - mp[i].x, mp[i + 1].y - mp[i].y);
+    return sum;
+  };
+
+  const handlePlanClick = (pl, xPct, yPct) => {
+    const mode = planMode[pl.id] || 'punto';
+    if (mode === 'punto') { addPuntoOnPlanimetria(pl.id, xPct, yPct); return; }
+
+    const nextDraft = [...(planDraft[pl.id] || []), { x: xPct, y: yPct }];
+
+    if (mode === 'calibra') {
+      if (nextDraft.length < 2) { setPlanDraft((d) => ({ ...d, [pl.id]: nextDraft })); return; }
+      const realDistance = parseEuro(prompt('Distanza reale tra i due punti appena cliccati, in metri (es. "3,20"):', '') || '');
+      if (!realDistance) { setPlanDraft((d) => ({ ...d, [pl.id]: [] })); return; }
+      onUpdateProject({
+        ...project,
+        planimetrie: (project.planimetrie || []).map((p) => (p.id === pl.id ? { ...p, scale: { p1: nextDraft[0], p2: nextDraft[1], realDistance } } : p)),
+      });
+      setPlanMode(pl.id, 'punto');
+      return;
+    }
+
+    setPlanDraft((d) => ({ ...d, [pl.id]: nextDraft })); // area / lunghezza: accumula punti finché non si preme "Fine"
+  };
+
+  const finishPlanShape = (pl) => {
+    const mode = planMode[pl.id];
+    const draft = planDraft[pl.id] || [];
+    const minPoints = mode === 'area' ? 3 : 2;
+    if (draft.length < minPoints) { alert(`Servono almeno ${minPoints} punti prima di premere "Fine".`); return; }
+    const mpp = metersPerPixel(pl);
+    if (!mpp) { alert('Calibra prima la scala di questa planimetria (bottone "Calibra scala").'); return; }
+
+    const catalogItems = flattenListino(activeListino);
+    const code = prompt('Codice voce di listino da collegare a questa forma (lascia vuoto per non collegarla a nessuna voce):');
+    let voce = null;
+    if (code && code.trim()) {
+      voce = catalogItems.find((v) => v.code.toLowerCase() === code.trim().toLowerCase());
+      if (!voce) { alert('Codice non trovato nel listino attivo. Forma non salvata.'); return; }
+    }
+
+    let value, unit, height = null, heightMin = null, heightMax = null, baseLength = null;
+
+    if (mode === 'area') {
+      const area = polygonAreaM2(pl, mpp, draft);
+      const hMinStr = prompt('Altezza minima in metri, per calcolare anche il volume (es. "2,70") — lascia vuoto per restare in m²:', '');
+      const hMin = parseEuro(hMinStr || '');
+      if (hMin > 0) {
+        const hMaxStr = prompt('Altezza massima in metri: lasciala invariata se l\'altezza è costante, oppure aumentala per una falda/pendenza (es. tetto a falde, soffitto inclinato):', hMinStr);
+        const hMax = Math.max(parseEuro(hMaxStr || '') || hMin, hMin);
+        heightMin = hMin; heightMax = hMax; height = hMin;
+        value = area * (hMin + hMax) / 2;
+        unit = 'm³';
+      } else {
+        value = area; unit = 'm²';
+      }
+    } else {
+      const lengthM = polylineLengthM(pl, mpp, draft);
+      const hMinStr = prompt('Altezza minima della parete in metri, per calcolare anche i m² (es. "2,70") — lascia vuoto per restare in ml:', '');
+      const hMin = parseEuro(hMinStr || '');
+      if (hMin > 0) {
+        const hMaxStr = prompt('Altezza massima in metri: lasciala invariata se l\'altezza è costante, oppure aumentala per una parete a falda (es. timpano, parete sotto una pendenza):', hMinStr);
+        const hMax = Math.max(parseEuro(hMaxStr || '') || hMin, hMin);
+        heightMin = hMin; heightMax = hMax; height = hMin; baseLength = lengthM;
+        value = lengthM * (hMin + hMax) / 2;
+        unit = 'm²';
+      } else {
+        value = lengthM; unit = 'ml';
+      }
+    }
+
+    const shape = {
+      id: Date.now() + Math.random(), type: mode, points: draft, height, heightMin, heightMax, baseLength,
+      code: voce?.code || null, desc: voce?.desc || (mode === 'area' ? 'Area misurata' : 'Lunghezza misurata'),
+      value, unit, color: SECTION_COLORS[(pl.shapes || []).length % SECTION_COLORS.length],
+    };
+    onUpdateProject({
+      ...project,
+      planimetrie: (project.planimetrie || []).map((p) => (p.id === pl.id ? { ...p, shapes: [...(p.shapes || []), shape] } : p)),
+    });
+    setPlanMode(pl.id, 'punto');
+  };
+
+  const removePlanShape = (plId, shapeId) => {
+    onUpdateProject({
+      ...project,
+      planimetrie: (project.planimetrie || []).map((p) => (p.id === plId ? { ...p, shapes: (p.shapes || []).filter((s) => s.id !== shapeId) } : p)),
+    });
+  };
+
+  const addShapeToComputo = (shape) => {
+    const catalogItems = flattenListino(activeListino);
+    const voce = catalogItems.find((v) => v.code === shape.code);
+    if (!voce) { alert('Voce di listino non trovata nel listino attivo.'); return; }
+    const { project: withItem, ok } = addComputoItemToProject(project, voce, shape.value.toFixed(2).replace('.', ','));
+    if (!ok) { alert('Questo progetto non ha ancora un computo: crealo prima dalla sua pagina di dettaglio, poi torna qui ad aggiungere la misura.'); return; }
+    onUpdateProject(withItem);
+  };
+
+  const shapeHeightLabel = (s) => {
+    if (s.heightMin == null) return '';
+    const fmt = (n) => n.toLocaleString('it-IT', { maximumFractionDigits: 2 });
+    let label = s.heightMax > s.heightMin ? ` · h ${fmt(s.heightMin)}–${fmt(s.heightMax)} m (falda)` : ` · h ${fmt(s.heightMin)} m`;
+    if (s.baseLength != null) label += ` · base ${fmt(s.baseLength)} ml`;
+    return label;
+  };
+
+  return (
+    <div>
+      <p style={breadcrumb}>Gestionale / Rilievo planimetrico</p>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+        <h1 style={h1Style}>Rilievo planimetrico</h1>
+        <span style={{ ...freshBadge, marginLeft: 'auto' }}>Dati aggiornati</span>
+      </div>
+      <p style={{ fontSize: 12, color: C.gray, margin: '-8px 0 18px', maxWidth: 680 }}>
+        Scegli il progetto, carica la planimetria, calibra la scala cliccando due punti di cui conosci la distanza reale, poi disegna aree, lunghezze e volumi direttamente sopra il disegno: ogni misura collegata a una voce di listino finisce con un click nel computo, senza scriverla a mano.
+      </p>
+
+      <div style={{ ...card, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Progetto</label>
+          <select value={projectId} onChange={(e) => setProjectId(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 220 }}>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Listino da collegare</label>
+          <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 180 }}>
+            {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+        </div>
+        {(!project.revisions || project.revisions.length === 0) && (
+          <span style={{ fontSize: 11, color: C.maroon, fontWeight: 600 }}>Questo progetto non ha ancora un computo: crealo dalla sua pagina di dettaglio prima di collegare misure al listino.</span>
+        )}
+      </div>
+
+      <div style={{ ...card, marginBottom: 18 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Planimetrie di "{project.name}"</p>
+            <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>Carica una planimetria: aggiungi punti (es. punti luce), oppure calibra la scala e disegna aree (m²/m³) e lunghezze (ml) collegate al listino — finiscono in automatico nel computo.</p>
+          </div>
+          <label style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            + Carica planimetria
+            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadPlanimetria(e.target.files[0]); e.target.value = ''; }} />
+          </label>
+        </div>
+        {(!project.planimetrie || project.planimetrie.length === 0) && (
+          <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna planimetria caricata ancora per questo progetto. Accetta immagini JPG/PNG.</p>
+        )}
+        {(project.planimetrie || []).map((pl) => {
+          const mode = planMode[pl.id] || 'punto';
+          const draft = planDraft[pl.id] || [];
+          const isDrawing = mode === 'area' || mode === 'lunghezza';
+          const mpp = metersPerPixel(pl);
+          const modeBtn = (key, label, title) => (
+            <button
+              onClick={() => setPlanMode(pl.id, key)}
+              title={title}
+              style={{
+                fontSize: 11, fontWeight: 600, padding: '6px 10px', borderRadius: 999, cursor: 'pointer',
+                border: `1px solid ${mode === key ? C.maroon : C.paleGray}`,
+                background: mode === key ? C.maroon : C.white,
+                color: mode === key ? C.white : C.black,
+              }}
+            >
+              {label}
+            </button>
+          );
+          return (
+            <div key={pl.id} style={{ marginBottom: 18, border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.surfaceSubtle }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>{pl.name}</span>
+                <button onClick={() => removePlanimetria(pl.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '8px 12px', borderBottom: `1px solid ${C.paleGray}` }}>
+                {modeBtn('punto', '📍 Punto', 'Aggiungi un punto singolo (es. punto luce)')}
+                {modeBtn('calibra', mpp ? '📏 Ricalibra' : '📏 Calibra scala', 'Clicca due punti di cui conosci la distanza reale, per convertire i disegni in metri')}
+                {modeBtn('area', '▭ Area', 'Disegna un poligono: calcola m², o m³ se indichi un\'altezza (anche a falda, con minima e massima)')}
+                {modeBtn('lunghezza', '／ Lunghezza', 'Disegna una linea: calcola i metri lineari, o i m² di una parete se indichi un\'altezza')}
+                {isDrawing && (
+                  <>
+                    <button onClick={() => finishPlanShape(pl)} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, borderColor: C.maroon }}>✓ Fine ({draft.length} punti)</button>
+                    <button onClick={() => setPlanMode(pl.id, 'punto')} style={rowBtnStyle}>✕ Annulla</button>
+                  </>
+                )}
+                {mode === 'calibra' && draft.length === 1 && <span style={{ fontSize: 11, color: C.gray }}>Clicca il secondo punto di riferimento…</span>}
+                <span style={{ fontSize: 11, color: C.gray, marginLeft: 'auto' }}>
+                  {mpp ? `Scala: ${pl.scale.realDistance.toLocaleString('it-IT')} m calibrati` : 'Scala non calibrata'}
+                </span>
+              </div>
+
+              <div
+                onClick={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const xPct = ((e.clientX - rect.left) / rect.width) * 100;
+                  const yPct = ((e.clientY - rect.top) / rect.height) * 100;
+                  handlePlanClick(pl, xPct, yPct);
+                }}
+                style={{ position: 'relative', cursor: 'crosshair', lineHeight: 0 }}
+              >
+                <img src={pl.image} alt={pl.name} style={{ width: '100%', display: 'block' }} onLoad={(e) => { if (!pl.naturalWidth) backfillNaturalSize(pl.id, e.target.naturalWidth, e.target.naturalHeight); }} />
+
+                <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
+                  {(pl.shapes || []).map((s) => {
+                    const ptsAttr = s.points.map((p) => `${p.x},${p.y}`).join(' ');
+                    return s.type === 'area' ? (
+                      <polygon key={s.id} points={ptsAttr} fill={s.color} fillOpacity={0.28} stroke={s.color} strokeWidth={0.4} vectorEffect="non-scaling-stroke" />
+                    ) : (
+                      <polyline key={s.id} points={ptsAttr} fill="none" stroke={s.color} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+                    );
+                  })}
+                  {draft.length > 0 && (
+                    <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={C.maroon} strokeWidth={0.5} strokeDasharray="1.5,1" vectorEffect="non-scaling-stroke" />
+                  )}
+                  {draft.map((p, i) => (
+                    <circle key={i} cx={p.x} cy={p.y} r={0.8} fill={C.maroon} stroke="white" strokeWidth={0.3} vectorEffect="non-scaling-stroke" />
+                  ))}
+                </svg>
+
+                {pl.markers.map((m) => (
+                  <div
+                    key={m.id}
+                    onClick={(e) => { e.stopPropagation(); if (confirm(`Rimuovere il punto "${m.desc}"?`)) removePunto(pl.id, m.id); }}
+                    title={`${m.code} — ${m.desc} (clicca per rimuovere)`}
+                    style={{
+                      position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: 'translate(-50%, -50%)',
+                      width: 22, height: 22, borderRadius: 999, background: C.maroon, color: C.white,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
+                      border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', cursor: 'pointer',
+                    }}
+                  >
+                    {pl.markers.indexOf(m) + 1}
+                  </div>
+                ))}
+              </div>
+
+              {pl.markers.length > 0 && (
+                <div style={{ padding: '8px 12px', fontSize: 11, color: C.darkGray, borderTop: `1px solid ${C.paleGray}` }}>
+                  {pl.markers.length} punti aggiunti al computo · clicca un punto per rimuoverlo
+                </div>
+              )}
+
+              {(pl.shapes || []).length > 0 && (
+                <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.paleGray}` }}>
+                  {pl.shapes.map((s) => (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                        <span style={{ fontSize: 12, color: C.black, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {s.desc}{s.code ? ` (${s.code})` : ''} — <strong>{s.value.toLocaleString('it-IT', { maximumFractionDigits: 2 })} {s.unit}</strong>{shapeHeightLabel(s)}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                        {s.code && <button onClick={() => addShapeToComputo(s)} style={rowBtnStyle}>+ Al computo</button>}
+                        <button onClick={() => removePlanShape(pl.id, s.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 function DiffTable({ diff }) {
   const esitoColor = { Invariata: C.gray, Aggiunta: C.maroon, Modificata: C.darkGray, Rimossa: C.black };
@@ -5050,6 +5367,7 @@ export default function GestionaleEdilePreview() {
   const openProject = (id) => { setSelectedProjectId(id); setOpenRevisionId(null); setPage('progetto-dettaglio'); };
   const openRevisionInProject = (projectId, revisionId) => { setSelectedProjectId(projectId); setOpenRevisionId(revisionId); setPage('progetto-dettaglio'); };
   const selectedProject = projects.find((p) => p.id === selectedProjectId);
+  const [rilievoProjectId, setRilievoProjectId] = useState(null); // progetto preselezionato quando si entra nel Rilievo planimetrico da una scheda progetto
 
   const [printJob, setPrintJob] = useState(null); // { project, revision, clientOnly }
   const requestPdf = (project, revision, clientOnly) => setPrintJob({ project, revision, clientOnly });
@@ -5309,11 +5627,13 @@ export default function GestionaleEdilePreview() {
               listini={listini}
               initialRevisionId={openRevisionId}
               requestPdf={requestPdf}
+              onOpenRilievo={() => { setRilievoProjectId(selectedProject.id); setPage('rilievo'); }}
             />
           )}
           {page === 'computi' && <ComputiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} onOpenRevision={openRevisionInProject} requestPdf={requestPdf} />}
           {page === 'confronto' && <ConfrontoPage projects={projects} />}
-          {page === 'fornitori' && <FornitoriPage projects={projects} setProjects={setProjects} catalog={fornitoriCatalog} setCatalog={setFornitoriCatalog} />}
+          {page === 'rilievo' && <RilievoPage projects={projects} setProjects={setProjects} listini={listini} initialProjectId={rilievoProjectId} />}
+          {page === 'fornitori' &&<FornitoriPage projects={projects} setProjects={setProjects} catalog={fornitoriCatalog} setCatalog={setFornitoriCatalog} />}
           {page === 'team' && <TeamPage profile={profile} />}
           {page === 'impostazioni' && <ImpostazioniPage settings={studioSettings} onUpdate={(patch) => setStudioSettings((s) => ({ ...s, ...patch }))} />}
         </main>
