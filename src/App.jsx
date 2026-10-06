@@ -2059,8 +2059,13 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   );
 }
 
-function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialRevisionId, requestPdf, onOpenRilievo }) {
+function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialRevisionId, requestPdf, onOpenRilievo, profile }) {
   const revisions = project.revisions;
+  // Identità di chi sta leggendo/modificando ora, per i segnalibri personali nel computo: una persona per
+  // voce (email se disponibile, altrimenti il nome) così lo stesso nome digitato due volte non si confonde
+  // con un'altra persona, e il nome mostrato è quello vero (nome e cognome) del profilo collegato.
+  const myBookmarkKey = (profile?.email || profile?.name || 'io').trim().toLowerCase();
+  const myBookmarkName = (profile?.name || profile?.email || 'Utente').trim();
   const latestRevision = revisions[revisions.length - 1];
   const [selectedRevisionId, setSelectedRevisionId] = useState(initialRevisionId || latestRevision?.id);
   const [selRevA, setSelRevA] = useState(revisions[0]?.id);
@@ -2202,6 +2207,25 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const removeItem = (id) => {
     if (!confirm('Eliminare questa voce?')) return;
     applyItemsChange((its) => its.filter((it) => it.id !== id));
+  };
+
+  // Segnalibro personale sul computo: segna "fin dove sono arrivato a leggere" su una voce precisa,
+  // uno per persona (chi lo sposta sposta solo il PROPRIO, non quello dei colleghi). Aggiorna la revisione
+  // aperta sul posto, senza creare una nuova versione: è solo un promemoria di lettura, non una modifica
+  // al computo, quindi non deve "sporcare" lo storico delle revisioni né quelle precedenti/chiuse.
+  const toggleBookmark = (itemId) => {
+    const existing = selectedRevision.bookmarks || [];
+    const mine = existing.find((b) => b.key === myBookmarkKey);
+    const nextBookmarks = mine && mine.itemId === itemId
+      ? existing.filter((b) => b.key !== myBookmarkKey) // si clicca di nuovo sulla stessa voce: rimuove il proprio segnalibro
+      : [...existing.filter((b) => b.key !== myBookmarkKey), { key: myBookmarkKey, name: myBookmarkName, date: nowLabel(), itemId }];
+    const updatedRevisions = revisions.map((r) => (r.id === selectedRevision.id ? { ...r, bookmarks: nextBookmarks } : r));
+    onUpdateProject({ ...project, revisions: updatedRevisions });
+  };
+
+  const scrollToItem = (itemId) => {
+    const el = document.getElementById(`computo-item-${itemId}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
   const moveItemToSection = (id, sectionName) => {
@@ -2672,6 +2696,31 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
             )}
           </div>
 
+          {/* Segnalibri di lettura: uno per persona, su questa revisione. Ogni membro del team vede dove sono
+              arrivati tutti (nome e cognome + data), e può spostare solo il PROPRIO cliccando "🔖" sulla riga
+              di una voce (vedi tabella sotto) — non crea una nuova versione, è solo un promemoria di lettura. */}
+          {(selectedRevision.bookmarks || []).length > 0 && (
+            <div style={{ ...card, marginBottom: 18 }}>
+              <p style={{ fontWeight: 700, fontSize: 13, margin: '0 0 8px', color: C.black, fontFamily: FONT }}>🔖 Segnalibri di lettura su questa revisione</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {(selectedRevision.bookmarks || []).map((b) => {
+                  const atItem = realItems.find((it) => it.id === b.itemId);
+                  const isMine = b.key === myBookmarkKey;
+                  return (
+                    <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 700, color: isMine ? C.maroon : C.black }}>{b.name}{isMine ? ' (tu)' : ''}</span>
+                      <span style={{ color: C.gray }}>· {b.date}</span>
+                      <span style={{ color: C.midGray, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 360 }}>
+                        {atItem ? `— ${atItem.code} ${atItem.desc}` : '— voce non più presente in questa revisione'}
+                      </span>
+                      {atItem && <button onClick={() => scrollToItem(atItem.id)} style={rowBtnStyle}>📍 Vai</button>}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
             <button onClick={saveNewVersion} style={{ background: C.maroon, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>+ Salva nuova versione</button>
             <button onClick={() => setShowImportPdf(true)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>📄 Nuova revisione da PDF</button>
@@ -2954,9 +3003,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                       const detailRows = (it.misurazioni || []).flatMap((g) => g.rows || []);
                                       const hasDetail = detailRows.length > 0 || !!it.note;
                                       const isExpanded = !!expandedItems[it.id];
+                                      const itemBookmarks = (selectedRevision.bookmarks || []).filter((b) => b.itemId === it.id);
+                                      const myBookmarkHere = itemBookmarks.some((b) => b.key === myBookmarkKey);
                                       return (
                                       <React.Fragment key={it.id}>
-                                      <tr style={{ borderTop: `1px solid ${C.paleGray}` }}>
+                                      <tr id={`computo-item-${it.id}`} style={{ borderTop: `1px solid ${C.paleGray}`, background: myBookmarkHere ? 'rgba(128,20,48,0.05)' : 'transparent' }}>
                                         <td style={{ padding: '8px 6px' }}>
                                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                             {hasDetail && (
@@ -2970,12 +3021,24 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                             )}
                                             <button onClick={() => moveItemInSection(it.id, 'up')} style={{ ...iconBtn, height: 18, fontSize: 9, lineHeight: '16px' }}>▲</button>
                                             <button onClick={() => moveItemInSection(it.id, 'down')} style={{ ...iconBtn, height: 18, fontSize: 9, lineHeight: '16px' }}>▼</button>
+                                            <button
+                                              onClick={() => toggleBookmark(it.id)}
+                                              title={myBookmarkHere ? 'Rimuovi il tuo segnalibro da questa voce' : 'Segna qui il tuo punto di lettura (sposta il tuo segnalibro)'}
+                                              style={{ ...iconBtn, height: 18, fontSize: 10, lineHeight: '16px', color: myBookmarkHere ? C.maroon : C.midGray }}
+                                            >
+                                              {myBookmarkHere ? '🔖' : '📑'}
+                                            </button>
                                           </div>
                                         </td>
                                         <td style={{ padding: '8px 6px', fontWeight: 700, color: C.black }}>{it.code}</td>
                                         <td style={{ padding: '8px 6px', color: C.midGray }}>
                                           {it.desc}
                                           {it.note && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.gray, fontStyle: 'italic' }}>📝 {it.note}</p>}
+                                          {itemBookmarks.length > 0 && (
+                                            <p style={{ margin: '3px 0 0', fontSize: 10, color: C.maroon }}>
+                                              🔖 {itemBookmarks.map((b) => `${b.name} (${b.date})`).join(' · ')}
+                                            </p>
+                                          )}
                                         </td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right' }}>
                                           {it.autoCode ? (
@@ -6122,6 +6185,7 @@ export default function GestionaleEdilePreview() {
               initialRevisionId={openRevisionId}
               requestPdf={requestPdf}
               onOpenRilievo={() => { setRilievoProjectId(selectedProject.id); setPage('rilievo'); }}
+              profile={profile}
             />
           )}
           {page === 'computi' && <ComputiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} onOpenRevision={openRevisionInProject} requestPdf={requestPdf} />}
