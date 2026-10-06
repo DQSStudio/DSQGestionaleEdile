@@ -3768,24 +3768,20 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   };
 
   // --- Zoom / pan ---
+  // Scala 1 = esattamente come prima (immagine a piena larghezza del riquadro, altezza naturale, nessun
+  // ritaglio): è sia il valore di partenza sia il minimo consentito, così la planimetria non viene mai
+  // rimpicciolita per "entrare" in un riquadro fisso — si vede sempre tutta, grande come prima, e lo zoom
+  // serve solo per ingrandire oltre quello quando serve vedere un dettaglio (col pan per spostarsi).
   const getView = (plId) => planView[plId] || { scale: 1, tx: 0, ty: 0 };
-  const getFitScale = (plId, pl) => {
-    const el = viewportElsRef.current[plId];
-    if (!el || !pl.naturalWidth) return 1;
-    const rect = el.getBoundingClientRect();
-    if (!rect.width) return 1;
-    const baseHeight = rect.width * (pl.naturalHeight / pl.naturalWidth);
-    return baseHeight > rect.height ? rect.height / baseHeight : 1;
-  };
-  const resetView = (plId, pl) => setPlanView((v) => ({ ...v, [plId]: { scale: getFitScale(plId, pl), tx: 0, ty: 0 } }));
+  const resetView = (plId) => setPlanView((v) => ({ ...v, [plId]: { scale: 1, tx: 0, ty: 0 } }));
   const zoomBy = (plId, pl, factor, center) => {
     const view = getView(plId);
     const el = viewportElsRef.current[plId];
     const rect = el ? el.getBoundingClientRect() : null;
     const cx = center ? center.x : (rect ? rect.width / 2 : 0);
     const cy = center ? center.y : (rect ? rect.height / 2 : 0);
-    const fit = getFitScale(plId, pl);
-    const newScale = clamp(view.scale * factor, fit, 8);
+    const newScale = clamp(view.scale * factor, 1, 8);
+    if (newScale <= 1) { setPlanView((v) => ({ ...v, [plId]: { scale: 1, tx: 0, ty: 0 } })); return; }
     const contentX = (cx - view.tx) / view.scale;
     const contentY = (cy - view.ty) / view.scale;
     setPlanView((v) => ({ ...v, [plId]: { scale: newScale, tx: cx - contentX * newScale, ty: cy - contentY * newScale } }));
@@ -3796,8 +3792,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     zoomBy(pl.id, pl, e.deltaY < 0 ? 1.15 : 1 / 1.15, { x: e.clientX - rect.left, y: e.clientY - rect.top });
   };
   const startPan = (e, plId) => {
-    e.preventDefault();
     const view = getView(plId);
+    if (view.scale <= 1) return; // niente da spostare finché non si è ingrandito
+    e.preventDefault();
     setPanDragState({ plId, startX: e.clientX, startY: e.clientY, startTx: view.tx, startTy: view.ty });
   };
   useEffect(() => {
@@ -4103,7 +4100,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                 <button onClick={() => zoomBy(pl.id, pl, 1 / 1.25)} title="Rimpicciolisci" style={rowBtnStyle}>－</button>
                 <span style={{ fontSize: 11, color: C.gray, minWidth: 36, textAlign: 'center' }}>{Math.round(view.scale * 100)}%</span>
                 <button onClick={() => zoomBy(pl.id, pl, 1.25)} title="Ingrandisci" style={rowBtnStyle}>＋</button>
-                <button onClick={() => resetView(pl.id, pl)} title="Adatta alla finestra" style={rowBtnStyle}>⤢ Adatta</button>
+                {view.scale > 1 && <button onClick={() => resetView(pl.id)} title="Torna alla visualizzazione intera" style={rowBtnStyle}>⤢ Adatta</button>}
                 <span style={{ fontSize: 11, color: C.gray, marginLeft: 'auto' }}>
                   {mpp ? `Scala: ${pl.scale.realDistance.toLocaleString('it-IT')} m calibrati` : 'Scala non calibrata'}
                 </span>
@@ -4130,20 +4127,23 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                   handlePlanClick(pl, pct.xPct, pct.yPct);
                 }}
                 style={{
-                  position: 'relative', overflow: 'hidden', height: 560, background: '#EDEAE5',
-                  cursor: mode === 'sposta' ? (panDragState ? 'grabbing' : 'grab') : (isEditingThisPl ? 'default' : 'crosshair'),
+                  position: 'relative',
+                  // A riposo (scala 1) il riquadro non ritaglia nulla: si adatta all'altezza naturale
+                  // dell'immagine esattamente come prima, niente bande vuote né rimpicciolimenti forzati.
+                  // Solo quando si è effettivamente ingranditi il riquadro si limita a un'altezza ragionevole
+                  // con overflow nascosto, per poter spostare la vista (pan) dentro uno spazio contenuto.
+                  overflow: view.scale > 1 ? 'hidden' : 'visible',
+                  height: view.scale > 1 ? 'min(72vh, 900px)' : 'auto',
+                  background: view.scale > 1 ? '#EDEAE5' : 'transparent',
+                  cursor: mode === 'sposta' ? (view.scale <= 1 ? 'default' : (panDragState ? 'grabbing' : 'grab')) : (isEditingThisPl ? 'default' : 'crosshair'),
                   userSelect: panDragState || draggingHandle ? 'none' : 'auto',
                 }}
               >
-                <div style={{ position: 'absolute', left: 0, top: 0, width: '100%', transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`, transformOrigin: '0 0' }}>
+                <div style={{ position: 'relative', width: '100%', transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`, transformOrigin: '0 0' }}>
                   <img
                     src={pl.image} alt={pl.name} draggable={false}
                     style={{ width: '100%', display: 'block', pointerEvents: 'none', userSelect: 'none' }}
-                    onLoad={(e) => {
-                      const w = e.target.naturalWidth, h = e.target.naturalHeight;
-                      if (!pl.naturalWidth) backfillNaturalSize(pl.id, w, h);
-                      resetView(pl.id, { naturalWidth: w, naturalHeight: h });
-                    }}
+                    onLoad={(e) => { if (!pl.naturalWidth) backfillNaturalSize(pl.id, e.target.naturalWidth, e.target.naturalHeight); }}
                   />
 
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
