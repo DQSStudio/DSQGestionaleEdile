@@ -3837,7 +3837,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   // non vengono salvati, contano solo mentre questa pagina è aperta — chiave per planimetria, come nel resto del rilievo.
   const [planMode, setPlanModeRaw] = useState({});
   const [planDraft, setPlanDraft] = useState({});
-  const setPlanMode = (plId, mode) => { setPlanModeRaw((m) => ({ ...m, [plId]: mode })); setPlanDraft((d) => ({ ...d, [plId]: [] })); };
+  const setPlanMode = (plId, mode) => { setPlanModeRaw((m) => ({ ...m, [plId]: mode })); setPlanDraft((d) => ({ ...d, [plId]: [] })); setMagnifier(null); };
 
   // Zoom/pan per planimetria: { scale, tx, ty } in pixel di "viewport" — il contenuto (immagine + svg +
   // marker) resta sempre percentuale (0-100) come prima, solo la conversione clic↔percentuale tiene conto
@@ -3851,6 +3851,42 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   const [editingShape, setEditingShape] = useState(null);
   // Modale "collega al listino", usata sia per nuovi punti/forme sia per ricollegare una forma esistente.
   const [planModal, setPlanModal] = useState(null);
+  // Anteprima al volo della voce collegata a una forma già disegnata, cliccandola direttamente sul disegno
+  // (senza dover scorrere l'elenco sotto, che resta comunque intatto e completo).
+  const [shapePreview, setShapePreview] = useState(null); // { plId, shapeId, xPct, yPct }
+  // Lente di ingrandimento: mostra un ritaglio ingrandito della planimetria sotto il cursore mentre si
+  // posizionano i punti di una nuova area/lunghezza o si trascina un punto già tracciato — utile per
+  // ancorarsi con precisione a un dettaglio del disegno senza dover zoomare tutta la vista (difficile da
+  // fare proprio mentre si sta tracciando).
+  const [magnifier, setMagnifier] = useState(null); // { plId, loupeLeft, loupeTop, bgWidth, bgHeight, bgPosX, bgPosY }
+  const LOUPE_SIZE = 140; // diametro in px della lente
+  const LOUPE_ZOOM = 3; // quanto la lente ingrandisce rispetto alla scala "naturale" (non rispetto allo zoom corrente della vista)
+  const computeMagnifier = (pl, clientX, clientY) => {
+    const el = viewportElsRef.current[pl.id];
+    if (!el || !pl.naturalWidth) return null;
+    const rect = el.getBoundingClientRect();
+    const view = getView(pl.id);
+    const baseWidth = rect.width;
+    const baseHeight = baseWidth * (pl.naturalHeight / pl.naturalWidth);
+    const contentX = (clientX - rect.left - view.tx) / view.scale;
+    const contentY = (clientY - rect.top - view.ty) / view.scale;
+    const cursorLeft = clientX - rect.left;
+    const cursorTop = clientY - rect.top;
+    // Di default la lente sta sopra e a destra del cursore (così non ci copre sotto il dito/puntatore);
+    // si ribalta sul lato opposto quando non c'entra nel riquadro.
+    let loupeLeft = cursorLeft + 16;
+    let loupeTop = cursorTop - LOUPE_SIZE - 16;
+    if (loupeLeft + LOUPE_SIZE > rect.width) loupeLeft = cursorLeft - LOUPE_SIZE - 16;
+    if (loupeTop < 0) loupeTop = cursorTop + 16;
+    return {
+      plId: pl.id,
+      loupeLeft, loupeTop,
+      bgWidth: baseWidth * LOUPE_ZOOM,
+      bgHeight: baseHeight * LOUPE_ZOOM,
+      bgPosX: -(contentX * LOUPE_ZOOM - LOUPE_SIZE / 2),
+      bgPosY: -(contentY * LOUPE_ZOOM - LOUPE_SIZE / 2),
+    };
+  };
 
   const setProjectIdx = (idx) => {
     setProjectIdxRaw(idx);
@@ -3858,6 +3894,8 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     setEditingShape(null);
     setDraggingHandle(null);
     setPanDragState(null);
+    setShapePreview(null);
+    setMagnifier(null);
   };
 
   if (!projects || projects.length === 0 || !project) {
@@ -4141,7 +4179,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   const openShapeLinkModal = (plId, shape) => setPlanModal({ kind: 'shape-edit', plId, shapeId: shape.id });
 
   // --- Modifica forma: trascinamento dei vertici già tracciati ---
-  const startEditShape = (pl, shape) => { setPlanModal(null); setEditingShape({ plId: pl.id, shapeId: shape.id, points: shape.points.map((p) => ({ ...p })) }); };
+  const startEditShape = (pl, shape) => { setPlanModal(null); setShapePreview(null); setEditingShape({ plId: pl.id, shapeId: shape.id, points: shape.points.map((p) => ({ ...p })) }); };
   const cancelEditShape = () => setEditingShape(null);
   const saveEditShape = () => {
     if (!editingShape) return;
@@ -4168,15 +4206,20 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     if (!draggingHandle) return;
     const onMove = (e) => {
       const pct = toContentPercent(draggingHandle.plId, e.clientX, e.clientY);
-      if (!pct) return;
-      setEditingShape((es) => {
-        if (!es || es.plId !== draggingHandle.plId) return es;
-        const pts = es.points.slice();
-        pts[draggingHandle.idx] = { x: pct.xPct, y: pct.yPct };
-        return { ...es, points: pts };
-      });
+      if (pct) {
+        setEditingShape((es) => {
+          if (!es || es.plId !== draggingHandle.plId) return es;
+          const pts = es.points.slice();
+          pts[draggingHandle.idx] = { x: pct.xPct, y: pct.yPct };
+          return { ...es, points: pts };
+        });
+      }
+      // Lente attiva anche mentre si trascina un punto già tracciato: è lì che serve più precisione,
+      // ed è esattamente il momento in cui è più scomodo fermarsi a zoomare tutta la vista.
+      const draggedPl = (project.planimetrie || []).find((p) => p.id === draggingHandle.plId);
+      if (draggedPl) setMagnifier(computeMagnifier(draggedPl, e.clientX, e.clientY));
     };
-    const onUp = () => setDraggingHandle(null);
+    const onUp = () => { setDraggingHandle(null); setMagnifier(null); };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
@@ -4298,11 +4341,19 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                 ref={(el) => { viewportElsRef.current[pl.id] = el; }}
                 onMouseDown={(e) => { if (mode === 'sposta') startPan(e, pl.id); }}
                 onClick={(e) => {
+                  setShapePreview(null);
                   if (mode === 'sposta' || isEditingThisPl) return;
                   const pct = toContentPercent(pl.id, e.clientX, e.clientY);
                   if (!pct) return;
                   handlePlanClick(pl, pct.xPct, pct.yPct);
                 }}
+                onMouseMove={(e) => {
+                  // La lente segue il cursore solo mentre si sta effettivamente tracciando una nuova area/
+                  // lunghezza (i click sono precisi solo se si vede bene dove si sta per cliccare), non durante
+                  // lo spostamento della vista né quando si è semplicemente "a riposo".
+                  if (isDrawing && !panDragState) setMagnifier(computeMagnifier(pl, e.clientX, e.clientY));
+                }}
+                onMouseLeave={() => setMagnifier((m) => (m && m.plId === pl.id ? null : m))}
                 style={{
                   position: 'relative',
                   // A riposo (scala 1) il riquadro non ritaglia nulla: si adatta all'altezza naturale
@@ -4359,20 +4410,46 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                       const isEditingThis = editingShape && editingShape.plId === pl.id && editingShape.shapeId === s.id;
                       const pts = isEditingThis ? editingShape.points : s.points;
                       const ptsAttr = pts.map((p) => `${p.x},${p.y}`).join(' ');
+                      // Si può cliccare una forma già disegnata per vederne l'anteprima (voce collegata, valore)
+                      // solo "a riposo" (modalità punto, non mentre si sta disegnando/calibrando/modificando):
+                      // altrimenti il click deve continuare a passare al contenitore sotto, come già succedeva.
+                      const previewClickable = mode === 'punto' && !isEditingThisPl;
+                      const onShapeClick = (e) => {
+                        if (!previewClickable) return;
+                        e.stopPropagation();
+                        const pct = toContentPercent(pl.id, e.clientX, e.clientY);
+                        setShapePreview({ plId: pl.id, shapeId: s.id, xPct: pct ? pct.xPct : pts[0].x, yPct: pct ? pct.yPct : pts[0].y });
+                      };
                       return (
                         <React.Fragment key={s.id}>
                           {s.type === 'area' ? (
-                            <polygon points={ptsAttr} fill={s.color} fillOpacity={0.28} stroke={s.color} strokeWidth={isEditingThis ? 0.6 : 0.4} vectorEffect="non-scaling-stroke" />
+                            <polygon
+                              points={ptsAttr} fill={s.color} fillOpacity={0.28} stroke={s.color} strokeWidth={isEditingThis ? 0.6 : 0.4}
+                              vectorEffect="non-scaling-stroke"
+                              style={{ pointerEvents: previewClickable ? 'auto' : 'none', cursor: previewClickable ? 'pointer' : 'inherit' }}
+                              onClick={onShapeClick}
+                            />
                           ) : (
-                            <polyline points={ptsAttr} fill="none" stroke={s.color} strokeWidth={isEditingThis ? 0.9 : 0.6} vectorEffect="non-scaling-stroke" />
+                            <>
+                              {/* Bersaglio di click invisibile e più largo della linea vera, altrimenti una
+                                  lunghezza sottile sarebbe troppo difficile da colpire con un click. */}
+                              <polyline points={ptsAttr} fill="none" stroke="transparent" strokeWidth={3} vectorEffect="non-scaling-stroke" style={{ pointerEvents: previewClickable ? 'auto' : 'none', cursor: previewClickable ? 'pointer' : 'inherit' }} onClick={onShapeClick} />
+                              <polyline points={ptsAttr} fill="none" stroke={s.color} strokeWidth={isEditingThis ? 0.9 : 0.6} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
+                            </>
                           )}
                           {isEditingThis && pts.map((p, i) => (
-                            <circle
-                              key={i} cx={p.x} cy={p.y} r={1.6} fill={C.white} stroke={s.color} strokeWidth={0.5}
-                              vectorEffect="non-scaling-stroke" style={{ cursor: 'move', pointerEvents: 'auto' }}
-                              onMouseDown={(e) => startDragHandle(e, pl.id, i)}
-                              onClick={(e) => e.stopPropagation()}
-                            />
+                            <React.Fragment key={i}>
+                              {/* Bersaglio di trascinamento più largo (invisibile) del pallino visibile sotto:
+                                  il pallino vero si è rimpicciolito per ancorarsi con più precisione (non
+                                  nasconde più il punto esatto sotto il cursore), ma resta facile da afferrare. */}
+                              <circle
+                                cx={p.x} cy={p.y} r={3} fill="transparent"
+                                vectorEffect="non-scaling-stroke" style={{ cursor: 'move', pointerEvents: 'auto' }}
+                                onMouseDown={(e) => startDragHandle(e, pl.id, i)}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <circle cx={p.x} cy={p.y} r={1} fill={C.white} stroke={s.color} strokeWidth={0.4} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
+                            </React.Fragment>
                           ))}
                         </React.Fragment>
                       );
@@ -4381,9 +4458,39 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                       <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={C.maroon} strokeWidth={0.5} strokeDasharray="1.5,1" vectorEffect="non-scaling-stroke" />
                     )}
                     {draft.map((p, i) => (
-                      <circle key={i} cx={p.x} cy={p.y} r={0.8} fill={C.maroon} stroke="white" strokeWidth={0.3} vectorEffect="non-scaling-stroke" />
+                      <circle key={i} cx={p.x} cy={p.y} r={0.5} fill={C.maroon} stroke="white" strokeWidth={0.25} vectorEffect="non-scaling-stroke" />
                     ))}
                   </svg>
+
+                  {shapePreview && shapePreview.plId === pl.id && (() => {
+                    const previewShape = (pl.shapes || []).find((s) => s.id === shapePreview.shapeId);
+                    if (!previewShape) return null;
+                    return (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          position: 'absolute', left: `${shapePreview.xPct}%`, top: `${shapePreview.yPct}%`,
+                          transform: `scale(${1 / view.scale}) translate(-50%, calc(-100% - 14px))`, transformOrigin: 'bottom center',
+                          background: C.white, borderRadius: 10, padding: '8px 10px', minWidth: 180, maxWidth: 240,
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.25)', border: `1px solid ${C.paleGray}`, zIndex: 7, pointerEvents: 'auto',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 6 }}>
+                          <span style={{ width: 9, height: 9, borderRadius: 3, background: previewShape.color, flexShrink: 0, marginTop: 3 }} />
+                          <button onClick={() => setShapePreview(null)} style={{ border: 'none', background: 'none', color: C.gray, cursor: 'pointer', fontSize: 12, padding: 0, marginLeft: 'auto' }}>✕</button>
+                        </div>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: C.black, margin: '2px 0 1px' }}>
+                          {previewShape.desc}{previewShape.code ? ` (${previewShape.code})` : ''}
+                        </p>
+                        <p style={{ fontSize: 12, color: C.maroon, fontWeight: 700, margin: 0 }}>
+                          {previewShape.value.toLocaleString('it-IT', { maximumFractionDigits: 2 })} {previewShape.unit}{shapeHeightLabel(previewShape)}
+                        </p>
+                        {!previewShape.code && !previewShape.computoItemId && (
+                          <p style={{ fontSize: 10.5, color: C.gray, margin: '2px 0 0' }}>Non ancora collegata a una voce.</p>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {pl.markers.map((m) => (
                     <div
@@ -4401,6 +4508,26 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                     </div>
                   ))}
                 </div>
+
+                {/* Lente di ingrandimento: FUORI dal div trasformato (scale/pan), così resta sempre della
+                    stessa dimensione a schermo e posizionata in pixel reali rispetto al cursore, indipendente
+                    dallo zoom corrente della vista. */}
+                {magnifier && magnifier.plId === pl.id && (
+                  <div
+                    style={{
+                      position: 'absolute', left: magnifier.loupeLeft, top: magnifier.loupeTop,
+                      width: LOUPE_SIZE, height: LOUPE_SIZE, borderRadius: '50%', overflow: 'hidden',
+                      border: `3px solid ${C.maroon}`, boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+                      backgroundImage: `url(${pl.image})`, backgroundRepeat: 'no-repeat',
+                      backgroundSize: `${magnifier.bgWidth}px ${magnifier.bgHeight}px`,
+                      backgroundPosition: `${magnifier.bgPosX}px ${magnifier.bgPosY}px`,
+                      pointerEvents: 'none', zIndex: 8,
+                    }}
+                  >
+                    <div style={{ position: 'absolute', left: '50%', top: '50%', width: 1, height: 16, background: C.maroon, transform: 'translate(-50%, -50%)' }} />
+                    <div style={{ position: 'absolute', left: '50%', top: '50%', width: 16, height: 1, background: C.maroon, transform: 'translate(-50%, -50%)' }} />
+                  </div>
+                )}
               </div>
 
               {pl.markers.length > 0 && (
