@@ -1407,8 +1407,9 @@ function withCodes(macros) {
 
 const UNIT_OPTIONS = ['m²', 'm³', 'ml', 'cadauna', 'a corpo', 'kg', 'ora', 'Altro'];
 
-function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onClose, onSave }) {
+function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onClose, onSave, offerAddToComputo = false }) {
   const isEdit = !!initialVoce;
+  const [addToComputo, setAddToComputo] = useState(true);
   const [locationIdx, setLocationIdx] = useState(initialLocationIdx);
   const [code, setCode] = useState(initialVoce?.code || '');
   const [desc, setDesc] = useState(initialVoce?.desc || '');
@@ -1481,13 +1482,20 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
           style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px', fontFamily: 'inherit', resize: 'vertical' }}
         />
 
+        {offerAddToComputo && !isEdit && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5, color: C.black, margin: '0 0 12px', cursor: 'pointer' }}>
+            <input type="checkbox" checked={addToComputo} onChange={(e) => setAddToComputo(e.target.checked)} />
+            Aggiungila subito anche a questo computo
+          </label>
+        )}
+
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 6 }}>
           <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Annulla</button>
           <button
             onClick={() => {
               if (!desc.trim()) return;
               const finalUnit = unit === 'Altro' ? (customUnit || '—') : unit;
-              onSave(locations[locationIdx].path, { code: code || '—', desc, unit: finalUnit, priceImpresa: priceImpresa || '0,00', priceCliente: priceCliente || '', note: note || '', updatedAt: new Date().toISOString() });
+              onSave(locations[locationIdx].path, { code: code || '—', desc, unit: finalUnit, priceImpresa: priceImpresa || '0,00', priceCliente: priceCliente || '', note: note || '', updatedAt: new Date().toISOString() }, offerAddToComputo && !isEdit && addToComputo);
               onClose();
             }}
             style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}
@@ -2187,7 +2195,7 @@ function ComputoSectionsView({ sections }) {
 // era C.sidebar (#F6F4EF, quasi bianco) — su testo bianco risultava illeggibile dalla quarta macrosezione in poi.
 const SECTION_COLORS = [DEFAULT_ACCENT, C.darkGray, '#94706C', '#4A3F35'];
 
-function DraggableCatalogTree({ listino, onAdd }) {
+function DraggableCatalogTree({ listino, onAdd, onEdit }) {
   const [expanded, setExpanded] = useState({});
   const isOpen = (key) => expanded[key] !== false;
   const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
@@ -2243,6 +2251,16 @@ function DraggableCatalogTree({ listino, onAdd }) {
                                   <p style={{ margin: '2px 0 0', fontSize: 12, color: C.black }}>{v.desc}</p>
                                   <p style={{ margin: '2px 0 0', fontSize: 11, color: C.gray }}>{v.unit} · impresa {formatEuro(impresaVal)} · cliente {formatEuro(clienteVal)}</p>
                                 </div>
+                                {onEdit && (
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); onEdit([mi, ci, si, vi]); }}
+                                    title="Modifica la voce nel listino"
+                                    aria-label="Modifica la voce nel listino"
+                                    style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: C.white, color: C.midGray, fontSize: 12, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                    ✎
+                                  </button>
+                                )}
                                 {onAdd && (
                                   <button
                                     onClick={(e) => { e.stopPropagation(); onAdd(voceData); }}
@@ -2758,7 +2776,7 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   );
 }
 
-function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitoriCatalog, initialRevisionId, requestPdf, onOpenRilievo, profile }) {
+function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdateListini, fornitoriCatalog, initialRevisionId, requestPdf, onOpenRilievo, profile }) {
   const revisions = project.revisions;
   // Identità di chi sta leggendo/modificando ora, per i segnalibri personali nel computo: una persona per
   // voce (email se disponibile, altrimenti il nome) così lo stesso nome digitato due volte non si confonde
@@ -2897,6 +2915,40 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
   // delle voci create da zero, precompilato con descrizione/unità/prezzi del listino: la modalità di calcolo
   // (ml/m²/m³, oppure quantità manuale per "a corpo"/"cadauna"/ecc.) si sceglie in base all'unità di misura.
   // La voce finisce come voce vera e propria nella macrocategoria/sottocategoria del listino di provenienza.
+  // Voci di listino create o modificate direttamente da qui, senza lasciare il computo: si salvano nel
+  // listino scelto nella colonna a sinistra (le modifiche di prezzo seguono le stesse regole di
+  // aggiornamento dei computi in attesa). Una voce nuova, se richiesto, viene subito aggiunta al computo.
+  const [listinoVoceModal, setListinoVoceModal] = useState(null); // { mode: 'new' } | { mode: 'edit', path }
+  const listinoLocations = [];
+  if (activeListino) {
+    withCodes(activeListino.macros || []).forEach((m, mi) => m.categorie.forEach((c, ci) => c.sottocategorie.forEach((s, si) => {
+      listinoLocations.push({ path: [mi, ci, si], label: `${m.name} › ${c.name} › ${s.name} (${s.code})` });
+    })));
+  }
+  const saveListinoVoce = (path, voce, addNow) => {
+    if (!activeListino || !onUpdateListini) return;
+    const macrosNext = structuredClone(activeListino.macros || []);
+    let saved;
+    let at = path;
+    if (listinoVoceModal?.mode === 'edit') {
+      const [mi, ci, si, vi] = listinoVoceModal.path;
+      const prev = macrosNext[mi].categorie[ci].sottocategorie[si].voci[vi];
+      saved = { uid: prev?.uid || newVoceUid(), ...voce };
+      macrosNext[mi].categorie[ci].sottocategorie[si].voci[vi] = saved;
+      at = [mi, ci, si];
+    } else {
+      const [mi, ci, si] = path;
+      saved = { uid: newVoceUid(), ...voce };
+      macrosNext[mi].categorie[ci].sottocategorie[si].voci.push(saved);
+    }
+    onUpdateListini(listini.map((l) => (l.id === activeListino.id ? { ...l, macros: macrosNext } : l)));
+    if (addNow) {
+      const [mi, ci, si] = at;
+      const m = macrosNext[mi]; const c = m.categorie[ci]; const s = c.sottocategorie[si];
+      openVoceFromListino({ ...saved, listinoId: activeListino.id, macro: m.name, categoria: c.name, sotto: s.name });
+    }
+  };
+
   const openVoceFromListino = (voce) => {
     setVoceComputoCtx({
       macroName: voce.macro || 'Voci varie',
@@ -3631,8 +3683,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                       {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                     </select>
                     <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px', flexShrink: 0 }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
+                    {onUpdateListini && (
+                      <button onClick={() => setListinoVoceModal({ mode: 'new' })} disabled={listinoLocations.length === 0} title={listinoLocations.length === 0 ? 'Crea prima almeno una sottocategoria nel listino' : ''} style={{ alignSelf: 'flex-start', border: `1px solid ${C.maroon}`, background: C.white, color: C.maroon, borderRadius: 999, padding: '7px 14px', fontSize: 12, fontWeight: 500, cursor: listinoLocations.length === 0 ? 'default' : 'pointer', fontFamily: FONT, margin: '0 0 10px', flexShrink: 0, opacity: listinoLocations.length === 0 ? 0.5 : 1 }}>+ Nuova voce di listino</button>
+                    )}
                     <div className="listino-catalog-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-                      <DraggableCatalogTree listino={activeListino} onAdd={openVoceFromListino} />
+                      <DraggableCatalogTree listino={activeListino} onAdd={openVoceFromListino} onEdit={onUpdateListini ? (vpath) => setListinoVoceModal({ mode: 'edit', path: vpath }) : null} />
                     </div>
                   </>
                 )}
@@ -4083,6 +4138,16 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                       </div>
                     );
                   })
+                )}
+                {listinoVoceModal && activeListino && (
+                  <VoceModal
+                    locations={listinoLocations}
+                    initialLocationIdx={listinoVoceModal.mode === 'edit' ? Math.max(0, listinoLocations.findIndex((l) => l.path.join() === listinoVoceModal.path.slice(0, 3).join())) : 0}
+                    initialVoce={listinoVoceModal.mode === 'edit' ? activeListino.macros[listinoVoceModal.path[0]].categorie[listinoVoceModal.path[1]].sottocategorie[listinoVoceModal.path[2]].voci[listinoVoceModal.path[3]] : null}
+                    offerAddToComputo
+                    onClose={() => setListinoVoceModal(null)}
+                    onSave={saveListinoVoce}
+                  />
                 )}
                 {voceComputoCtx && (
                   <VoceComputoModal
@@ -7830,6 +7895,7 @@ export default function GestionaleEdilePreview() {
               onBack={() => setPage('progetti')}
               onUpdateProject={(updated) => setProjects(projects.map((p) => (p.id === updated.id ? updated : p)))}
               listini={listini}
+              onUpdateListini={updateListini}
               fornitoriCatalog={fornitoriCatalog}
               initialRevisionId={openRevisionId}
               requestPdf={requestPdf}
