@@ -7,28 +7,28 @@ import { LayoutGrid, BookOpen, Building2, Calculator, GitCompare, Truck, Users, 
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
-const FONT = "'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
+const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
 
-// Design token ufficiali Desearq (estratti da DSM — desearq-design-tokens.css)
+// Design token Desearq Flow (bordeaux #862D2D, cream #F4EFE8, font Inter)
 const C = {
-  maroon: '#801430',
-  accentHover: '#650F26',
-  accentSoft: '#F3DCE1',
-  black: '#171717',
-  sidebar: '#F6F4EF',
-  sidebarHover: '#EDEAE1',
-  darkGray: '#6B6B6B',
-  midGray: '#6B6B6B',
-  gray: '#A3A3A3',
-  lightGray: '#C9C9C9',
-  paleGray: '#E7E4DC',
-  borderStrong: '#D8D4CB',
-  bg: '#F6F4EF',
-  surfaceSubtle: '#FAF9F6',
-  white: '#FFFFFF',
+  maroon: '#862D2D',
+  accentHover: '#6E2424',
+  accentSoft: '#F1DCD3',
+  black: '#211A16',
+  sidebar: '#F4EFE8',
+  sidebarHover: '#EAE1D2',
+  darkGray: '#6F655F',
+  midGray: '#6F655F',
+  gray: '#8B8178',
+  lightGray: '#C9BEAF',
+  paleGray: '#E9E0D4',
+  borderStrong: '#E3D9CC',
+  bg: '#F4EFE8',
+  surfaceSubtle: '#FAF8F4',
+  white: '#FFFDFA',
   success: '#2E7D4F',
 };
-const PAGE_GRADIENT = 'radial-gradient(120% 90% at 85% 0%, #FBF9F4 0%, #F6F4EF 45%, #F3F0E9 100%)';
+const PAGE_GRADIENT = 'radial-gradient(120% 90% at 85% 0%, #FBF8F2 0%, #F4EFE8 45%, #F0E8D8 100%)';
 
 const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', Icon: LayoutGrid },
@@ -42,6 +42,43 @@ const NAV_ITEMS = [
   { key: 'impostazioni', label: 'Impostazioni studio', Icon: Settings },
 ];
 
+// Icona di navigazione disegnata a mano (stessi tracciati dell'artefatto Flow), non un'icona lucide-react:
+// qui serve riprodurre esattamente il disegno del mockup, non un'icona "equivalente".
+function NavIcon({ children }) {
+  return (
+    <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+      {children}
+    </svg>
+  );
+}
+
+// Struttura della sidebar raggruppata per area (Listino / Progetti / Computi / Forniture / Team), identica
+// all'artefatto "Quant — Nuova grafica (Flow)": un gruppo senza etichetta per la Dashboard, poi un'etichetta
+// di sezione prima di ciascun gruppo di voci.
+const NAV_GROUPS = [
+  { label: null, items: [
+    { key: 'dashboard', label: 'Dashboard', icon: <NavIcon><rect x="3.5" y="3.5" width="7" height="9" rx="1.5" /><rect x="13.5" y="3.5" width="7" height="5" rx="1.5" /><rect x="13.5" y="11.5" width="7" height="9" rx="1.5" /><rect x="3.5" y="15.5" width="7" height="5" rx="1.5" /></NavIcon> },
+  ]},
+  { label: 'Listino', items: [
+    { key: 'listino', label: 'Listino prezzi', icon: <NavIcon><path d="M4 4.5h7a2 2 0 0 1 2 2V20a2 2 0 0 0-2-1.5H4z" /><path d="M20 4.5h-7a2 2 0 0 0-2 2V20a2 2 0 0 1 2-1.5h7z" /></NavIcon> },
+  ]},
+  { label: 'Progetti', items: [
+    { key: 'progetti', label: 'Progetti', icon: <NavIcon><rect x="2.5" y="7.5" width="19" height="12.5" rx="1.8" /><path d="M8.3 7.5V6a2 2 0 0 1 2-2h3.4a2 2 0 0 1 2 2v1.5" /></NavIcon>, countKey: 'progetti' },
+    { key: 'rilievo', label: 'Rilievo planimetrico', icon: <NavIcon><path d="M3 6l6-2.3 6 2.3 6-2.3v15l-6 2.3-6-2.3-6 2.3z" /><path d="M9 3.7v15 M15 6v15" /></NavIcon> },
+  ]},
+  { label: 'Computi', items: [
+    { key: 'computi', label: 'Computi', icon: <NavIcon><rect x="5" y="2.5" width="14" height="19" rx="2" /><path d="M8 7h8 M8 12h2 M8 16h2 M14 12h2 M14 16h2" /></NavIcon>, countKey: 'computi' },
+    { key: 'confronto', label: 'Confronto revisioni', icon: <NavIcon><path d="M8 3v14 M3 12l5 5 5-5" /><path d="M16 21V7 M21 12l-5-5-5 5" /></NavIcon> },
+  ]},
+  { label: 'Forniture', items: [
+    { key: 'fornitori', label: 'Fornitori', icon: <NavIcon><path d="M12 2.6l8.5 4.8v9.2L12 21.4l-8.5-4.8V7.4z M3.5 7.4L12 12.2l8.5-4.8 M12 12.2v9.2" /></NavIcon> },
+  ]},
+  { label: 'Team', items: [
+    { key: 'team', label: 'Team', icon: <NavIcon><circle cx="8.5" cy="8.3" r="3.2" /><path d="M2.5 19.5c.4-3.8 3-6.5 6-6.5s5.6 2.7 6 6.5" /><circle cx="17" cy="9" r="2.3" /><path d="M15.6 13c2.2.4 4 2.6 4.4 6" /></NavIcon> },
+    { key: 'impostazioni', label: 'Impostazioni studio', icon: <NavIcon><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 9 19.35a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.65 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.65 9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.65a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.56 1.03z" /></NavIcon> },
+  ]},
+];
+
 const STATUS_OPTIONS = ['In attesa di approvazione', 'Approvato', 'In fase di cantiere'];
 const statusTone = {
   'In attesa di approvazione': 'orange',
@@ -53,6 +90,9 @@ const latestStatus = (project) => project.revisions[project.revisions.length - 1
 
 const parseEuro = (v) => parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0;
 const formatEuro = (n) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+
+// Nome visualizzato di un prodotto fornitori: marca + modello (marca omessa se vuota).
+const prodottoLabel = (p) => [p.marca, p.modello].filter(Boolean).join(' ') || '(prodotto senza nome)';
 
 // Calcola il prezzo cliente: un numero fisso, oppure una formula che inizia con "="
 // e può usare la parola "impresa" per riferirsi al prezzo impresa (es. =impresa*1.3, =impresa+50).
@@ -409,13 +449,13 @@ const REVISIONS_TABLE = [
 ];
 
 const badgeStyles = {
-  orange: { background: 'rgba(107,107,107,0.14)', color: C.darkGray },
-  teal: { background: C.accentSoft, color: C.maroon },
-  gray: { background: '#EEECE6', color: C.darkGray },
+  orange: { background: '#F2E4C6', color: '#8A5A12' },
+  teal: { background: `color-mix(in srgb, ${C.maroon} 18%, #fff)`, color: C.maroon },
+  gray: { background: '#E8E0D6', color: '#5A4F4A' },
 };
 
 const card = { background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 20, padding: 18, boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04)' };
-const h1Style = { fontFamily: FONT, fontSize: 30, margin: 0, color: C.black, fontWeight: 700 };
+const h1Style = { fontFamily: FONT, fontSize: 30, margin: 0, color: C.black, fontWeight: 300, letterSpacing: '-0.01em' };
 const breadcrumb = { fontSize: 12, color: C.gray, margin: '0 0 4px' };
 const freshBadge = { fontSize: 11, color: C.maroon, background: C.accentSoft, padding: '3px 9px', borderRadius: 999, fontWeight: 600 };
 const iconBtn = { width: 26, height: 26, border: `1px solid ${C.paleGray}`, borderRadius: 6, background: C.white, cursor: 'pointer', fontSize: 11, color: C.gray };
@@ -430,114 +470,243 @@ function MetricCard({ label, value, note }) {
   );
 }
 
-function Dashboard({ onNavigate, onOpenProject, projects }) {
-  const topProject = projects[0];
-  const progressByStatus = { 'In attesa di approvazione': 33, 'Approvato': 66, 'In fase di cantiere': 100 };
-  const totalValoreListino = '23.422,85 €';
+const IT_MONTHS = { gen: 0, feb: 1, mar: 2, apr: 3, mag: 4, giu: 5, lug: 6, ago: 7, set: 8, ott: 9, nov: 10, dic: 11 };
+// Le date dei progetti/revisioni si trovano in due formati testuali diversi: quello dei progetti
+// d'esempio ("22 lug 2026, 16:45", mese scritto per esteso) e quello che genera davvero "nowLabel()"
+// ogni volta che si salva una modifica nell'app reale ("14/10/2026, 16:45", giorno/mese/anno numerico).
+// Senza riconoscere anche il secondo formato, ogni data creata realmente dall'app risultava "non
+// interpretabile" e spariva dai conteggi e dalla sezione "Modifiche recenti" della Dashboard.
+function parseItDate(str) {
+  if (!str) return null;
+  const s = String(str);
+  const named = s.match(/(\d{1,2})\s+([a-zà]{3,})\.?\s+(\d{4})(?:,\s*(\d{1,2}):(\d{2}))?/i);
+  if (named) {
+    const mon = IT_MONTHS[named[2].toLowerCase().slice(0, 3)];
+    if (mon !== undefined) return new Date(Number(named[3]), mon, Number(named[1]), Number(named[4] || 0), Number(named[5] || 0));
+  }
+  const numeric = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})(?:,?\s*(\d{1,2}):(\d{2}))?/);
+  if (numeric) {
+    return new Date(Number(numeric[3]), Number(numeric[2]) - 1, Number(numeric[1]), Number(numeric[4] || 0), Number(numeric[5] || 0));
+  }
+  return null;
+}
+function daysBetween(a, b) { return Math.max(0, Math.round((b - a) / 86400000)); }
+
+function KpiInfo() {
+  return <span style={{ width: 15, height: 15, borderRadius: '50%', border: '1px solid #CFC4B6', fontSize: 9, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#8B8178', flexShrink: 0 }}>i</span>;
+}
+
+function DKpi({ label, value, note, accent }) {
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ fontSize: 12.5, color: C.darkGray, display: 'flex', alignItems: 'center', gap: 8, letterSpacing: '.02em' }}>{label}<KpiInfo /></div>
+      <div style={{ fontSize: 30, fontWeight: 500, letterSpacing: '-.03em', lineHeight: 1.1, color: accent ? C.maroon : C.black }}>{value}</div>
+      {note && <div style={{ fontSize: 11.5, color: C.darkGray }}>{note}</div>}
+    </div>
+  );
+}
+
+function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListinoId, fornitoriCatalog, profile }) {
+  const activeListino = listini.find((l) => l.id === activeListinoId) || listini[0];
+  const listinoVoci = activeListino ? flattenListino(activeListino) : [];
+  const macrosezioni = activeListino?.macros?.length || 0;
+
+  const allRevisions = projects.flatMap((p) => p.revisions.map((r) => ({ project: p, revision: r })));
+  const now = new Date();
+  const revisioniQuestoMese = allRevisions.filter(({ revision }) => {
+    const d = parseItDate(revision.dateCreated);
+    return d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+  const modificheUltime48h = allRevisions.filter(({ revision }) => {
+    const d = parseItDate(revision.dateModified);
+    return d && (now - d) / 36e5 <= 48;
+  }).length;
+  const valoreAttivo = projects.reduce((sum, p) => {
+    const last = p.revisions[p.revisions.length - 1];
+    return sum + (last ? parseEuro(last.total) : 0);
+  }, 0);
+
+  const fornitoriNomi = new Set();
+  let categorieForniture = 0;
+  (fornitoriCatalog || []).forEach((macro) => (macro.categorie || []).forEach((cat) => {
+    categorieForniture += 1;
+    (cat.prodotti || []).forEach((prod) => (prod.varianti || []).forEach((v) => (v.fornitori || []).forEach((f) => fornitoriNomi.add(f.name))));
+  }));
+
   const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+  const progressByStatus = { 'In attesa di approvazione': 33, 'Approvato': 66, 'In fase di cantiere': 100 };
+
+  const computiDaApprovare = allRevisions
+    .filter(({ revision }) => revision.status === 'In attesa di approvazione')
+    .map(({ project, revision }) => ({ project, revision, modified: parseItDate(revision.dateModified) }))
+    .sort((a, b) => (a.modified?.getTime() || 0) - (b.modified?.getTime() || 0));
+
+  const modificheRecenti = allRevisions
+    .map(({ project, revision }) => ({ project, revision, modified: parseItDate(revision.dateModified) }))
+    .filter((x) => x.modified)
+    .sort((a, b) => b.modified - a.modified)
+    .slice(0, 5);
+
+  const rilieviInCorso = projects.filter((p) => (p.planimetrie || []).length > 0).length;
+
+  const oggiLabel = now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
+  const nomeUtente = profile?.email ? profile.email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
 
   return (
     <div>
-      <p style={breadcrumb}>Gestionale / Dashboard</p>
-      <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '2px 0 28px' }}>Dashboard</p>
-
-      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 32, flexWrap: 'wrap', gap: 16 }}>
-        <div>
-          <span style={{ display: 'block', fontSize: 12, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: C.maroon, marginBottom: 8 }}>Oggi</span>
-          <h1 style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, lineHeight: 1.1, letterSpacing: '-0.02em', color: C.black, margin: 0 }}>Bentornato.</h1>
-          <p style={{ fontSize: 15, color: C.darkGray, margin: '8px 0 0' }}>Progetti, computi e listini nello stesso contesto.</p>
-        </div>
-        <button
-          onClick={() => onNavigate('progetti')}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.sidebar, color: C.white, border: 'none', borderRadius: 999, padding: '12px 24px', fontFamily: FONT, fontWeight: 500, fontSize: 13, cursor: 'pointer' }}
-        >
-          <Building2 size={16} strokeWidth={1.5} />
-          Apri i progetti
-        </button>
+      {/* HERO */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 11, letterSpacing: '.2em', color: C.gray, fontWeight: 600, marginBottom: 8 }}>{oggiLabel}</div>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(40px, 7.5vw, 90px)', lineHeight: 1.05, fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>
+          Bentornato{nomeUtente ? `, ${nomeUtente}` : ''}.
+        </h1>
+        <p style={{ margin: '8px 0 0', fontSize: 16, fontWeight: 300, color: C.darkGray }}>Ecco listino, progetti e computi metrici dello studio, in tempo reale.</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 24, marginBottom: 32 }}>
-        <div style={card}>
-          <p style={{ fontSize: 13, color: C.darkGray, margin: '0 0 16px' }}>Progetti attivi</p>
-          <p style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>{projects.length}</p>
-        </div>
-        <div style={card}>
-          <p style={{ fontSize: 13, color: C.darkGray, margin: '0 0 16px' }}>Voci di listino</p>
-          <p style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>13</p>
-        </div>
-        <div style={card}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <p style={{ fontSize: 13, color: C.darkGray, margin: 0 }}>Macrosezioni</p>
-            <Clock size={20} strokeWidth={1.5} color={C.maroon} />
-          </div>
-          <p style={{ fontFamily: FONT, fontSize: 44, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>4</p>
-        </div>
-        <div style={card}>
-          <p style={{ fontSize: 13, color: C.darkGray, margin: '0 0 16px' }}>Valore progetti</p>
-          <p style={{ fontFamily: FONT, fontSize: 30, fontWeight: 700, color: C.black, margin: 0, lineHeight: 1.1 }}>{totalValoreListino}</p>
-        </div>
+      {/* KPI HERO */}
+      <div style={{ color: C.white, padding: '20px 22px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 158, borderRadius: 14, background: 'linear-gradient(145deg, #8A4443 0%, #15110F 100%)', marginBottom: 16, boxSizing: 'border-box' }}>
+        <div style={{ fontSize: 15, fontWeight: 300 }}>Valore progetti attivi</div>
+        <div style={{ fontSize: 'clamp(36px, 5vw, 60px)', fontWeight: 200, letterSpacing: 0, lineHeight: 1 }}>{formatEuro(valoreAttivo)}</div>
       </div>
 
-      <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '0 0 16px' }}>Progetti attivi</p>
+      {/* KPI GRID */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 22 }}>
+        <DKpi label="PROGETTI ATTIVI" value={projects.length} note={`${projects.filter((p) => latestStatus(p) === 'In fase di cantiere').length} in cantiere`} />
+        <DKpi label="VOCI DI LISTINO" value={listinoVoci.length} note={`su ${listini.length} listin${listini.length === 1 ? 'o' : 'i'} attiv${listini.length === 1 ? 'o' : 'i'}`} />
+        <DKpi label="MACROSEZIONI" value={macrosezioni} note="catalogo listino attivo" />
+        <DKpi label="COMPUTI DA APPROVARE" value={computiDaApprovare.length} note="in attesa di approvazione" accent={computiDaApprovare.length > 0} />
+        <DKpi label="REVISIONI QUESTO MESE" value={revisioniQuestoMese} note="nuove revisioni" />
+        <DKpi label="FORNITORI COLLEGATI" value={fornitoriNomi.size} note={`su ${categorieForniture} categorie`} />
+        <DKpi label="MODIFICHE ULTIME 48H" value={modificheUltime48h} note="su tutti i progetti" />
+      </div>
 
-      {topProject && (
-        <div onClick={() => onOpenProject(topProject.id)} style={{ ...card, marginBottom: 20, cursor: 'pointer' }} className="hover-lift">
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-            <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, ...badgeStyles[statusTone[latestStatus(topProject)]] }}>{latestStatus(topProject)}</span>
-            <div style={{ width: 40, height: 40, borderRadius: 999, background: '#0D4D3C', color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 13 }}>
-              {initials(topProject.client)}
-            </div>
-          </div>
-          <p style={{ fontFamily: FONT, fontSize: 22, fontWeight: 600, color: C.black, margin: '0 0 6px' }}>{topProject.name}</p>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 13, color: C.darkGray, marginBottom: 16 }}>
-            <MapPin size={14} strokeWidth={1.5} />
-            {topProject.header?.ubicazione || topProject.client}
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 13, color: C.darkGray, marginBottom: 8 }}>
-            <span>{topProject.revisions.length} revisioni</span>
-            <span style={{ fontWeight: 600, color: C.black }}>{progressByStatus[latestStatus(topProject)]}%</span>
-          </div>
-          <div style={{ background: '#E9E6DE', borderRadius: 999, height: 6, overflow: 'hidden' }}>
-            <div style={{ background: '#0D4D3C', height: '100%', width: `${progressByStatus[latestStatus(topProject)]}%`, borderRadius: 999 }} />
-          </div>
-        </div>
+      {/* COMPUTI DA APPROVARE */}
+      {computiDaApprovare.length > 0 && (
+        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16, overflowX: 'auto' }}>
+          <h3 style={{ margin: '0 0 10px', fontWeight: 300, fontSize: 20, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            COMPUTI DA APPROVARE<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>ordinati per urgenza</span>
+          </h3>
+          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
+            <thead>
+              <tr>
+                {['Progetto', 'Revisione', 'In attesa da', 'Totale impresa', 'Urgenza'].map((h) => (
+                  <th key={h} style={{ fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: 'left', padding: '8px 10px', borderBottom: `1px solid ${C.borderStrong}` }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {computiDaApprovare.map(({ project, revision, modified }, i) => {
+                const giorni = modified ? daysBetween(modified, now) : null;
+                const critica = giorni === null || giorni >= 5;
+                return (
+                  <tr key={i} onClick={() => onOpenProject(project.id)} style={{ cursor: 'pointer' }}>
+                    <td style={{ fontSize: 13.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}`, fontWeight: 400 }}>{project.name}</td>
+                    <td style={{ fontSize: 13.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}` }}>{revision.label}</td>
+                    <td style={{ fontSize: 12.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}`, color: C.darkGray }}>{giorni === null ? '—' : `${giorni} giorn${giorni === 1 ? 'o' : 'i'}`}</td>
+                    <td style={{ fontSize: 12.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}`, color: C.darkGray }}>{revision.total}</td>
+                    <td style={{ padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}` }}>
+                      <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, fontWeight: 500, background: critica ? 'rgba(179,69,43,0.16)' : '#F2E4C6', color: critica ? '#8C3220' : '#8A5A12' }}>
+                        {critica ? 'Critica' : "Da tenere d'occhio"}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </section>
       )}
 
-      <div style={{ ...card, marginBottom: 20 }}>
-        <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '0 0 16px' }}>Altri progetti</p>
-        {projects.slice(1).length === 0 && <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Nessun altro progetto.</p>}
-        {projects.slice(1).map((p) => (
-          <div
-            key={p.id}
-            onClick={() => onOpenProject(p.id)}
-            style={{ display: 'flex', flexWrap: 'wrap', rowGap: 8, alignItems: 'center', gap: 16, padding: 16, borderRadius: 12, background: C.surfaceSubtle, cursor: 'pointer', marginBottom: 8 }}
-          >
-            <div style={{ width: 44, height: 44, borderRadius: 8, background: C.accentSoft, color: C.maroon, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 14, flexShrink: 0 }}>
-              {initials(p.client)}
-            </div>
-            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
-              <p style={{ fontWeight: 500, fontSize: 13, margin: 0, color: C.black }}>{p.name}</p>
-              <p style={{ fontSize: 12, color: C.darkGray, margin: '2px 0 0' }}>{p.client}</p>
-            </div>
-            <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, flexShrink: 0, ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
+      {/* MODIFICHE RECENTI */}
+      {modificheRecenti.length > 0 && (
+        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 6px', fontWeight: 300, fontSize: 20, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+            MODIFICHE RECENTI<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>ultime revisioni aggiornate</span>
+          </h3>
+          <div>
+            {modificheRecenti.map(({ project, revision }, i) => (
+              <div key={i} onClick={() => onOpenProject(project.id)} style={{ display: 'flex', gap: 12, padding: '11px 0', borderBottom: i < modificheRecenti.length - 1 ? `1px solid ${C.paleGray}` : 'none', cursor: 'pointer' }}>
+                <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, background: C.accentSoft, color: C.maroon }}>✎</div>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 300 }}><b style={{ fontWeight: 500 }}>{project.name}</b> — {revision.label} aggiornata</div>
+                  <div style={{ fontSize: 11.5, color: '#8B8178', marginTop: 2 }}>{revision.dateModified}</div>
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </section>
+      )}
 
-      <div style={card}>
-        <p style={{ fontSize: 18, fontWeight: 600, color: C.black, margin: '0 0 16px' }}>Azioni rapide</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 10 }}>
-          <button onClick={() => onNavigate('computi')} style={{ background: C.surfaceSubtle, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, fontWeight: 500, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
-            Apri computo e listino
+      {/* SITUAZIONE LISTINO */}
+      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+        <h3 style={{ margin: 0, fontWeight: 300, fontSize: 23, letterSpacing: 0 }}>SITUAZIONE LISTINO</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px 28px', marginTop: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: C.maroon }} />
+            <span style={{ fontSize: 13.5, flexGrow: 1, fontWeight: 300 }}>Listini attivi</span>
+            <b style={{ fontWeight: 600 }}>{listini.length}</b>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: C.maroon }} />
+            <span style={{ fontSize: 13.5, flexGrow: 1, fontWeight: 300 }}>Rilievi planimetrici in corso</span>
+            <b style={{ fontWeight: 600 }}>{rilieviInCorso}</b>
+          </div>
+        </div>
+      </section>
+
+      {/* PROGETTI ATTIVI */}
+      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+        <h3 style={{ margin: '0 0 16px', fontWeight: 300, fontSize: 23, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          PROGETTI ATTIVI<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>computo e revisioni</span>
+        </h3>
+        {projects.length === 0 && <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Nessun progetto.</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16 }}>
+          {projects.map((p) => (
+            <div key={p.id} onClick={() => onOpenProject(p.id)} style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden', background: C.white, cursor: 'pointer' }}>
+              <div style={{ position: 'relative', aspectRatio: '4/3', background: `linear-gradient(135deg, color-mix(in srgb, ${C.maroon} 60%, #999), ${C.maroon})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg viewBox="0 0 24 24" style={{ width: 34, height: 34, fill: 'none', stroke: 'rgba(255,255,255,.75)', strokeWidth: 1.1, strokeLinecap: 'round', strokeLinejoin: 'round' }}>
+                  <rect x="3" y="5" width="18" height="14" rx="1.5" /><circle cx="8.5" cy="10" r="1.6" /><path d="M3 17l5-4.5 4 3 3-2.5 6 4.5" />
+                </svg>
+                <span style={{ position: 'absolute', left: 10, bottom: 8, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.85)' }}>Foto di copertina</span>
+              </div>
+              <div style={{ padding: '14px 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 400 }}>{p.name}</div>
+                  <div style={{ fontSize: 11, color: '#8B8178', letterSpacing: '.08em' }}>{p.client}</div>
+                </div>
+                <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, alignSelf: 'flex-start', ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 24, fontWeight: 200, letterSpacing: '-.03em', lineHeight: 1 }}>{p.revisions[p.revisions.length - 1]?.total || p.value}</span>
+                  <span style={{ fontSize: 11, color: '#8B8178', letterSpacing: '.1em', textTransform: 'uppercase' }}>{p.revisions.length} revision{p.revisions.length === 1 ? 'e' : 'i'}</span>
+                </div>
+                <div style={{ background: C.paleGray, borderRadius: 999, height: 6, overflow: 'hidden' }}>
+                  <div style={{ background: C.maroon, height: '100%', width: `${progressByStatus[latestStatus(p)] || 10}%`, borderRadius: 999 }} />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11.5, color: '#8B8178', marginTop: 12, fontWeight: 300 }}>La foto di copertina viene presa dalla sezione Progetti (una per progetto).</div>
+      </section>
+
+      {/* AZIONI RAPIDE */}
+      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, padding: '18px 22px' }}>
+        <h3 style={{ margin: '0 0 12px', fontWeight: 300, fontSize: 23 }}>AZIONI RAPIDE</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
+          <button onClick={() => onNavigate('computi')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 300, color: C.black, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+            <Calculator size={16} strokeWidth={1.6} color={C.maroon} />Apri computo e listino
           </button>
-          <button onClick={() => onNavigate('confronto')} style={{ background: C.surfaceSubtle, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, fontWeight: 500, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
-            Confronta revisioni
+          <button onClick={() => onNavigate('confronto')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 300, color: C.black, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+            <GitCompare size={16} strokeWidth={1.6} color={C.maroon} />Confronta revisioni
           </button>
-          <button onClick={() => onNavigate('computi')} style={{ background: C.surfaceSubtle, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '12px 14px', fontSize: 13, fontWeight: 500, textAlign: 'left', color: C.black, fontFamily: FONT, cursor: 'pointer' }}>
-            Personalizza documento
+          <button onClick={() => onNavigate('rilievo')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 300, color: C.black, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+            <MapPin size={16} strokeWidth={1.6} color={C.maroon} />Apri rilievo planimetrico
+          </button>
+          <button onClick={() => onNavigate('listino')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 400, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
+            <BookOpen size={16} strokeWidth={1.6} color={C.white} />Nuova voce di listino
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -592,35 +761,42 @@ function ListinoPage({ listini, setListini, activeId, setActiveId }) {
     setActiveId(remaining[0].id);
   };
 
+  const pillBtn = { border: `1px solid ${C.paleGray}`, background: C.white, color: C.black, fontSize: 12.5, fontWeight: 400, padding: '7px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT };
+  const voci = flattenListino(active);
+  const categorieCount = withCodes(active.macros).reduce((n, m) => n + m.categorie.length, 0);
+
   return (
     <div>
-      <p style={breadcrumb}>Gestionale / Listino prezzi</p>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
-        <h1 style={h1Style}>Listino prezzi</h1>
-        <span style={{ ...freshBadge, marginLeft: 'auto' }}>Dati aggiornati</span>
-      </div>
-
-      <div style={{ ...card, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Listino attivo</label>
-        <select
-          value={activeId}
-          onChange={(e) => setActiveId(Number(e.target.value))}
-          style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 220 }}
-        >
-          {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-        </select>
-        <div style={{ display: 'flex', gap: 8, marginLeft: 'auto' }}>
-          <button onClick={addListino} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Nuovo listino</button>
-          <button onClick={duplicateListino} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⧉ Duplica</button>
-          <button onClick={renameListino} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>✎ Rinomina</button>
-          <button onClick={deleteListino} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>🗑 Elimina</button>
-          <button onClick={() => setShowFornitoreSharing(true)} style={{ position: 'relative', background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, flexWrap: 'wrap', marginBottom: 22 }}>
+        <div>
+          <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(30px, 4vw, 42px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Listino prezzi</h1>
+          <p style={{ margin: '6px 0 0', fontSize: 14.5, fontWeight: 300, color: C.darkGray, maxWidth: 520 }}>Catalogo voci per macrocategoria, categoria e sottocategoria — prezzo impresa e prezzo cliente su ogni riga.</p>
+        </div>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+          <select
+            value={activeId}
+            onChange={(e) => setActiveId(Number(e.target.value))}
+            style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 300, fontFamily: FONT, color: C.black, cursor: 'pointer' }}
+          >
+            {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+          </select>
+          <button onClick={addListino} style={{ ...pillBtn, border: 'none', background: C.maroon, color: C.white, fontWeight: 500 }}>+ Nuovo listino</button>
+          <button onClick={duplicateListino} style={pillBtn}>⧉ Duplica</button>
+          <button onClick={renameListino} style={pillBtn}>✎ Rinomina</button>
+          <button onClick={deleteListino} style={pillBtn}>🗑 Elimina</button>
+          <button onClick={() => setShowFornitoreSharing(true)} style={{ ...pillBtn, position: 'relative' }}>
             🔗 Fornitori
             {pendingCount > 0 && (
               <span style={{ position: 'absolute', top: -6, right: -6, background: C.maroon, color: C.white, borderRadius: 999, minWidth: 18, height: 18, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px' }}>{pendingCount}</span>
             )}
           </button>
         </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 22 }}>
+        <DKpi label="VOCI TOTALI" value={voci.length} note={`su ${listini.length} listin${listini.length === 1 ? 'o' : 'i'} attiv${listini.length === 1 ? 'o' : 'i'}`} />
+        <DKpi label="MACROSEZIONI" value={active.macros.length} note={active.macros.map((m) => m.name).join(', ') || 'nessuna macrosezione'} />
+        <DKpi label="CATEGORIE" value={categorieCount} note="su tutte le macrosezioni" />
       </div>
 
       <EditableCatalog macros={active.macros} setMacros={setMacrosForActive} />
@@ -940,7 +1116,13 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
         <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Es. EX.001" style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }} />
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Descrizione tecnica</label>
-        <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrivi lavorazione, materiali e condizioni…" style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }} />
+        <textarea
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          placeholder="Descrivi lavorazione, materiali e condizioni…"
+          rows={2}
+          style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px', fontFamily: 'inherit', resize: 'vertical', minHeight: 36 }}
+        />
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Unità di misura</label>
         <select value={unit} onChange={(e) => setUnit(e.target.value)} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }}>
@@ -1045,7 +1227,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
   const addRow = () => setRows((rs) => [...rs, emptyMisurazioneRow()]);
   const removeRow = (idx) => setRows((rs) => (rs.length > 1 ? rs.filter((_, i) => i !== idx) : rs));
 
-  const colStyle = (active) => ({ width: '100%', fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right', background: active ? C.white : '#f2f2f2', color: active ? C.black : C.gray });
+  const colStyle = (active) => ({ width: '100%', fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right', background: active ? C.white : '#F2EEE6', color: active ? C.black : C.gray });
   const labelStyle = { fontSize: 11, fontWeight: 700, color: C.midGray };
   const fieldStyle = { width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' };
 
@@ -1056,7 +1238,13 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
         <p style={{ fontSize: 11, color: C.gray, margin: '0 0 16px' }}>{macroName} › {categoriaName || 'Generale'}</p>
 
         <label style={labelStyle}>Descrizione tecnica</label>
-        <input value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="Descrivi lavorazione, materiali e condizioni…" style={fieldStyle} />
+        <textarea
+          value={desc}
+          onChange={(e) => setDesc(e.target.value)}
+          placeholder="Descrivi lavorazione, materiali e condizioni…"
+          rows={2}
+          style={{ ...fieldStyle, fontFamily: 'inherit', resize: 'vertical', minHeight: 36 }}
+        />
 
         {!isEdit && mergeCandidates.length > 0 && (
           <>
@@ -1297,156 +1485,127 @@ function EditableCatalog({ macros, setMacros }) {
     setMacros(next);
   };
 
-  const rowBtn = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 6, fontSize: 11, fontWeight: 600, padding: '3px 8px', cursor: 'pointer', color: C.midGray };
-  const codeTag = { fontSize: 10, fontWeight: 700, color: C.maroon, background: 'rgba(128,20,48,0.08)', padding: '2px 6px', borderRadius: 5, marginLeft: 8 };
+  const rowBtn = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, fontSize: 10.5, fontWeight: 500, padding: '3px 9px', cursor: 'pointer', color: C.darkGray, fontFamily: FONT };
+  const codeTag = { fontFamily: 'ui-monospace, monospace', fontSize: 11, fontWeight: 600, color: C.maroon, background: 'rgba(134,45,45,0.08)', padding: '2px 7px', borderRadius: 999, marginLeft: 8 };
 
   return (
-    <div>
-      <div style={{ ...card, marginBottom: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-          <div>
-            <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Catalogo / Listino</p>
-            <p style={{ fontSize: 11, color: C.gray, margin: '4px 0 0' }}>{totals.voci} voci consultabili · clicca su una riga per aprirla o chiuderla</p>
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { setEditingVoce(null); setNewVoceAt(null); setShowVoceModal(true); }} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Nuova voce</button>
-            <button onClick={addMacro} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>+ Macrocategoria</button>
-          </div>
-        </div>
-
-        {coded.length === 0 && (
-          <p style={{ fontSize: 12, color: C.gray, margin: '0 0 10px' }}>Questo listino è vuoto. Aggiungi una macrocategoria per iniziare.</p>
-        )}
-
-        {coded.map((m, mi) => {
-          const mKey = `${mi}`;
-          return (
-            <div key={mi} style={{ marginBottom: 14, border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden' }}>
-              <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: C.bg, cursor: 'pointer' }}>
-                <span style={{ fontSize: 11, color: C.gray }}>{isOpen(mKey) ? '⌄' : '›'}</span>
-                <span style={{ width: 7, height: 7, borderRadius: '50%', background: C.maroon }} />
-                <span style={{ fontWeight: 700, fontSize: 13, color: C.black }}>{m.name}</span>
-                <span style={codeTag}>{m.code}</span>
-                <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                  <button onClick={() => moveItem('macro', [mi], 'up')} disabled={mi === 0} style={{ ...rowBtn, opacity: mi === 0 ? 0.4 : 1 }}>▲</button>
-                  <button onClick={() => moveItem('macro', [mi], 'down')} disabled={mi === coded.length - 1} style={{ ...rowBtn, opacity: mi === coded.length - 1 ? 0.4 : 1 }}>▼</button>
-                  <button onClick={() => rename('macro', [mi])} style={rowBtn}>✎ Rinomina</button>
-                  <button onClick={() => addCategoria(mi)} style={rowBtn}>+ Categoria</button>
-                  <button onClick={() => remove('macro', [mi])} style={rowBtn}>🗑</button>
-                </div>
-              </div>
-
-              {isOpen(mKey) && m.categorie.map((c, ci) => {
-                const cKey = `${mi}-${ci}`;
-                return (
-                  <div key={ci} style={{ paddingLeft: 20, borderTop: `1px solid ${C.paleGray}` }}>
-                    <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', cursor: 'pointer' }}>
-                      <span style={{ fontSize: 11, color: C.gray }}>{isOpen(cKey) ? '⌄' : '›'}</span>
-                      <span style={{ fontWeight: 600, fontSize: 12, color: C.black }}>{c.name}</span>
-                      <span style={codeTag}>{c.code}</span>
-                      <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                        <button onClick={() => moveItem('categoria', [mi, ci], 'up')} disabled={ci === 0} style={{ ...rowBtn, opacity: ci === 0 ? 0.4 : 1 }}>▲</button>
-                        <button onClick={() => moveItem('categoria', [mi, ci], 'down')} disabled={ci === m.categorie.length - 1} style={{ ...rowBtn, opacity: ci === m.categorie.length - 1 ? 0.4 : 1 }}>▼</button>
-                        <button onClick={() => rename('categoria', [mi, ci])} style={rowBtn}>✎</button>
-                        <button onClick={() => addSotto(mi, ci)} style={rowBtn}>+ Sottocategoria</button>
-                        <button onClick={() => remove('categoria', [mi, ci])} style={rowBtn}>🗑</button>
-                      </div>
-                    </div>
-
-                    {isOpen(cKey) && c.sottocategorie.map((s, si) => {
-                      const sKey = `${mi}-${ci}-${si}`;
-                      return (
-                        <div key={si} style={{ paddingLeft: 20, borderTop: `1px solid ${C.paleGray}` }}>
-                          <div onClick={() => toggle(sKey)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer' }}>
-                            <span style={{ fontSize: 11, color: C.gray }}>{isOpen(sKey) ? '⌄' : '›'}</span>
-                            <span style={{ fontSize: 12, color: C.midGray }}>{s.name}</span>
-                            <span style={codeTag}>{s.code}</span>
-                            <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                              <button onClick={() => moveItem('sotto', [mi, ci, si], 'up')} disabled={si === 0} style={{ ...rowBtn, opacity: si === 0 ? 0.4 : 1 }}>▲</button>
-                              <button onClick={() => moveItem('sotto', [mi, ci, si], 'down')} disabled={si === c.sottocategorie.length - 1} style={{ ...rowBtn, opacity: si === c.sottocategorie.length - 1 ? 0.4 : 1 }}>▼</button>
-                              <button onClick={() => rename('sotto', [mi, ci, si])} style={rowBtn}>✎</button>
-                              <button
-                                onClick={() => { setEditingVoce(null); setNewVoceAt([mi, ci, si]); setShowVoceModal(true); }}
-                                style={{ ...rowBtn, background: C.maroon, color: C.white, border: 'none' }}
-                              >
-                                + Voce
-                              </button>
-                              <button onClick={() => remove('sotto', [mi, ci, si])} style={rowBtn}>🗑</button>
-                            </div>
-                          </div>
-                          {isOpen(sKey) && (
-                            s.voci.length === 0 ? (
-                              <p style={{ fontSize: 12, color: C.gray, padding: '6px 12px 10px 32px' }}>Nessuna voce ancora in questa sottocategoria. Usa "+ Voce" per aggiungerne una.</p>
-                            ) : (
-                            <div className="table-scroll">
-                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12, marginBottom: 6 }}>
-                              <thead>
-                                <tr style={{ color: C.gray, fontSize: 10, textTransform: 'uppercase' }}>
-                                  <th style={{ padding: '4px 12px 4px 32px', textAlign: 'left' }}></th>
-                                  <th style={{ padding: '4px 12px', textAlign: 'left' }}></th>
-                                  <th style={{ padding: '4px 12px', textAlign: 'left' }}></th>
-                                  <th style={{ padding: '4px 12px', textAlign: 'right' }}>Prezzo impresa</th>
-                                  <th style={{ padding: '4px 12px', textAlign: 'right' }}>Prezzo cliente</th>
-                                  <th style={{ padding: '4px 12px' }}></th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {s.voci.map((v, vi) => {
-                                  const impresaVal = parseEuro(v.priceImpresa);
-                                  const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
-                                  return (
-                                  <tr key={vi} style={{ borderTop: `1px solid ${C.paleGray}` }}>
-                                    <td style={{ padding: '6px 12px 6px 32px', fontWeight: 700, color: C.black, width: 110, verticalAlign: 'top' }}>{v.code}</td>
-                                    <td style={{ padding: '6px 12px', color: C.midGray, verticalAlign: 'top' }}>
-                                      {v.desc}
-                                      {v.note && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.gray, fontStyle: 'italic' }}>📝 {v.note}</p>}
-                                    </td>
-                                    <td style={{ padding: '6px 12px', color: C.gray, width: 70, verticalAlign: 'top' }}>{v.unit}</td>
-                                    <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.black, width: 90, verticalAlign: 'top' }}>{formatEuro(impresaVal)}</td>
-                                    <td style={{ padding: '6px 12px', textAlign: 'right', fontWeight: 600, color: C.maroon, width: 90, verticalAlign: 'top' }}>{formatEuro(clienteVal)}</td>
-                                    <td style={{ padding: '6px 12px', width: 100, verticalAlign: 'top' }}>
-                                      <div style={{ display: 'flex', gap: 4 }}>
-                                        <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'up')} disabled={vi === 0} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === 0 ? 0.4 : 1 }}>▲</button>
-                                        <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'down')} disabled={vi === s.voci.length - 1} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === s.voci.length - 1 ? 0.4 : 1 }}>▼</button>
-                                        <button
-                                          onClick={() => { setEditingVoce({ path: [mi, ci, si, vi] }); setNewVoceAt(null); setShowVoceModal(true); }}
-                                          style={{ ...rowBtn, padding: '2px 6px' }}
-                                        >
-                                          ✎
-                                        </button>
-                                        <button onClick={() => remove('voce', [mi, ci, si, vi])} style={{ ...rowBtn, padding: '2px 6px' }}>🗑</button>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
-                            </div>
-                            )
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={card}>
-        <p style={{ fontSize: 15, fontWeight: 700, margin: '0 0 14px', color: C.black, fontFamily: FONT }}>Listino prezzi aziendale</p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 14, marginBottom: 14 }}>
-          <MetricCard label="Articoli" value={String(totals.voci)} />
-          <MetricCard label="Categorie" value={String(totals.categorie)} />
-          <MetricCard label="Sottocategorie" value={String(totals.sottocategorie)} />
-        </div>
-        <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>
-          Con le frecce ▲▼ puoi riordinare manualmente macrocategorie, categorie, sottocategorie e singole voci: i codici di macrocategoria, categoria e sottocategoria si aggiornano da soli in base al nuovo ordine.
+    <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 18 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexWrap: 'wrap', gap: 10 }}>
+        <p style={{ fontSize: 18, fontWeight: 300, margin: 0, color: C.black, fontFamily: FONT, display: 'flex', alignItems: 'baseline', gap: 10 }}>
+          Catalogo / Listino<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>{totals.voci} voci consultabili · clicca su una riga per aprirla o chiuderla</span>
         </p>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => { setEditingVoce(null); setNewVoceAt(null); setShowVoceModal(true); }} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>+ Nuova voce</button>
+          <button onClick={addMacro} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 400, color: C.black, cursor: 'pointer', fontFamily: FONT }}>+ Macrocategoria</button>
+        </div>
       </div>
+
+      {coded.length === 0 && (
+        <p style={{ fontSize: 13, color: C.gray, margin: '0 0 10px' }}>Questo listino è vuoto. Aggiungi una macrocategoria per iniziare.</p>
+      )}
+
+      {coded.map((m, mi) => {
+        const mKey = `${mi}`;
+        return (
+          <div key={mi} style={{ marginBottom: 10, border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden' }}>
+            <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', background: '#FBF6EC', cursor: 'pointer', flexWrap: 'wrap' }}>
+              <span style={{ color: '#8B8178', transition: 'transform .15s', transform: isOpen(mKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
+              <span style={{ fontWeight: 500, fontSize: 14.5, color: C.black, textTransform: 'uppercase', letterSpacing: '.02em' }}>{m.name}</span>
+              <span style={codeTag}>{m.code}</span>
+              <span style={{ fontSize: 11, color: '#8B8178', fontWeight: 400 }}>{m.categorie.length} categorie · {m.categorie.reduce((n, c) => n + c.sottocategorie.reduce((n2, s) => n2 + s.voci.length, 0), 0)} voci</span>
+              <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                <button onClick={() => moveItem('macro', [mi], 'up')} disabled={mi === 0} style={{ ...rowBtn, opacity: mi === 0 ? 0.4 : 1 }}>▲</button>
+                <button onClick={() => moveItem('macro', [mi], 'down')} disabled={mi === coded.length - 1} style={{ ...rowBtn, opacity: mi === coded.length - 1 ? 0.4 : 1 }}>▼</button>
+                <button onClick={() => rename('macro', [mi])} style={rowBtn}>✎ Rinomina</button>
+                <button onClick={() => addCategoria(mi)} style={rowBtn}>+ Categoria</button>
+                <button onClick={() => remove('macro', [mi])} style={rowBtn}>🗑</button>
+              </div>
+            </div>
+
+            {isOpen(mKey) && m.categorie.map((c, ci) => {
+              const cKey = `${mi}-${ci}`;
+              return (
+                <div key={ci} style={{ padding: '4px 16px 10px 16px', borderTop: `1px solid ${C.paleGray}` }}>
+                  <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0 4px', cursor: 'pointer', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 11, color: '#8B8178', transform: isOpen(cKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
+                    <span style={{ fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: '#8B8178', fontWeight: 600 }}>{c.name}</span>
+                    <span style={codeTag}>{c.code}</span>
+                    <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => moveItem('categoria', [mi, ci], 'up')} disabled={ci === 0} style={{ ...rowBtn, opacity: ci === 0 ? 0.4 : 1 }}>▲</button>
+                      <button onClick={() => moveItem('categoria', [mi, ci], 'down')} disabled={ci === m.categorie.length - 1} style={{ ...rowBtn, opacity: ci === m.categorie.length - 1 ? 0.4 : 1 }}>▼</button>
+                      <button onClick={() => rename('categoria', [mi, ci])} style={rowBtn}>✎</button>
+                      <button onClick={() => addSotto(mi, ci)} style={rowBtn}>+ Sottocategoria</button>
+                      <button onClick={() => remove('categoria', [mi, ci])} style={rowBtn}>🗑</button>
+                    </div>
+                  </div>
+
+                  {isOpen(cKey) && c.sottocategorie.map((s, si) => {
+                    const sKey = `${mi}-${ci}-${si}`;
+                    return (
+                      <div key={si} style={{ marginLeft: 14 }}>
+                        <div onClick={() => toggle(sKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', cursor: 'pointer', flexWrap: 'wrap' }}>
+                          <span style={{ fontSize: 11, color: '#8B8178', transform: isOpen(sKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
+                          <span style={{ fontSize: 12.5, color: C.darkGray, fontWeight: 300 }}>{s.name}</span>
+                          <span style={codeTag}>{s.code}</span>
+                          <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            <button onClick={() => moveItem('sotto', [mi, ci, si], 'up')} disabled={si === 0} style={{ ...rowBtn, opacity: si === 0 ? 0.4 : 1 }}>▲</button>
+                            <button onClick={() => moveItem('sotto', [mi, ci, si], 'down')} disabled={si === c.sottocategorie.length - 1} style={{ ...rowBtn, opacity: si === c.sottocategorie.length - 1 ? 0.4 : 1 }}>▼</button>
+                            <button onClick={() => rename('sotto', [mi, ci, si])} style={rowBtn}>✎</button>
+                            <button
+                              onClick={() => { setEditingVoce(null); setNewVoceAt([mi, ci, si]); setShowVoceModal(true); }}
+                              style={{ ...rowBtn, background: C.maroon, color: C.white, border: 'none' }}
+                            >
+                              + Voce
+                            </button>
+                            <button onClick={() => remove('sotto', [mi, ci, si])} style={rowBtn}>🗑</button>
+                          </div>
+                        </div>
+                        {isOpen(sKey) && (
+                          s.voci.length === 0 ? (
+                            <p style={{ fontSize: 12.5, color: '#8B8178', padding: '4px 0 10px 24px' }}>Nessuna voce ancora in questa sottocategoria. Usa "+ Voce" per aggiungerne una.</p>
+                          ) : (
+                            <div className="table-scroll">
+                              {s.voci.map((v, vi) => {
+                                const impresaVal = parseEuro(v.priceImpresa);
+                                const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
+                                return (
+                                  <div key={vi} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 0 9px 24px', borderBottom: '1px solid #F0EAE0', fontSize: 13.5, flexWrap: 'wrap' }}>
+                                    <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: '#8B8178', width: 90, flexShrink: 0 }}>{v.code}</span>
+                                    <span style={{ flex: '1 1 160px', minWidth: 0, fontWeight: 300, color: C.black }}>
+                                      {v.desc}
+                                      {v.note && <span style={{ display: 'block', margin: '3px 0 0', fontSize: 10.5, color: '#8B8178', fontStyle: 'italic' }}>📝 {v.note}</span>}
+                                    </span>
+                                    <span style={{ width: 54, flexShrink: 0, color: '#8B8178', fontSize: 12 }}>{v.unit}</span>
+                                    <span style={{ width: 92, flexShrink: 0, textAlign: 'right', fontWeight: 500, color: C.black }}>{formatEuro(impresaVal)}</span>
+                                    <span style={{ width: 92, flexShrink: 0, textAlign: 'right', color: C.maroon, fontWeight: 500 }}>{formatEuro(clienteVal)}</span>
+                                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                      <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'up')} disabled={vi === 0} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === 0 ? 0.4 : 1 }}>▲</button>
+                                      <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'down')} disabled={vi === s.voci.length - 1} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === s.voci.length - 1 ? 0.4 : 1 }}>▼</button>
+                                      <button
+                                        onClick={() => { setEditingVoce({ path: [mi, ci, si, vi] }); setNewVoceAt(null); setShowVoceModal(true); }}
+                                        style={{ ...rowBtn, padding: '2px 6px' }}
+                                      >
+                                        ✎
+                                      </button>
+                                      <button onClick={() => remove('voce', [mi, ci, si, vi])} style={{ ...rowBtn, padding: '2px 6px' }}>🗑</button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      <p style={{ fontSize: 11.5, color: '#8B8178', margin: '10px 0 0', fontWeight: 300 }}>Con le freccette ▲▼ puoi riordinare manualmente macrocategorie, categorie, sottocategorie e singole voci: i codici si aggiornano da soli in base al nuovo ordine.</p>
 
       {showVoceModal && (
         <VoceModal
@@ -1461,7 +1620,7 @@ function EditableCatalog({ macros, setMacros }) {
           onSave={saveVoce}
         />
       )}
-    </div>
+    </section>
   );
 }
 
@@ -1521,20 +1680,21 @@ function NewProjectModal({ onClose, onCreate }) {
 
 function ProjectCard({ p, onOpen, onDelete }) {
   return (
-    <div onClick={() => onOpen(p.id)} style={{ ...card, cursor: 'pointer', position: 'relative' }}>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}
-        style={{ position: 'absolute', top: 14, right: 14, border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 6, width: 26, height: 26, fontSize: 11, cursor: 'pointer', color: C.gray }}
-      >
-        🗑
-      </button>
-      <div style={{ marginBottom: 14, paddingRight: 30 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
+    <div onClick={() => onOpen(p.id)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: 16, cursor: 'pointer' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(p.id); }}
+          style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 14, padding: 0 }}
+          title="Elimina progetto"
+        >
+          🗑️
+        </button>
       </div>
-      <p style={{ fontFamily: FONT, fontSize: 20, fontWeight: 700, margin: '0 0 4px', color: C.black }}>{p.name}</p>
-      <p style={{ fontSize: 12, color: C.gray, margin: '0 0 14px' }}>{p.client}</p>
-      <p style={{ fontFamily: FONT, fontSize: 22, fontWeight: 700, margin: '0 0 6px', color: C.black }}>{p.value}</p>
-      <p style={{ fontSize: 11, color: C.gray, margin: 0 }}>{p.items} voci · {p.revisions.length} revisioni salvate</p>
+      <p style={{ margin: 0, fontSize: 15.5, fontWeight: 500, color: C.black, fontFamily: FONT }}>{p.name}</p>
+      <div style={{ fontSize: 12, color: '#8B8178', marginTop: 2 }}>{p.client}</div>
+      <div style={{ fontSize: 19, fontWeight: 200, marginTop: 6, color: C.black, fontFamily: FONT }}>{p.value}</div>
+      <div style={{ fontVariantNumeric: 'tabular-nums', color: '#6F655F', fontSize: 12.5, marginTop: 8 }}>{p.items} voci · {p.revisions.length} revision{p.revisions.length === 1 ? 'e' : 'i'} salvat{p.revisions.length === 1 ? 'a' : 'e'}</div>
     </div>
   );
 }
@@ -1550,22 +1710,24 @@ function ProgettiPage({ projects, setProjects, onOpenProject }) {
 
   return (
     <div>
-      <p style={breadcrumb}>Gestionale / Progetti</p>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
-        <h1 style={h1Style}>Progetti</h1>
-        <span style={{ ...freshBadge, marginLeft: 'auto' }}>Dati aggiornati</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, flexWrap: 'wrap' }}>
+        <div>
+          <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Progetti</p>
+          <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Progetti</h1>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: C.accentSoft, color: C.maroon }}>Dati aggiornati</span>
+          <button
+            onClick={() => setShowModal(true)}
+            style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 400, cursor: 'pointer', fontFamily: FONT }}
+          >
+            + Nuovo progetto
+          </button>
+        </div>
       </div>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 18 }}>
-        <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Seleziona un progetto per aprirlo, oppure crea un nuovo progetto.</p>
-        <button
-          onClick={() => setShowModal(true)}
-          style={{ marginLeft: 'auto', background: C.maroon, color: C.white, border: 'none', padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600 }}
-        >
-          + Nuovo progetto
-        </button>
-      </div>
+      <p style={{ fontSize: 13.5, fontWeight: 300, color: '#8B8178', margin: '8px 0 20px' }}>Seleziona un progetto per aprirlo, oppure crea un nuovo progetto.</p>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: 14 }}>
         {projects.map((p) => <ProjectCard key={p.id} p={p} onOpen={onOpenProject} onDelete={deleteProject} />)}
       </div>
 
@@ -1720,6 +1882,91 @@ function DraggableCatalogTree({ listino, onAdd }) {
   );
 }
 
+// Versione compatta del catalogo Fornitori per il pannello laterale del computo (sotto il Listino): stessa
+// struttura macro > categoria > prodotto > variante di FornitoriPage, ma ogni "fonte prezzo" (listino del
+// prodotto oppure uno dei fornitori reali) è una riga con il suo + per aggiungerla subito al computo che si
+// sta modificando, senza dover scegliere progetto/revisione (si è già dentro quella giusta).
+function FornitoriSidebarTree({ catalog, onAdd }) {
+  const [expanded, setExpanded] = useState({});
+  const isOpen = (key) => expanded[key] !== false;
+  const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
+
+  const macros = catalog || [];
+  if (macros.length === 0) {
+    return <p style={{ fontSize: 12, color: C.gray }}>Catalogo fornitori vuoto: aggiungi prodotti dalla pagina "Fornitori".</p>;
+  }
+
+  return (
+    <div>
+      {macros.map((m, mi) => {
+        const mKey = `fm${mi}`;
+        const categorie = m.categorie || [];
+        return (
+          <div key={mi} style={{ marginBottom: 8 }}>
+            <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '6px 4px', borderRadius: 6, background: C.bg }}>
+              <span style={{ fontSize: 10, color: C.gray }}>{isOpen(mKey) ? '⌄' : '›'}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: C.black }}>{m.name}</span>
+            </div>
+            {isOpen(mKey) && categorie.map((c, ci) => {
+              const cKey = `${mKey}c${ci}`;
+              const prodotti = c.prodotti || [];
+              return (
+                <div key={ci} style={{ paddingLeft: 12 }}>
+                  <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '5px 4px' }}>
+                    <span style={{ fontSize: 10, color: C.gray }}>{isOpen(cKey) ? '⌄' : '›'}</span>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>{c.name}</span>
+                  </div>
+                  {isOpen(cKey) && prodotti.length === 0 && (
+                    <p style={{ fontSize: 11, color: '#9A8F86', fontStyle: 'italic', margin: '2px 0 6px 12px' }}>Nessun prodotto.</p>
+                  )}
+                  {isOpen(cKey) && prodotti.map((p, pi) => {
+                    const pKey = `${cKey}p${pi}`;
+                    return (
+                      <div key={p.id ?? pi} style={{ paddingLeft: 12, marginBottom: 4 }}>
+                        <div onClick={() => toggle(pKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '4px 4px' }}>
+                          <span style={{ fontSize: 10, color: C.gray }}>{isOpen(pKey) ? '⌄' : '›'}</span>
+                          <span style={{ fontSize: 12, color: C.midGray }}>{prodottoLabel(p)}</span>
+                        </div>
+                        {isOpen(pKey) && (p.varianti || []).map((v) => {
+                          const priceOptions = [
+                            { id: 'listino', name: 'Prezzo di listino', prezzoListino: v.listinoPrice, prezzoScontato: v.listinoPrice, prezzoCliente: v.listinoPrice },
+                            ...(v.fornitori || []),
+                          ];
+                          return (
+                            <div key={v.id} style={{ paddingLeft: 12, marginBottom: 6 }}>
+                              {v.nome && <p style={{ fontSize: 10.5, fontWeight: 600, color: C.midGray, margin: '2px 0 4px' }}>{v.nome}</p>}
+                              {priceOptions.map((opt) => (
+                                <div key={opt.id} style={{ display: 'flex', alignItems: 'center', gap: 8, border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '6px 8px', marginBottom: 4, background: C.white }}>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: opt.id === 'listino' ? C.gray : C.black }}>{opt.name}</p>
+                                    <p style={{ margin: '2px 0 0', fontSize: 10.5, color: C.gray }}>impresa {opt.prezzoScontato} € · cliente {opt.prezzoCliente} €</p>
+                                  </div>
+                                  <button
+                                    onClick={() => onAdd(p, v, opt)}
+                                    title="Aggiungi al computo"
+                                    aria-label="Aggiungi al computo"
+                                    style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: C.white, color: C.maroon, fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Raggruppa le voci di una revisione su due livelli (macrocategoria > categoria), con le voci elencate
 // direttamente sotto la loro categoria (senza un'ulteriore intestazione di sottocategoria: nel listino la
 // sottocategoria è spesso quasi identica alla singola voce, quindi mostrarla come riga a parte era solo
@@ -1809,17 +2056,19 @@ function exportComputoExcel(project, revision, clientOnly) {
     });
     g.subtotalMarkers.forEach((it) => {
       const hasVat = it.vatRate !== null && it.vatRate !== undefined;
+      const hasDiscount = !!it.discountPct;
+      const grossAmt = clientOnly ? runCliente : runImpresa;
+      const netAmt = hasDiscount ? grossAmt * (1 - it.discountPct / 100) : grossAmt;
+      if (hasDiscount) {
+        rows.push([g.name, '', '', `${it.title} — lordo`, '', '', '', formatEuro(grossAmt)]);
+        rows.push([g.name, '', '', `${it.title} — Sconto ${it.discountPct}%`, '', '', '', `-${formatEuro(grossAmt - netAmt)}`]);
+        rows.push([g.name, '', '', `${it.title} — netto`, '', '', '', formatEuro(netAmt)]);
+      }
       if (hasVat) {
-        if (!clientOnly) {
-          rows.push([g.name, '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(runImpresa)]);
-          rows.push([g.name, '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(runImpresa * (it.vatRate / 100))]);
-          rows.push([g.name, '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(runImpresa * (1 + it.vatRate / 100))]);
-        } else {
-          rows.push([g.name, '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(runCliente)]);
-          rows.push([g.name, '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(runCliente * (it.vatRate / 100))]);
-          rows.push([g.name, '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(runCliente * (1 + it.vatRate / 100))]);
-        }
-      } else {
+        rows.push([g.name, '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(netAmt)]);
+        rows.push([g.name, '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(netAmt * (it.vatRate / 100))]);
+        rows.push([g.name, '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(netAmt * (1 + it.vatRate / 100))]);
+      } else if (!hasDiscount) {
         rows.push([g.name, '', '', `— ${it.title} —`]);
       }
       runImpresa = 0;
@@ -2018,13 +2267,23 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
               ))}
               {g.subtotalMarkers.map((it, ii) => {
                 const hasVat = it.vatRate !== null && it.vatRate !== undefined;
+                const hasDiscount = !!it.discountPct;
+                // Lo sconto si applica sull'importo lordo di questa sommatoria, prima dell'IVA — e la riga
+                // "Sconto" compare in stampa solo se è stato davvero impostato (nessuna riga a sconto 0/assente).
+                const grossAmt = clientOnly ? runC : runI;
+                const netAmt = hasDiscount ? grossAmt * (1 - it.discountPct / 100) : grossAmt;
                 const rowEl = (
                   <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <td colSpan={clientOnly ? 6 : 8} style={{ padding: '8px 4px', fontWeight: 700, borderTop: '1px solid #E5E2DA' }}>
                       {it.title}
+                      {hasDiscount && (
+                        <span style={{ fontWeight: 400, color: '#8A8A8A' }}>
+                          {' '}— lordo {formatEuro(grossAmt)}, Sconto {it.discountPct}% (−{formatEuro(grossAmt - netAmt)}), netto {formatEuro(netAmt)}
+                        </span>
+                      )}
                       {hasVat && (
                         <span style={{ fontWeight: 400, color: '#8A8A8A' }}>
-                          {' '}— IVA esclusa {formatEuro(clientOnly ? runC : runI)}, {it.vatLabel} {formatEuro((clientOnly ? runC : runI) * (it.vatRate / 100))}, IVA inclusa {formatEuro((clientOnly ? runC : runI) * (1 + it.vatRate / 100))}
+                          {' '}— IVA esclusa {formatEuro(netAmt)}, {it.vatLabel} {formatEuro(netAmt * (it.vatRate / 100))}, IVA inclusa {formatEuro(netAmt * (1 + it.vatRate / 100))}
                         </span>
                       )}
                     </td>
@@ -2059,7 +2318,7 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   );
 }
 
-function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialRevisionId, requestPdf, onOpenRilievo, profile }) {
+function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitoriCatalog, initialRevisionId, requestPdf, onOpenRilievo, profile }) {
   const revisions = project.revisions;
   // Identità di chi sta leggendo/modificando ora, per i segnalibri personali nel computo: una persona per
   // voce (email se disponibile, altrimenti il nome) così lo stesso nome digitato due volte non si confonde
@@ -2072,12 +2331,19 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   const [selRevB, setSelRevB] = useState(revisions[revisions.length - 1]?.id);
   const [showCompare, setShowCompare] = useState(false);
   const [listinoId, setListinoId] = useState(listini[0]?.id);
+  // Il pannello Listino/Fornitori a sinistra del computo: due sezioni contraibili indipendentemente, così
+  // chi sta cercando nei fornitori può comprimere il listino (e viceversa) per avere più spazio su quella
+  // che gli serve in quel momento, invece di scrollare dentro una colonna fissa divisa a metà.
+  const [sidebarOpen, setSidebarOpen] = useState({ listino: true, fornitori: false });
+  const toggleSidebarSection = (key) => setSidebarOpen((s) => ({ ...s, [key]: !s[key] }));
   const [dragOver, setDragOver] = useState(false);
   const [dragOverTarget, setDragOverTarget] = useState(null); // "macroName", "macroName|categoriaName" o "macroName|categoriaName|sottoName" evidenziato durante il drag
   const [showImportPdf, setShowImportPdf] = useState(false);
   const [voceComputoCtx, setVoceComputoCtx] = useState(null); // { macroName, categoriaName, sottoName, initialItem }
   const [expandedCronoTask, setExpandedCronoTask] = useState(null); // id della lavorazione di cronoprogramma con l'editor dei collegamenti aperto
   const [expandedItems, setExpandedItems] = useState({}); // { [itemId]: true } — dettaglio misurazioni/note aperto
+  const [voceSearch, setVoceSearch] = useState(''); // ricerca testuale fra le voci del computo aperto
+  const [voceSearchIdx, setVoceSearchIdx] = useState(0); // indice del risultato attualmente "a fuoco" fra quelli trovati
 
   // --- Scheda cliente importata da Desearq Studio Manager (stesso progetto Supabase, schema "public") ---
   const [showClientImport, setShowClientImport] = useState(false);
@@ -2102,6 +2368,20 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
   // coerenti con quanto mostrato qui a schermo).
   const groupedSections = buildComputoGroups(selectedRevision);
   const allSectionNames = groupedSections.map((s) => s.name);
+
+  // Ricerca testuale fra le voci del computo aperto (per codice o descrizione): utile per ritrovare in
+  // fretta una voce già inserita e da aggiornare/sistemare, senza dover scorrere a occhio tutto il computo.
+  const voceSearchTerm = voceSearch.trim().toLowerCase();
+  const voceSearchMatches = voceSearchTerm
+    ? realItems.filter((it) => (it.desc || '').toLowerCase().includes(voceSearchTerm) || (it.code || '').toLowerCase().includes(voceSearchTerm))
+    : [];
+  const goToSearchMatch = (idx) => {
+    if (voceSearchMatches.length === 0) return;
+    const safeIdx = ((idx % voceSearchMatches.length) + voceSearchMatches.length) % voceSearchMatches.length;
+    setVoceSearchIdx(safeIdx);
+    const el = document.getElementById(`computo-item-${voceSearchMatches[safeIdx].id}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
 
   let importoLavori = 0;
   let importoLavoriCliente = 0;
@@ -2179,6 +2459,29 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
       sottoName: voce.sotto || 'Generale',
       initialItem: null,
       prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
+    });
+  };
+
+  // Aggiungere un prodotto dal catalogo Fornitori (pannello sotto il Listino): a differenza delle voci di
+  // listino non serve misurare nulla, basta la quantità. Stessa segnalazione di duplicato già vista altrove
+  // (Listino->computo, Fornitori->computo): se una voce con la stessa descrizione esiste già, si chiede
+  // conferma prima di crearne un'altra uguale.
+  const addFornitoreToComputo = (prodotto, variante, priceSource) => {
+    const desc = prodottoLabel(prodotto) + (variante.nome ? ` — ${variante.nome}` : '');
+    const qtyStr = prompt(`Quantità per "${desc}":`, '1');
+    if (qtyStr === null) return;
+    const sectionName = priceSource.id !== 'listino' ? priceSource.name : 'FORNITURE';
+    applyItemsChange((its) => {
+      const dupe = its.find((it) => it.type !== 'subtotal' && String(it.desc || '').trim().toLowerCase() === desc.trim().toLowerCase());
+      if (dupe && !confirm(`La voce "${desc}" è già presente nel computo${dupe.code ? ` (${dupe.code})` : ''}. Vuoi aggiungere comunque un duplicato?`)) {
+        return its;
+      }
+      const newItem = {
+        id: Date.now() + Math.random(), code: '', desc, unit: 'cad',
+        unitPriceImpresa: priceSource.prezzoScontato, unitPriceCliente: priceSource.prezzoCliente,
+        listinoRef: priceSource.prezzoListino, qty: qtyStr || '1', macro: sectionName, section: sectionName,
+      };
+      return [...its, newItem];
     });
   };
 
@@ -2354,6 +2657,14 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           ...it, ...priceFields, unitaCalcolo: voceData.unitaCalcolo, misurazioni: voceData.misurazioni, qty,
         } : it));
       }
+      // Prima di creare davvero una nuova voce (non in modifica, non in unione con una già esistente):
+      // se nel computo c'è già una voce con la stessa descrizione, lo si segnala e si chiede conferma,
+      // così nessuno aggiunge per sbaglio un doppione senza accorgersene — se si risponde di no non
+      // succede nulla, la voce resta quella già presente.
+      const dupe = its.find((it) => it.type !== 'subtotal' && String(it.desc || '').trim().toLowerCase() === String(priceFields.desc || '').trim().toLowerCase());
+      if (dupe && !confirm(`La voce "${priceFields.desc}" è già presente nel computo${dupe.code ? ` (${dupe.code})` : ''}. Vuoi aggiungere comunque un duplicato?`)) {
+        return its;
+      }
       const newItem = {
         id: Date.now() + Math.random(), code: '', autoCode: true, ...priceFields,
         qty, macro: macroName, section: macroName, categoria: categoriaName || 'Generale', sottocategoria: sottoName,
@@ -2377,7 +2688,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
         vatLabel = prompt('Dicitura IVA (facoltativa):', `IVA ${vatRate}%`) || `IVA ${vatRate}%`;
       }
     }
-    const marker = { id: Date.now() + Math.random(), type: 'subtotal', title, section: sectionName, vatRate, vatLabel };
+    // Sconto percentuale facoltativo su questa sommatoria: se lasciato vuoto/zero non viene salvato,
+    // così in stampa PDF la riga "Sconto" non compare affatto (uno sconto assente non è un errore).
+    const discountInput = prompt('Sconto percentuale su questa sommatoria (facoltativo, lascia vuoto se nessuno):', '');
+    const discountPct = discountInput && Number(discountInput) ? Number(discountInput) : null;
+    const marker = { id: Date.now() + Math.random(), type: 'subtotal', title, section: sectionName, vatRate, vatLabel, discountPct };
     applyItemsChange((its) => [...its, marker]);
   };
 
@@ -2395,7 +2710,9 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           vatLabel = prompt('Dicitura IVA (facoltativa):', it.vatLabel || `IVA ${vatRate}%`) || `IVA ${vatRate}%`;
         }
       }
-      return { ...it, title, vatRate, vatLabel };
+      const discountInput = prompt('Sconto percentuale su questa sommatoria (facoltativo, lascia vuoto se nessuno):', it.discountPct ? String(it.discountPct) : '');
+      const discountPct = discountInput && Number(discountInput) ? Number(discountInput) : null;
+      return { ...it, title, vatRate, vatLabel, discountPct };
     }));
   };
 
@@ -2839,22 +3156,66 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
           </div>
 
           <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div className="listino-catalog-card" style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4, flexShrink: 0 }}>
-                <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Listino</p>
+            <div className="listino-catalog-card" style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flex: sidebarOpen.listino ? 1 : '0 0 auto', minHeight: sidebarOpen.listino ? 60 : 'auto', overflow: 'hidden' }}>
+                <div onClick={() => toggleSidebarSection('listino')} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Listino</p>
+                  <span style={{ fontSize: 11, color: C.gray }}>{sidebarOpen.listino ? '▾ comprimi' : '▸ espandi'}</span>
+                </div>
+                {sidebarOpen.listino && (
+                  <>
+                    <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '6px 0 10px', flexShrink: 0 }}>
+                      {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                    </select>
+                    <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px', flexShrink: 0 }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
+                    <div className="listino-catalog-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                      <DraggableCatalogTree listino={activeListino} onAdd={openVoceFromListino} />
+                    </div>
+                  </>
+                )}
               </div>
-              <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '6px 0 10px', flexShrink: 0 }}>
-                {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-              </select>
-              <p style={{ fontSize: 11, color: C.gray, margin: '0 0 10px', flexShrink: 0 }}>Apri le categorie per trovare la voce giusta: trascinala nel computo a destra, oppure tocca + per aggiungerla subito (utile su tablet e smartphone).</p>
-              <div className="listino-catalog-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-                <DraggableCatalogTree listino={activeListino} onAdd={openVoceFromListino} />
+
+              <div style={{ borderTop: `1px solid ${C.paleGray}`, flexShrink: 0 }} />
+
+              <div style={{ display: 'flex', flexDirection: 'column', flex: sidebarOpen.fornitori ? 1 : '0 0 auto', minHeight: sidebarOpen.fornitori ? 60 : 'auto', overflow: 'hidden' }}>
+                <div onClick={() => toggleSidebarSection('fornitori')} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                  <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Fornitori</p>
+                  <span style={{ fontSize: 11, color: C.gray }}>{sidebarOpen.fornitori ? '▾ comprimi' : '▸ espandi'}</span>
+                </div>
+                {sidebarOpen.fornitori && (
+                  <>
+                    <p style={{ fontSize: 11, color: C.gray, margin: '6px 0 10px', flexShrink: 0 }}>Catalogo prodotti/fornitori: tocca + per aggiungere al computo la voce con il prezzo scelto.</p>
+                    <div className="listino-catalog-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                      <FornitoriSidebarTree catalog={fornitoriCatalog} onAdd={addFornitoreToComputo} />
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
             <div style={{ flex: 1, minWidth: 320 }}>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 8 }}>
-                <button onClick={addCustomSection} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>+ Nuova macrosezione</button>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 220px', maxWidth: 320 }}>
+                  <input
+                    value={voceSearch}
+                    onChange={(e) => { setVoceSearch(e.target.value); setVoceSearchIdx(0); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') goToSearchMatch(e.shiftKey ? voceSearchIdx - 1 : voceSearchIdx + 1); }}
+                    placeholder="🔍 Cerca una voce per codice o descrizione…"
+                    style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 999, border: `1px solid ${C.paleGray}`, background: C.white }}
+                  />
+                  {voceSearchTerm && (
+                    <span style={{ fontSize: 11, color: voceSearchMatches.length ? C.midGray : C.maroon, whiteSpace: 'nowrap' }}>
+                      {voceSearchMatches.length ? `${voceSearchIdx + 1}/${voceSearchMatches.length}` : 'nessuna voce'}
+                    </span>
+                  )}
+                  {voceSearchMatches.length > 1 && (
+                    <>
+                      <button onClick={() => goToSearchMatch(voceSearchIdx - 1)} style={{ ...iconBtn, height: 24 }}>▲</button>
+                      <button onClick={() => goToSearchMatch(voceSearchIdx + 1)} style={{ ...iconBtn, height: 24 }}>▼</button>
+                    </>
+                  )}
+                </div>
+                <button onClick={addCustomSection} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Nuova macrosezione</button>
               </div>
               <div
                 data-general-dropzone="true"
@@ -3005,9 +3366,16 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                       const isExpanded = !!expandedItems[it.id];
                                       const itemBookmarks = (selectedRevision.bookmarks || []).filter((b) => b.itemId === it.id);
                                       const myBookmarkHere = itemBookmarks.some((b) => b.key === myBookmarkKey);
+                                      const searchMatchIdx = voceSearchTerm ? voceSearchMatches.findIndex((m) => m.id === it.id) : -1;
+                                      const isCurrentSearchMatch = searchMatchIdx >= 0 && searchMatchIdx === voceSearchIdx;
+                                      const qtyIsZero = parseEuro(it.qty) === 0;
+                                      const impresaIsZero = parseEuro(it.unitPriceImpresa) === 0;
+                                      const clienteIsZero = parseEuro(it.unitPriceCliente) === 0;
+                                      const hasZeroValue = qtyIsZero || impresaIsZero || clienteIsZero;
+                                      const rowBg = isCurrentSearchMatch ? 'rgba(201,138,46,0.30)' : searchMatchIdx >= 0 ? 'rgba(201,138,46,0.14)' : hasZeroValue ? 'rgba(179,69,43,0.10)' : myBookmarkHere ? 'rgba(128,20,48,0.05)' : 'transparent';
                                       return (
                                       <React.Fragment key={it.id}>
-                                      <tr id={`computo-item-${it.id}`} style={{ borderTop: `1px solid ${C.paleGray}`, background: myBookmarkHere ? 'rgba(128,20,48,0.05)' : 'transparent' }}>
+                                      <tr id={`computo-item-${it.id}`} className="no-print-zero-flag" title={hasZeroValue ? 'Un valore di questa voce è a zero (quantità o prezzo) — solo a schermo, per segnalartelo: non compare né nel PDF né nell\'export Excel.' : undefined} style={{ borderTop: `1px solid ${C.paleGray}`, background: rowBg }}>
                                         <td style={{ padding: '8px 6px' }}>
                                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                                             {hasDetail && (
@@ -3043,7 +3411,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                         <td style={{ padding: '8px 6px', textAlign: 'right' }}>
                                           {it.autoCode ? (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                              <span style={{ fontWeight: 700 }}>{it.qty}</span>
+                                              <span style={{ fontWeight: 700, color: qtyIsZero ? '#B3452B' : 'inherit' }}>{it.qty}{qtyIsZero && ' ⚠️'}</span>
                                               <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: it.sottocategoria || 'Generale', initialItem: it })} style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}>✎</button>
                                             </span>
                                           ) : (
@@ -3051,7 +3419,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                               <input
                                                 value={it.qty}
                                                 onChange={(e) => updateQty(it.id, e.target.value)}
-                                                style={{ width: 60, fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right' }}
+                                                style={{ width: 60, fontSize: 12, padding: '5px 6px', borderRadius: 6, border: `1px solid ${qtyIsZero ? '#B3452B' : C.paleGray}`, textAlign: 'right', color: qtyIsZero ? '#B3452B' : 'inherit' }}
                                               />
                                               <button
                                                 onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: it.sottocategoria || 'Generale', initialItem: it })}
@@ -3064,9 +3432,9 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                           )}
                                         </td>
                                         <td style={{ padding: '8px 6px', color: C.gray }}>{it.unit}</td>
-                                        <td style={{ padding: '8px 6px', textAlign: 'right' }}>{it.unitPriceImpresa} €</td>
+                                        <td style={{ padding: '8px 6px', textAlign: 'right', color: impresaIsZero ? '#B3452B' : 'inherit', fontWeight: impresaIsZero ? 700 : 400 }}>{it.unitPriceImpresa} €{impresaIsZero && ' ⚠️'}</td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: C.black }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>
-                                        <td style={{ padding: '8px 6px', textAlign: 'right', color: C.maroon }}>{it.unitPriceCliente} €</td>
+                                        <td style={{ padding: '8px 6px', textAlign: 'right', color: clienteIsZero ? '#B3452B' : C.maroon, fontWeight: clienteIsZero ? 700 : 400 }}>{it.unitPriceCliente} €{clienteIsZero && ' ⚠️'}</td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
                                         <td style={{ padding: '8px 6px' }}>
                                           <select
@@ -3148,8 +3516,12 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                           <div style={{ borderTop: `1px solid ${C.paleGray}` }}>
                             {markerRows.map(({ marker, runImp, runCli }) => {
                               const hasVat = marker.vatRate !== null && marker.vatRate !== undefined;
-                              const ivaImpresaPart = hasVat ? runImp * (marker.vatRate / 100) : 0;
-                              const ivaClientePart = hasVat ? runCli * (marker.vatRate / 100) : 0;
+                              const hasDiscount = !!marker.discountPct;
+                              // Lo sconto di questa sommatoria si applica sul lordo prima dell'eventuale IVA.
+                              const netImp = hasDiscount ? runImp * (1 - marker.discountPct / 100) : runImp;
+                              const netCli = hasDiscount ? runCli * (1 - marker.discountPct / 100) : runCli;
+                              const ivaImpresaPart = hasVat ? netImp * (marker.vatRate / 100) : 0;
+                              const ivaClientePart = hasVat ? netCli * (marker.vatRate / 100) : 0;
                               return (
                                 <div key={marker.id} style={{ padding: '8px 14px', background: 'rgba(128,20,48,0.05)', borderTop: `2px solid ${C.paleGray}`, display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                                   <div style={{ fontWeight: 700, color: C.maroon, fontSize: 12 }}>
@@ -3157,13 +3529,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, initialR
                                     <button onClick={() => editPartialSubtotal(marker.id)} style={{ ...rowBtnStyle, marginLeft: 8, padding: '1px 6px', fontSize: 10 }}>✎</button>
                                   </div>
                                   <div style={{ fontSize: 12, textAlign: 'right' }}>
+                                    {hasDiscount && (
+                                      <div style={{ color: C.gray, fontSize: 11 }}>
+                                        Lordo: impresa {formatEuro(runImp)} · cliente {formatEuro(runCli)} — Sconto {marker.discountPct}%
+                                      </div>
+                                    )}
                                     {hasVat ? (
                                       <>
-                                        <div>Impresa — IVA escl. {formatEuro(runImp)}, {marker.vatLabel} {formatEuro(ivaImpresaPart)}, IVA incl. {formatEuro(runImp + ivaImpresaPart)}</div>
-                                        <div style={{ color: C.maroon }}>Cliente — IVA escl. {formatEuro(runCli)}, {marker.vatLabel} {formatEuro(ivaClientePart)}, IVA incl. {formatEuro(runCli + ivaClientePart)}</div>
+                                        <div>Impresa{hasDiscount ? ' netto' : ''} — IVA escl. {formatEuro(netImp)}, {marker.vatLabel} {formatEuro(ivaImpresaPart)}, IVA incl. {formatEuro(netImp + ivaImpresaPart)}</div>
+                                        <div style={{ color: C.maroon }}>Cliente{hasDiscount ? ' netto' : ''} — IVA escl. {formatEuro(netCli)}, {marker.vatLabel} {formatEuro(ivaClientePart)}, IVA incl. {formatEuro(netCli + ivaClientePart)}</div>
                                       </>
                                     ) : (
-                                      <div>Impresa {formatEuro(runImp)} · <span style={{ color: C.maroon }}>Cliente {formatEuro(runCli)}</span></div>
+                                      <div>Impresa{hasDiscount ? ' netto' : ''} {formatEuro(netImp)} · <span style={{ color: C.maroon }}>Cliente{hasDiscount ? ' netto' : ''} {formatEuro(netCli)}</span></div>
                                     )}
                                   </div>
                                 </div>
@@ -3901,9 +4278,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   if (!projects || projects.length === 0 || !project) {
     return (
       <div>
-        <p style={breadcrumb}>Gestionale / Rilievo planimetrico</p>
-        <h1 style={h1Style}>Rilievo planimetrico</h1>
-        <div style={{ ...card, marginTop: 18 }}>
+        <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Rilievo planimetrico</p>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Rilievo planimetrico</h1>
+        <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: 18, marginTop: 18 }}>
           <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Crea prima un progetto per poter caricare una planimetria e fare il rilievo.</p>
         </div>
       </div>
@@ -4241,25 +4618,25 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
 
   return (
     <div>
-      <p style={breadcrumb}>Gestionale / Rilievo planimetrico</p>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <h1 style={h1Style}>Rilievo planimetrico</h1>
-        <span style={{ ...freshBadge, marginLeft: 'auto' }}>Dati aggiornati</span>
+      <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Rilievo planimetrico</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Rilievo planimetrico</h1>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: C.accentSoft, color: C.maroon }}>Dati aggiornati</span>
       </div>
-      <p style={{ fontSize: 12, color: C.gray, margin: '-8px 0 18px', maxWidth: 680 }}>
+      <p style={{ fontSize: 13, fontWeight: 300, color: '#8B8178', margin: '0 0 18px', maxWidth: 680 }}>
         Scegli il progetto, carica la planimetria, calibra la scala cliccando due punti di cui conosci la distanza reale, poi disegna aree, lunghezze e volumi direttamente sopra il disegno: ogni misura collegata a una voce di listino finisce con un click nel computo, senza scriverla a mano. Usa i controlli in alto a destra sopra l'immagine (🖐 ／ － ＋) per ingrandire e spostare la vista.
       </p>
 
-      <div style={{ ...card, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+      <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Progetto</label>
-          <select value={projectIdx} onChange={(e) => setProjectIdx(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 220 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: '#6F655F' }}>PROGETTO</span>
+          <select value={projectIdx} onChange={(e) => setProjectIdx(Number(e.target.value))} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 400, fontFamily: FONT, color: '#2B2321', cursor: 'pointer', minWidth: 200 }}>
             {projects.map((p, i) => <option key={p.id ?? i} value={i}>{p.name}</option>)}
           </select>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Listino da collegare</label>
-          <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 180 }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: '#6F655F' }}>LISTINO DA COLLEGARE</span>
+          <select value={listinoId} onChange={(e) => setListinoId(Number(e.target.value))} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 400, fontFamily: FONT, color: '#2B2321', cursor: 'pointer', minWidth: 170 }}>
             {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
         </div>
@@ -4268,13 +4645,13 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
         )}
       </div>
 
-      <div style={{ ...card, marginBottom: 18 }}>
+      <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
           <div>
-            <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Planimetrie di "{project.name}"</p>
-            <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>Carica una planimetria: aggiungi punti (es. punti luce), oppure calibra la scala e disegna aree (m²/m³) e lunghezze (ml) collegate al listino — finiscono in automatico nel computo.</p>
+            <p style={{ fontWeight: 300, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Planimetrie di "{project.name}"</p>
+            <p style={{ fontSize: 11.5, color: '#8B8178', margin: '2px 0 0' }}>Carica una planimetria: aggiungi punti (es. punti luce), oppure calibra la scala e disegna aree (m²/m³) e lunghezze (ml) collegate al listino — finiscono in automatico nel computo.</p>
           </div>
-          <label style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+          <label style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 400, fontFamily: FONT, cursor: 'pointer' }}>
             + Carica planimetria
             <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadPlanimetria(e.target.files[0]); e.target.value = ''; }} />
           </label>
@@ -4580,41 +4957,39 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
 }
 
 function DiffTable({ diff }) {
-  const esitoColor = { Invariata: C.gray, Aggiunta: C.maroon, Modificata: C.darkGray, Rimossa: C.black };
+  const esitoColor = { Invariata: '#8B8178', Aggiunta: '#2F5A2B', Modificata: C.maroon, Rimossa: '#8C3220' };
+  const esitoBg = { Invariata: '#EFE8DD', Aggiunta: 'color-mix(in srgb, #4F7A4B 16%, #fff)', Modificata: `color-mix(in srgb, ${C.maroon} 16%, #fff)`, Rimossa: 'color-mix(in srgb, #B3452B 16%, #fff)' };
+  const rowBg = { Aggiunta: 'color-mix(in srgb, #4F7A4B 10%, #fff)', Rimossa: 'color-mix(in srgb, #B3452B 10%, #fff)', Modificata: `color-mix(in srgb, ${C.maroon} 8%, #fff)` };
   if (!diff || diff.length === 0) {
-    return <p style={{ fontSize: 12, color: C.gray }}>Nessuna voce da confrontare tra queste due versioni.</p>;
+    return <p style={{ fontSize: 13, color: '#8B8178' }}>Nessuna voce da confrontare tra queste due versioni.</p>;
   }
   return (
     <div className="table-scroll">
-    <table style={{ width: '100%', minWidth: 720, borderCollapse: 'collapse', fontSize: 12 }}>
+    <table style={{ width: '100%', minWidth: 760, borderCollapse: 'collapse' }}>
       <thead>
-        <tr style={{ textAlign: 'left', color: C.gray, fontSize: 10, textTransform: 'uppercase' }}>
-          <th style={{ padding: '8px 6px' }}>Esito</th>
-          <th style={{ padding: '8px 6px' }}>Sezione</th>
-          <th style={{ padding: '8px 6px' }}>Codice / Descrizione</th>
-          <th style={{ padding: '8px 6px', textAlign: 'right' }}>Q.tà prima</th>
-          <th style={{ padding: '8px 6px', textAlign: 'right' }}>Q.tà dopo</th>
-          <th style={{ padding: '8px 6px', textAlign: 'right' }}>Prezzo prima</th>
-          <th style={{ padding: '8px 6px', textAlign: 'right' }}>Prezzo dopo</th>
-          <th style={{ padding: '8px 6px', textAlign: 'right' }}>Variazione</th>
+        <tr>
+          {['Voce', 'Sezione', 'Q.tà prima', 'Q.tà dopo', 'Prezzo prima', 'Prezzo dopo', 'Variazione'].map((h) => (
+            <th key={h} style={{ fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: h.startsWith('Q.') || h.startsWith('Prezzo') || h === 'Variazione' ? 'right' : 'left', padding: '8px 10px', borderBottom: `1px solid ${C.borderStrong}` }}>{h}</th>
+          ))}
         </tr>
       </thead>
       <tbody>
         {diff.map((r) => (
-          <tr key={r.code} style={{ borderTop: `1px solid ${C.paleGray}`, background: r.highlight ? 'rgba(128,20,48,0.05)' : 'transparent' }}>
-            <td style={{ padding: '10px 6px', fontWeight: 600, color: esitoColor[r.esito] }}>{r.esito}</td>
-            <td style={{ padding: '10px 6px' }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, background: 'rgba(129,129,129,0.14)', color: C.midGray }}>{r.sezione}</span>
+          <tr key={r.code} style={{ background: rowBg[r.esito] || 'transparent' }}>
+            <td style={{ fontSize: 13.5, fontWeight: 300, padding: '10px 10px', borderBottom: `1px solid ${C.paleGray}`, textDecoration: r.esito === 'Rimossa' ? 'line-through' : 'none', color: r.esito === 'Rimossa' ? '#8B8178' : C.black }}>
+              <div style={{ fontWeight: 400 }}>{r.code}</div>
+              <div style={{ fontSize: 11.5, color: '#8B8178' }}>{r.desc}</div>
             </td>
-            <td style={{ padding: '10px 6px' }}>
-              <p style={{ margin: 0, fontWeight: 700, color: C.black }}>{r.code}</p>
-              <p style={{ margin: '2px 0 0', color: C.gray }}>{r.desc}</p>
+            <td style={{ padding: '10px 10px', borderBottom: `1px solid ${C.paleGray}` }}>
+              <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 9px', borderRadius: 999, background: '#EFE8DD', color: '#6F655F' }}>{r.sezione}</span>
             </td>
-            <td style={{ padding: '10px 6px', textAlign: 'right' }}>{r.qtyBefore}</td>
-            <td style={{ padding: '10px 6px', textAlign: 'right' }}>{r.qtyAfter}</td>
-            <td style={{ padding: '10px 6px', textAlign: 'right' }}>{r.priceBefore}</td>
-            <td style={{ padding: '10px 6px', textAlign: 'right' }}>{r.priceAfter}</td>
-            <td style={{ padding: '10px 6px', textAlign: 'right', fontWeight: 700, color: r.variation.startsWith('+') ? C.maroon : C.black }}>{r.variation}</td>
+            <td style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: '#6F655F', padding: '10px 10px', borderBottom: `1px solid ${C.paleGray}`, textAlign: 'right' }}>{r.qtyBefore}</td>
+            <td style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: '#6F655F', padding: '10px 10px', borderBottom: `1px solid ${C.paleGray}`, textAlign: 'right' }}>{r.qtyAfter}</td>
+            <td style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: '#6F655F', padding: '10px 10px', borderBottom: `1px solid ${C.paleGray}`, textAlign: 'right' }}>{r.priceBefore}</td>
+            <td style={{ fontSize: 12.5, fontVariantNumeric: 'tabular-nums', color: '#6F655F', padding: '10px 10px', borderBottom: `1px solid ${C.paleGray}`, textAlign: 'right' }}>{r.priceAfter}</td>
+            <td style={{ padding: '10px 10px', borderBottom: `1px solid ${C.paleGray}`, textAlign: 'right' }}>
+              <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: esitoBg[r.esito], color: esitoColor[r.esito] }}>{r.esito}</span>
+            </td>
           </tr>
         ))}
       </tbody>
@@ -4624,83 +4999,131 @@ function DiffTable({ diff }) {
 }
 
 function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, requestPdf }) {
-  const [activeId, setActiveId] = useState(projects[0]?.id);
-  const project = projects.find((p) => p.id === activeId) || projects[0];
+  const [filterId, setFilterId] = useState('all'); // 'all' oppure l'id di un progetto
 
   const updateProject = (updated) => setProjects(projects.map((p) => (p.id === updated.id ? updated : p)));
-  const changeStatus = (revId, status) => {
-    updateProject({ ...project, revisions: project.revisions.map((r) => (r.id === revId ? { ...r, status } : r)) });
+  const changeStatus = (proj, revId, status) => {
+    updateProject({ ...proj, revisions: proj.revisions.map((r) => (r.id === revId ? { ...r, status } : r)) });
   };
-  const deleteRevision = (revId) => {
+  const deleteRevision = (proj, revId) => {
     if (!confirm('Eliminare definitivamente questa versione del computo?')) return;
-    updateProject({ ...project, revisions: project.revisions.filter((r) => r.id !== revId) });
+    updateProject({ ...proj, revisions: proj.revisions.filter((r) => r.id !== revId) });
   };
-  const renameRevision = (revId) => {
-    const rev = project.revisions.find((r) => r.id === revId);
+  const renameRevision = (proj, revId) => {
+    const rev = proj.revisions.find((r) => r.id === revId);
     const newName = prompt('Nuovo nome del computo (data di modifica e numero revisione restano invariati):', rev.customName || rev.label);
     if (!newName) return;
-    updateProject({ ...project, revisions: project.revisions.map((r) => (r.id === revId ? { ...r, customName: newName } : r)) });
+    updateProject({ ...proj, revisions: proj.revisions.map((r) => (r.id === revId ? { ...r, customName: newName } : r)) });
   };
 
-  if (!project) return <p style={{ fontSize: 13, color: C.gray }}>Nessun progetto ancora creato.</p>;
+  const ghostPillBtn = { border: `1px solid ${C.paleGray}`, background: C.white, color: '#2B2321', fontSize: 11.5, fontWeight: 400, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' };
+
+  const projectsWithRevisions = projects.filter((p) => p.revisions && p.revisions.length > 0);
+  const activeProject = filterId !== 'all' ? projects.find((p) => p.id === filterId) : null;
+
+  // Una riga-revisione: usata sia nella vista "Tutti i computi" (solo il computo attivo, una riga)
+  // sia nella vista di un singolo progetto (tutta la cronologia delle revisioni, una riga per versione).
+  const revisionRow = (proj, r) => (
+    <div key={r.id} style={{ padding: '14px 0', borderTop: `1px solid ${C.paleGray}` }}>
+      <div style={{ fontWeight: 500, fontSize: 14, color: C.black }}>
+        {r.customName || r.label} {r.customName && <span style={{ fontSize: 10, color: '#8B8178', fontWeight: 400 }}>({r.label})</span>}
+      </div>
+      <div style={{ fontVariantNumeric: 'tabular-nums', color: '#8B8178', fontSize: 12, marginTop: 2 }}>
+        Creata il {r.dateCreated} · Modificata il {r.dateModified} · {r.total} impresa / {r.totalCliente || r.total} cliente
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 12, flexWrap: 'wrap' }}>
+        <select
+          value={r.status}
+          onChange={(e) => changeStatus(proj, r.id, e.target.value)}
+          style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '8px 14px', fontSize: 12.5, fontWeight: 400, color: '#2B2321', fontFamily: FONT }}
+        >
+          {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <button onClick={() => onOpenRevision(proj.id, r.id)} style={ghostPillBtn}>Apri e modifica</button>
+        <button onClick={() => renameRevision(proj, r.id)} style={ghostPillBtn}>✎ Rinomina</button>
+        <button onClick={() => exportComputoExcel(proj, r, false)} style={ghostPillBtn}>Excel</button>
+        <button onClick={() => requestPdf(proj, r, false)} style={ghostPillBtn}>PDF</button>
+        <button onClick={() => deleteRevision(proj, r.id)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 14, marginLeft: 4 }}>🗑️</button>
+      </div>
+    </div>
+  );
 
   return (
     <div>
-      <p style={breadcrumb}>Gestionale / Computi</p>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 16 }}>
-        <h1 style={h1Style}>Computi</h1>
-        <span style={{ ...freshBadge, marginLeft: 'auto' }}>Dati aggiornati</span>
+      <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Computi</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Computi</h1>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: C.accentSoft, color: C.maroon }}>Dati aggiornati</span>
       </div>
-      <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>
-        Panoramica di tutti i computi creati, divisi per progetto. La creazione avviene dentro ogni singolo progetto; da qui puoi aprirli e modificarli — ogni modifica crea automaticamente una nuova versione.
+      <p style={{ fontSize: 13.5, fontWeight: 300, color: '#8B8178', margin: '0 0 18px', maxWidth: 640 }}>
+        "Tutti i computi" mostra il computo attivo di ogni progetto, uno sotto l'altro. Seleziona un progetto per vedere tutta la sua cronologia di revisioni.
       </p>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 18, flexWrap: 'wrap', borderBottom: `1px solid ${C.paleGray}`, paddingBottom: 10 }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+        <span
+          onClick={() => setFilterId('all')}
+          style={{
+            fontSize: 12.5, fontWeight: filterId === 'all' ? 500 : 400, padding: '8px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT,
+            background: filterId === 'all' ? '#1E1A18' : C.white,
+            color: filterId === 'all' ? '#fff' : '#4A403C',
+            border: `1px solid ${filterId === 'all' ? '#1E1A18' : C.paleGray}`,
+          }}
+        >
+          Tutti i computi
+        </span>
         {projects.map((p) => (
-          <button
+          <span
             key={p.id}
-            onClick={() => setActiveId(p.id)}
+            onClick={() => setFilterId(p.id)}
             style={{
-              borderRadius: 8, padding: '9px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-              background: p.id === project.id ? C.maroon : C.white,
-              color: p.id === project.id ? C.white : C.black,
-              border: `1px solid ${p.id === project.id ? C.maroon : C.paleGray}`,
+              fontSize: 12.5, fontWeight: p.id === filterId ? 500 : 400, padding: '8px 14px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT,
+              background: p.id === filterId ? '#1E1A18' : C.white,
+              color: p.id === filterId ? '#fff' : '#4A403C',
+              border: `1px solid ${p.id === filterId ? '#1E1A18' : C.paleGray}`,
             }}
           >
             {p.name}
-          </button>
+          </span>
         ))}
       </div>
 
-      {project.revisions.length === 0 ? (
-        <div style={{ ...card, textAlign: 'center', padding: 30 }}>
-          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 14px' }}>"{project.name}" non ha ancora nessun computo creato.</p>
-          <button onClick={() => onOpenProject(project.id)} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Apri il progetto per crearlo</button>
+      {filterId === 'all' ? (
+        projectsWithRevisions.length === 0 ? (
+          <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 12, textAlign: 'center', padding: 30 }}>
+            <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Nessun progetto ha ancora un computo creato.</p>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {projectsWithRevisions.map((p) => {
+              const latest = p.revisions[p.revisions.length - 1];
+              return (
+                <div key={p.id} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
+                    <div onClick={() => setFilterId(p.id)} style={{ cursor: 'pointer', fontSize: 16, fontWeight: 500, color: C.black }}>
+                      {p.name} · {p.client} {p.revisions.length > 1 && <span style={{ fontSize: 11, fontWeight: 400, color: '#8B8178' }}>({p.revisions.length} revisioni — clicca per vederle tutte)</span>}
+                    </div>
+                    <a onClick={() => onOpenProject(p.id)} style={{ cursor: 'pointer', fontSize: 12.5, color: '#4A403C', border: `1px solid ${C.paleGray}`, padding: '7px 14px', borderRadius: 999 }}>Apri progetto ›</a>
+                  </div>
+                  {revisionRow(p, latest)}
+                </div>
+              );
+            })}
+          </div>
+        )
+      ) : !activeProject ? (
+        <p style={{ fontSize: 13, color: C.gray }}>Progetto non trovato.</p>
+      ) : activeProject.revisions.length === 0 ? (
+        <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 12, textAlign: 'center', padding: 30 }}>
+          <p style={{ fontSize: 13, color: C.gray, margin: '0 0 14px' }}>"{activeProject.name}" non ha ancora nessun computo creato.</p>
+          <button onClick={() => onOpenProject(activeProject.id)} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>Apri il progetto per crearlo</button>
         </div>
       ) : (
-        <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-            <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>{project.name} · {project.client}</p>
-            <button onClick={() => onOpenProject(project.id)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>Apri progetto ›</button>
+        <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '18px 20px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, flexWrap: 'wrap', marginBottom: 6 }}>
+            <div style={{ fontSize: 16, fontWeight: 500, color: C.black }}>{activeProject.name} · {activeProject.client}</div>
+            <a onClick={() => onOpenProject(activeProject.id)} style={{ cursor: 'pointer', fontSize: 12.5, color: '#4A403C', border: `1px solid ${C.paleGray}`, padding: '7px 14px', borderRadius: 999 }}>Apri progetto ›</a>
           </div>
-          {project.revisions.map((r) => (
-            <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${C.paleGray}`, gap: 10, flexWrap: 'wrap' }}>
-              <div>
-                <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{r.customName || r.label} {r.customName && <span style={{ fontSize: 10, color: C.gray, fontWeight: 400 }}>({r.label})</span>}</p>
-                <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>Creata il {r.dateCreated} · Modificata il {r.dateModified} · {r.total} impresa / {r.totalCliente || r.total} cliente</p>
-              </div>
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <select value={r.status} onChange={(e) => changeStatus(r.id, e.target.value)} style={{ fontSize: 11, fontWeight: 600, padding: '5px 8px', borderRadius: 6, border: `1px solid ${C.paleGray}`, color: C.midGray }}>
-                  {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-                <button onClick={() => onOpenRevision(project.id, r.id)} style={rowBtnStyle}>Apri e modifica</button>
-                <button onClick={() => renameRevision(r.id)} style={rowBtnStyle}>✎ Rinomina</button>
-                <button onClick={() => exportComputoExcel(project, r, false)} style={rowBtnStyle}>Excel</button>
-                <button onClick={() => requestPdf(project, r, false)} style={rowBtnStyle}>PDF</button>
-                <button onClick={() => deleteRevision(r.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
-              </div>
-            </div>
-          ))}
+          {activeProject.revisions.map((r) => revisionRow(activeProject, r))}
         </div>
       )}
     </div>
@@ -4721,70 +5144,55 @@ function ConfrontoPage({ projects }) {
     setTo(proj.revisions[proj.revisions.length - 1]?.id);
   };
 
-  const esitoColor = { Invariata: C.gray, Aggiunta: C.maroon };
+  const selStyle = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 400, color: '#2B2321', fontFamily: FONT, cursor: 'pointer' };
 
   return (
     <div>
-      <p style={breadcrumb}>Gestionale / Confronto revisioni</p>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
-        <h1 style={h1Style}>Confronto revisioni</h1>
-        <span style={{ ...freshBadge, marginLeft: 'auto' }}>Dati aggiornati</span>
+      <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Confronto revisioni</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Confronto revisioni</h1>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: C.accentSoft, color: C.maroon }}>Dati aggiornati</span>
       </div>
 
-      <div style={{ ...card, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Progetto</label>
-        <select value={projectId} onChange={(e) => handleProjectChange(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, minWidth: 220 }}>
-          {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-        </select>
-      </div>
+      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 11.5, fontWeight: 600, color: '#6F655F' }}>PROGETTO</span>
+          <select value={projectId} onChange={(e) => handleProjectChange(Number(e.target.value))} style={selStyle}>
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </div>
+      </section>
 
       {revisions.length < 2 ? (
-        <div style={{ ...card, textAlign: 'center', padding: 30 }}>
-          <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>"{project.name}" ha meno di due revisioni salvate: non c'è ancora nulla da confrontare.</p>
+        <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, textAlign: 'center', padding: 30 }}>
+          <p style={{ fontSize: 13, color: '#8B8178', margin: 0 }}>"{project.name}" ha meno di due revisioni salvate: non c'è ancora nulla da confrontare.</p>
         </div>
       ) : (
-        <div style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 18 }}>
-            <div>
-              <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Confronto revisioni</p>
-              <p style={{ fontSize: 12, color: C.gray, margin: '2px 0 0' }}>{project.name} · modifiche evidenziate secondo la palette</p>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, background: 'rgba(128,20,48,0.12)', color: C.maroon }}>Aggiunte</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, background: 'rgba(67,67,67,0.14)', color: C.darkGray }}>Modificate</span>
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 18 }}>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Revisione di partenza</label>
-              <select value={from} onChange={(e) => setFrom(Number(e.target.value))} style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }}>
-                {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
-              </select>
-            </div>
-            <span style={{ fontSize: 16, color: C.gray, marginTop: 16 }}>→</span>
-            <div style={{ flex: 1 }}>
-              <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Revisione di arrivo</label>
-              <select value={to} onChange={(e) => setTo(Number(e.target.value))} style={{ width: '100%', fontSize: 13, fontWeight: 600, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }}>
-                {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
-              </select>
-            </div>
+        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16, overflowX: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
+            <select value={from} onChange={(e) => setFrom(Number(e.target.value))} style={selStyle}>
+              {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
+            </select>
+            <span style={{ fontSize: 15, color: '#8B8178' }}>→</span>
+            <select value={to} onChange={(e) => setTo(Number(e.target.value))} style={selStyle}>
+              {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
+            </select>
           </div>
 
           <DiffTable diff={computeItemsDiff(revisions.find((r) => r.id === from)?.items, revisions.find((r) => r.id === to)?.items)} />
-        </div>
+        </section>
       )}
 
-      <div style={{ ...card, marginTop: 18 }}>
-        <h2 style={{ fontSize: 15, margin: '0 0 10px', color: C.black, fontFamily: FONT }}>Stampa ed esportazione</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>
+      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px' }}>
+        <h3 style={{ margin: '0 0 2px', fontWeight: 300, fontSize: 18, color: C.black }}>Stampa ed esportazione</h3>
+        <p style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178', margin: 0, maxWidth: 560 }}>
           Intestazione, subtotali e sezione Extra sono sempre inclusi. Mantieni nella stampa le evidenziazioni di aggiunte, modifiche e rimozioni.
         </p>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={() => alert('Esportazione Excel/CSV: funzione da collegare al backend reale.')} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Excel / CSV</button>
-          <button onClick={() => alert('Stampa/PDF: genera il documento con le evidenziazioni delle modifiche.')} style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Stampa / PDF</button>
+        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
+          <button onClick={() => alert('Esportazione Excel/CSV: funzione da collegare al backend reale.')} style={{ border: `1px solid ${C.paleGray}`, background: C.white, color: '#2B2321', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 400, cursor: 'pointer', fontFamily: FONT }}>Excel / CSV</button>
+          <button onClick={() => alert('Stampa/PDF: genera il documento con le evidenziazioni delle modifiche.')} style={{ border: 'none', background: C.maroon, color: C.white, padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 400, cursor: 'pointer', fontFamily: FONT }}>Stampa / PDF</button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }
@@ -4812,9 +5220,11 @@ const INITIAL_FORNITORI = [
   {
     name: 'Forniture sanitarie', categorie: [
       { name: 'WC', prodotti: [
-        { id: 1, name: 'WC sospeso Serie Rovere', photo: null, listinoPrice: '180,00', fornitori: [
-          { id: 1, name: 'Idroterm Forniture S.r.l.', prezzoListino: '180,00', prezzoScontato: '150,00', prezzoCliente: '165,00' },
-          { id: 2, name: 'Ceramiche Rossi', prezzoListino: '190,00', prezzoScontato: '160,00', prezzoCliente: '172,00' },
+        { id: 1, marca: '', modello: 'WC sospeso', photo: null, varianti: [
+          { id: 1, nome: 'Serie Rovere', listinoPrice: '180,00', fornitori: [
+            { id: 1, name: 'Idroterm Forniture S.r.l.', prezzoListino: '180,00', prezzoScontato: '150,00', prezzoCliente: '165,00' },
+            { id: 2, name: 'Ceramiche Rossi', prezzoListino: '190,00', prezzoScontato: '160,00', prezzoCliente: '172,00' },
+          ]},
         ]},
       ]},
       { name: 'Lavabi', prodotti: [] },
@@ -4834,6 +5244,26 @@ const INITIAL_FORNITORI = [
     ],
   },
 ];
+
+// Un prodotto salvato nel vecchio formato (name/listinoPrice/fornitori diretti sul prodotto,
+// senza varianti) viene convertito al volo in una singola variante senza nome: i dati già
+// salvati online restano intatti quando arriva questo aggiornamento.
+function migrateProdotto(p) {
+  if (p.varianti) return p;
+  return {
+    id: p.id,
+    marca: '',
+    modello: p.name || '',
+    photo: p.photo ?? null,
+    varianti: [{ id: p.id, nome: '', listinoPrice: p.listinoPrice || '0,00', fornitori: p.fornitori || [] }],
+  };
+}
+function migrateFornitoriCatalog(catalog) {
+  return (catalog || []).map((m) => ({
+    ...m,
+    categorie: (m.categorie || []).map((c) => ({ ...c, prodotti: (c.prodotti || []).map(migrateProdotto) })),
+  }));
+}
 
 // Modale per creare una revisione del computo a partire da un PDF: ne estrae solo le macrocategorie
 // e i loro totali (mai le singole voci), lascia rivedere/correggere tutto a mano prima di confermare,
@@ -4952,14 +5382,14 @@ function ImportPdfComputoModal({ onClose, onConfirm }) {
   );
 }
 
-function AddToComputoModal({ prodotto, projects, onClose, onAdd }) {
+function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
   const eligible = projects.filter((p) => p.revisions.length > 0);
   const [projectId, setProjectId] = useState(eligible[0]?.id);
   const project = projects.find((p) => p.id === projectId);
   const [revisionId, setRevisionId] = useState(project?.revisions[project.revisions.length - 1]?.id);
   const priceOptions = [
-    { id: 'listino', name: 'Prezzo di listino prodotto (nessuno sconto)', prezzoListino: prodotto.listinoPrice, prezzoScontato: prodotto.listinoPrice, prezzoCliente: prodotto.listinoPrice },
-    ...prodotto.fornitori,
+    { id: 'listino', name: 'Prezzo di listino (nessuno sconto)', prezzoListino: variante.listinoPrice, prezzoScontato: variante.listinoPrice, prezzoCliente: variante.listinoPrice },
+    ...variante.fornitori,
   ];
   const [priceSourceId, setPriceSourceId] = useState(priceOptions[0]?.id ?? 'listino');
   const [qty, setQty] = useState('1');
@@ -4989,7 +5419,7 @@ function AddToComputoModal({ prodotto, projects, onClose, onAdd }) {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Aggiungi al computo</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>{prodotto.name}</p>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>{prodottoLabel(prodotto)}{variante.nome ? ` — ${variante.nome}` : ''}</p>
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Progetto</label>
         <select value={projectId} onChange={(e) => handleProjectChange(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }}>
@@ -5034,10 +5464,6 @@ function AddToComputoModal({ prodotto, projects, onClose, onAdd }) {
 }
 
 function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
-  const cheapestScontato = prodotto.fornitori.length
-    ? Math.min(...prodotto.fornitori.map((f) => parseEuro(f.prezzoScontato)))
-    : null;
-
   const uploadPhoto = (file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -5046,104 +5472,164 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
   };
 
   const renameProdotto = () => {
-    const name = prompt('Nome prodotto:', prodotto.name);
-    if (!name) return;
-    onUpdate({ ...prodotto, name });
+    const marca = prompt('Marca:', prodotto.marca || '');
+    if (marca === null) return;
+    const modello = prompt('Modello:', prodotto.modello || '');
+    if (modello === null) return;
+    onUpdate({ ...prodotto, marca, modello });
   };
 
-  const updateListinoPrice = () => {
-    const price = prompt('Prezzo di listino (€):', prodotto.listinoPrice);
-    if (price === null) return;
-    onUpdate({ ...prodotto, listinoPrice: price });
+  // Chiede il prezzo finale, oppure — se è più comodo — lo sconto percentuale dal prezzo di
+  // listino da cui il prezzo finale si calcola da solo. Lasciare vuoto il primo prompt salta
+  // direttamente alla richiesta del prezzo finale, come prima.
+  const askPriceOrDiscount = (label, listinoPriceStr, currentValue) => {
+    const listinoNum = parseEuro(listinoPriceStr);
+    const pctStr = prompt(`${label} — sconto % dal prezzo di listino (${listinoPriceStr} €)? Lascia vuoto per inserire invece il prezzo finale.`);
+    if (pctStr !== null && pctStr.trim() !== '') {
+      const pct = parseFloat(pctStr.replace(',', '.'));
+      if (!isNaN(pct) && listinoNum > 0) {
+        return (listinoNum * (1 - pct / 100)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    }
+    return prompt(`${label} — prezzo finale (€):`, currentValue ?? listinoPriceStr) ?? (currentValue ?? listinoPriceStr);
   };
 
-  const addFornitore = () => {
+  const addVariante = () => {
+    const nome = prompt('Nome variante / finitura (es. colore, materiale):') || '';
+    const listinoPrice = prompt('Prezzo di listino di questa variante (€):', '0,00') || '0,00';
+    onUpdate({ ...prodotto, varianti: [...prodotto.varianti, { id: Date.now(), nome, listinoPrice, fornitori: [] }] });
+  };
+  const renameVariante = (vi) => {
+    const v = prodotto.varianti[vi];
+    const nome = prompt('Nome variante / finitura:', v.nome);
+    if (nome === null) return;
+    onUpdate({ ...prodotto, varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, nome } : x)) });
+  };
+  const updateVarianteListino = (vi) => {
+    const v = prodotto.varianti[vi];
+    const listinoPrice = prompt('Prezzo di listino (€):', v.listinoPrice);
+    if (listinoPrice === null) return;
+    onUpdate({ ...prodotto, varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, listinoPrice } : x)) });
+  };
+  const removeVariante = (vi) => {
+    if (prodotto.varianti.length <= 1) { alert('Il prodotto deve avere almeno una variante.'); return; }
+    if (!confirm('Eliminare questa variante e i suoi fornitori?')) return;
+    onUpdate({ ...prodotto, varianti: prodotto.varianti.filter((_, i) => i !== vi) });
+  };
+
+  const addFornitore = (vi) => {
+    const v = prodotto.varianti[vi];
     const name = prompt('Nome fornitore:');
     if (!name) return;
-    const prezzoListino = prompt(`Prezzo di listino del fornitore "${name}" (€):`, prodotto.listinoPrice) || '0,00';
-    const prezzoScontato = prompt('Prezzo scontato (quanto paga davvero l\'impresa) (€):', prezzoListino) || prezzoListino;
-    const prezzoCliente = prompt('Prezzo che verrà mostrato al cliente (€):', prezzoListino) || prezzoListino;
-    onUpdate({ ...prodotto, fornitori: [...prodotto.fornitori, { id: Date.now(), name, prezzoListino, prezzoScontato, prezzoCliente }] });
+    const prezzoListino = prompt(`Prezzo di listino del fornitore "${name}" (€):`, v.listinoPrice) || v.listinoPrice || '0,00';
+    const prezzoScontato = askPriceOrDiscount('Prezzo impresa (scontato)', prezzoListino, prezzoListino);
+    const prezzoCliente = askPriceOrDiscount('Prezzo cliente', prezzoListino, prezzoListino);
+    const nuovoFornitore = { id: Date.now(), name, prezzoListino, prezzoScontato, prezzoCliente };
+    onUpdate({ ...prodotto, varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, fornitori: [...x.fornitori, nuovoFornitore] } : x)) });
   };
 
-  const editFornitore = (fid) => {
-    const f = prodotto.fornitori.find((x) => x.id === fid);
+  const editFornitore = (vi, fid) => {
+    const v = prodotto.varianti[vi];
+    const f = v.fornitori.find((x) => x.id === fid);
     const name = prompt('Nome fornitore:', f.name);
     if (!name) return;
     const prezzoListino = prompt('Prezzo di listino del fornitore (€):', f.prezzoListino);
     if (prezzoListino === null) return;
-    const prezzoScontato = prompt('Prezzo scontato (€):', f.prezzoScontato);
-    if (prezzoScontato === null) return;
-    const prezzoCliente = prompt('Prezzo cliente (€):', f.prezzoCliente);
-    if (prezzoCliente === null) return;
-    onUpdate({ ...prodotto, fornitori: prodotto.fornitori.map((x) => (x.id === fid ? { ...x, name, prezzoListino, prezzoScontato, prezzoCliente } : x)) });
+    const prezzoScontato = askPriceOrDiscount('Prezzo impresa (scontato)', prezzoListino, f.prezzoScontato);
+    const prezzoCliente = askPriceOrDiscount('Prezzo cliente', prezzoListino, f.prezzoCliente);
+    onUpdate({
+      ...prodotto,
+      varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, fornitori: x.fornitori.map((y) => (y.id === fid ? { ...y, name, prezzoListino, prezzoScontato, prezzoCliente } : y)) } : x)),
+    });
   };
 
-  const removeFornitore = (fid) => {
-    onUpdate({ ...prodotto, fornitori: prodotto.fornitori.filter((x) => x.id !== fid) });
+  const removeFornitore = (vi, fid) => {
+    onUpdate({ ...prodotto, varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, fornitori: x.fornitori.filter((y) => y.id !== fid) } : x)) });
   };
+
+  const fBtn = { border: `1px solid ${C.paleGray}`, background: C.white, color: '#2B2321', fontSize: 11, fontWeight: 400, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' };
 
   return (
-    <div style={{ ...card, display: 'flex', gap: 14, marginBottom: 12 }}>
-      <label style={{ width: 84, height: 84, borderRadius: 10, border: `1px dashed ${C.paleGray}`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', background: C.bg }}>
+    <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '14px 16px', marginBottom: 12, display: 'flex', gap: 14 }}>
+      <label style={{ width: 64, height: 64, borderRadius: 8, background: '#F0EAE0', border: '1px dashed #CFC4B6', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', textAlign: 'center' }}>
         {prodotto.photo ? (
-          <img src={prodotto.photo} alt={prodotto.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img src={prodotto.photo} alt={prodottoLabel(prodotto)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         ) : (
-          <span style={{ fontSize: 10, color: C.gray, textAlign: 'center', padding: 4 }}>+ Foto</span>
+          <span style={{ fontSize: 11, color: '#9A8F86' }}>+ Foto</span>
         )}
         <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => uploadPhoto(e.target.files[0])} />
       </label>
 
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6, gap: 10, flexWrap: 'wrap' }}>
           <div>
-            <p style={{ fontWeight: 700, fontSize: 14, margin: 0, color: C.black, fontFamily: FONT }}>{prodotto.name}</p>
-            <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>Prezzo di listino: <strong style={{ color: C.black }}>{prodotto.listinoPrice} €</strong></p>
+            <p style={{ fontWeight: 500, fontSize: 14.5, margin: 0, color: C.black, fontFamily: FONT }}>{prodottoLabel(prodotto)}</p>
+            <p style={{ fontSize: 12.5, color: '#8B8178', margin: '2px 0 0' }}>{prodotto.varianti.length} {prodotto.varianti.length === 1 ? 'variante' : 'varianti'}</p>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={onAddToComputo} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, border: 'none' }}>+ Computo</button>
-            <button onClick={renameProdotto} style={rowBtnStyle}>✎ Nome</button>
-            <button onClick={updateListinoPrice} style={rowBtnStyle}>✎ Listino</button>
-            <button onClick={onRemove} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button onClick={renameProdotto} style={fBtn}>✎ Marca/Modello</button>
+            <button onClick={addVariante} style={fBtn}>+ Variante</button>
+            <button onClick={onRemove} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 14 }}>🗑️</button>
           </div>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, marginBottom: 4 }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: C.midGray, margin: 0 }}>Fornitori</p>
-          <button onClick={addFornitore} style={rowBtnStyle}>+ Fornitore</button>
-        </div>
-        {prodotto.fornitori.length === 0 ? (
-          <p style={{ fontSize: 11, color: C.gray, margin: 0 }}>Nessun fornitore inserito.</p>
-        ) : (
-          <div className="table-scroll">
-            <div style={{ minWidth: 420 }}>
-              <div style={{ display: 'flex', flexWrap: 'nowrap', fontSize: 10, color: C.gray, textTransform: 'uppercase', padding: '2px 0' }}>
-                <span style={{ flex: 1, minWidth: 120 }}>Fornitore</span>
-                <span style={{ width: 70, textAlign: 'right', flexShrink: 0 }}>Listino</span>
-                <span style={{ width: 70, textAlign: 'right', flexShrink: 0 }}>Scontato</span>
-                <span style={{ width: 70, textAlign: 'right', flexShrink: 0 }}>Cliente</span>
-                <span style={{ width: 56, flexShrink: 0 }}></span>
-              </div>
-              {[...prodotto.fornitori].sort((a, b) => parseEuro(a.prezzoScontato) - parseEuro(b.prezzoScontato)).map((f) => (
-                <div key={f.id} style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', padding: '6px 0', borderTop: `1px solid ${C.paleGray}` }}>
-                  <div style={{ flex: 1, minWidth: 120, display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: C.black, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{f.name}</span>
-                    {parseEuro(f.prezzoScontato) === cheapestScontato && (
-                      <span style={{ fontSize: 10, fontWeight: 700, color: C.maroon, background: 'rgba(128,20,48,0.1)', padding: '2px 7px', borderRadius: 999, whiteSpace: 'nowrap', flexShrink: 0 }}>Migliore offerta</span>
-                    )}
-                  </div>
-                  <span style={{ width: 70, textAlign: 'right', fontSize: 12, color: C.gray, flexShrink: 0 }}>{f.prezzoListino} €</span>
-                  <span style={{ width: 70, textAlign: 'right', fontSize: 12, fontWeight: 700, color: C.black, flexShrink: 0 }}>{f.prezzoScontato} €</span>
-                  <span style={{ width: 70, textAlign: 'right', fontSize: 12, color: C.maroon, flexShrink: 0 }}>{f.prezzoCliente} €</span>
-                  <span style={{ width: 56, display: 'flex', flexWrap: 'nowrap', gap: 4, justifyContent: 'flex-end', flexShrink: 0 }}>
-                    <button onClick={() => editFornitore(f.id)} style={{ ...rowBtnStyle, padding: '2px 6px' }}>✎</button>
-                    <button onClick={() => removeFornitore(f.id)} style={{ ...rowBtnStyle, padding: '2px 6px' }}>🗑</button>
-                  </span>
+        {prodotto.varianti.map((v, vi) => {
+          const cheapestScontato = v.fornitori.length ? Math.min(...v.fornitori.map((f) => parseEuro(f.prezzoScontato))) : null;
+          return (
+            <div key={v.id} style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.paleGray}` }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                <div>
+                  <span style={{ fontSize: 13.5, fontWeight: 500, color: C.black }}>{v.nome || 'Variante senza nome'}</span>
+                  <span style={{ fontSize: 12, color: '#8B8178', marginLeft: 8 }}>Listino: <strong style={{ color: C.black, fontWeight: 500 }}>{v.listinoPrice} €</strong></span>
                 </div>
-              ))}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => onAddToComputo(v)} style={{ ...fBtn, background: C.maroon, color: C.white, border: 'none' }}>+ Computo</button>
+                  <button onClick={() => renameVariante(vi)} style={fBtn}>✎ Nome</button>
+                  <button onClick={() => updateVarianteListino(vi)} style={fBtn}>✎ Listino</button>
+                  <button onClick={() => addFornitore(vi)} style={fBtn}>+ Fornitore</button>
+                  <button onClick={() => removeVariante(vi)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 13 }}>🗑️</button>
+                </div>
+              </div>
+
+              {v.fornitori.length === 0 ? (
+                <p style={{ fontSize: 12.5, color: '#9A8F86', fontStyle: 'italic', margin: '6px 0 0' }}>Nessun fornitore inserito per questa variante.</p>
+              ) : (
+                <div className="table-scroll" style={{ marginTop: 8 }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 420 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: 'left', padding: '5px 8px', borderBottom: `1px solid ${C.borderStrong}` }}>Fornitore</th>
+                        <th style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: 'right', padding: '5px 8px', borderBottom: `1px solid ${C.borderStrong}` }}>Listino</th>
+                        <th style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: 'right', padding: '5px 8px', borderBottom: `1px solid ${C.borderStrong}` }}>Scontato</th>
+                        <th style={{ fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: 'right', padding: '5px 8px', borderBottom: `1px solid ${C.borderStrong}` }}>Cliente</th>
+                        <th style={{ borderBottom: `1px solid ${C.borderStrong}` }}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[...v.fornitori].sort((a, b) => parseEuro(a.prezzoScontato) - parseEuro(b.prezzoScontato)).map((f) => (
+                        <tr key={f.id}>
+                          <td style={{ fontSize: 12.5, padding: 8, borderBottom: '1px solid #F0EAE0' }}>
+                            {f.name}
+                            {parseEuro(f.prezzoScontato) === cheapestScontato && (
+                              <span style={{ fontSize: 10, fontWeight: 500, color: C.maroon, background: `color-mix(in srgb, ${C.maroon} 16%, #fff)`, padding: '2px 8px', borderRadius: 999, marginLeft: 6, whiteSpace: 'nowrap' }}>Migliore offerta</span>
+                            )}
+                          </td>
+                          <td style={{ fontSize: 12.5, padding: 8, borderBottom: '1px solid #F0EAE0', textAlign: 'right', color: '#6F655F' }}>{f.prezzoListino} €</td>
+                          <td style={{ fontSize: 12.5, padding: 8, borderBottom: '1px solid #F0EAE0', textAlign: 'right', fontWeight: 600, color: C.black }}>{f.prezzoScontato} €</td>
+                          <td style={{ fontSize: 12.5, padding: 8, borderBottom: '1px solid #F0EAE0', textAlign: 'right', color: C.maroon }}>{f.prezzoCliente} €</td>
+                          <td style={{ padding: 8, borderBottom: '1px solid #F0EAE0', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <button onClick={() => editFornitore(vi, f.id)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 12, marginRight: 6 }}>✎</button>
+                            <button onClick={() => removeFornitore(vi, f.id)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 12 }}>🗑️</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
-          </div>
-        )}
+          );
+        })}
       </div>
     </div>
   );
@@ -5156,16 +5642,27 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
   const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
 
   const addToComputo = (projectId, revisionId, priceSource, qty) => {
-    const prodotto = addingTo;
+    const { prodotto, variante } = addingTo;
     // La voce va nella categoria del fornitore scelto come fonte prezzo (non in un generico "FORNITURE"):
     // cosi' ogni categoria del computo raggruppa le voci di un solo fornitore, ed e' collegabile a
     // un'unica impresa/fattura in "Stati avanzamento pagamenti" senza mischiare fornitori diversi.
     // Solo se si sceglie il prezzo di listino del prodotto (nessun fornitore reale) si resta su "FORNITURE".
     const sectionName = priceSource.id !== 'listino' ? priceSource.name : 'FORNITURE';
+    const desc = prodottoLabel(prodotto) + (variante.nome ? ` — ${variante.nome}` : '');
+
+    // Se questo prodotto/variante è già stato aggiunto a questo computo, lo si segnala e si chiede
+    // conferma prima di creare un doppione — rispondendo di no non cambia nulla.
+    const targetProject = projects.find((p) => p.id === projectId);
+    const targetRevision = targetProject?.revisions.find((r) => r.id === revisionId) || targetProject?.revisions[targetProject.revisions.length - 1];
+    const dupe = (targetRevision?.items || []).find((it) => it.type !== 'subtotal' && String(it.desc || '').trim().toLowerCase() === desc.trim().toLowerCase());
+    if (dupe && !confirm(`La voce "${desc}" è già presente nel computo${dupe.code ? ` (${dupe.code})` : ''}. Vuoi aggiungere comunque un duplicato?`)) {
+      return;
+    }
+
     const newItem = {
       id: Date.now() + Math.random(),
       code: '',
-      desc: prodotto.name,
+      desc,
       unit: 'cad',
       unitPriceImpresa: priceSource.prezzoScontato,
       unitPriceCliente: priceSource.prezzoCliente,
@@ -5214,11 +5711,16 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
     setCatalog(next);
   };
   const addProdotto = (mi, ci) => {
-    const name = prompt('Nome del nuovo prodotto/sanitario:');
-    if (!name) return;
-    const listinoPrice = prompt('Prezzo di listino (€):', '0,00') || '0,00';
+    const marca = prompt('Marca del nuovo prodotto:') || '';
+    const modello = prompt('Modello:');
+    if (!modello) return;
+    const variantNome = prompt('Variante / finitura (es. colore, materiale — lascia vuoto se il prodotto non ne ha):') || '';
+    const listinoPrice = prompt('Prezzo di listino di questa variante (€):', '0,00') || '0,00';
     const next = structuredClone(catalog);
-    next[mi].categorie[ci].prodotti.push({ id: Date.now(), name, photo: null, listinoPrice, fornitori: [] });
+    next[mi].categorie[ci].prodotti.push({
+      id: Date.now(), marca, modello, photo: null,
+      varianti: [{ id: Date.now() + 1, nome: variantNome, listinoPrice, fornitori: [] }],
+    });
     setCatalog(next);
   };
   const updateProdotto = (mi, ci, pi, updated) => {
@@ -5233,65 +5735,65 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
     setCatalog(next);
   };
 
+  const fBtn = { border: `1px solid ${C.paleGray}`, background: C.white, color: '#2B2321', fontSize: 11, fontWeight: 400, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' };
+
   return (
     <div>
-      <p style={breadcrumb}>Gestionale / Fornitori</p>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
-        <h1 style={h1Style}>Fornitori</h1>
-        <span style={{ ...freshBadge, marginLeft: 'auto' }}>Dati aggiornati</span>
+      <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Fornitori</p>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Fornitori</h1>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: C.accentSoft, color: C.maroon }}>Dati aggiornati</span>
       </div>
 
-      <div style={{ ...card, marginBottom: 18 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+      <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16, gap: 10, flexWrap: 'wrap' }}>
           <div>
-            <p style={{ fontSize: 15, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Catalogo fornitori</p>
-            <p style={{ fontSize: 11, color: C.gray, margin: '4px 0 0' }}>Organizza per macrosezione e sottocategoria; per ogni prodotto confronta il prezzo di listino con quello dei diversi fornitori.</p>
+            <p style={{ fontSize: 18, fontWeight: 300, margin: 0, color: C.black, fontFamily: FONT }}>Catalogo fornitori</p>
+            <p style={{ fontSize: 11.5, color: '#8B8178', margin: '2px 0 0', maxWidth: 560 }}>Organizza per macrosezione e sottocategoria; per ogni prodotto confronta il prezzo di listino con quello dei diversi fornitori.</p>
           </div>
-          <button onClick={addMacro} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>+ Macrosezione</button>
+          <button onClick={addMacro} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 400, cursor: 'pointer', fontFamily: FONT }}>+ Macrosezione</button>
         </div>
 
         {catalog.map((m, mi) => {
           const mKey = `m${mi}`;
           return (
-            <div key={mi} style={{ marginBottom: 14, border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden' }}>
-              <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', background: C.bg, cursor: 'pointer' }}>
-                <span style={{ fontSize: 11, color: C.gray }}>{isOpen(mKey) ? '⌄' : '›'}</span>
-                <span style={{ fontWeight: 700, fontSize: 13, color: C.black }}>{m.name}</span>
-                <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                  <button onClick={() => renameMacro(mi)} style={rowBtnStyle}>✎ Rinomina</button>
-                  <button onClick={() => addCategoria(mi)} style={rowBtnStyle}>+ Sottocategoria</button>
-                  <button onClick={() => removeMacro(mi)} style={rowBtnStyle}>🗑</button>
+            <div key={mi} style={{ marginBottom: 12, border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
+              <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#FBF6EC', cursor: 'pointer', flexWrap: 'wrap' }}>
+                <span style={{ color: '#8B8178', transform: isOpen(mKey) ? 'rotate(0deg)' : 'rotate(-90deg)', display: 'inline-block', fontSize: 11 }}>▾</span>
+                <span style={{ fontWeight: 600, fontSize: 14.5, color: C.black, flexGrow: 1 }}>{m.name}</span>
+                <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  <button onClick={() => renameMacro(mi)} style={fBtn}>✎ Rinomina</button>
+                  <button onClick={() => addCategoria(mi)} style={fBtn}>+ Sottocategoria</button>
+                  <button onClick={() => removeMacro(mi)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 13 }}>🗑️</button>
                 </div>
               </div>
 
               {isOpen(mKey) && m.categorie.map((c, ci) => {
                 const cKey = `m${mi}c${ci}`;
                 return (
-                  <div key={ci} style={{ paddingLeft: 20, borderTop: `1px solid ${C.paleGray}`, paddingTop: 10, paddingBottom: 10 }}>
-                    <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', marginBottom: 8 }}>
-                      <span style={{ fontSize: 11, color: C.gray }}>{isOpen(cKey) ? '⌄' : '›'}</span>
-                      <span style={{ fontWeight: 600, fontSize: 12, color: C.black }}>{c.name}</span>
-                      <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-                        <button onClick={() => renameCategoria(mi, ci)} style={rowBtnStyle}>✎</button>
-                        <button onClick={() => addProdotto(mi, ci)} style={rowBtnStyle}>+ Prodotto</button>
-                        <button onClick={() => removeCategoria(mi, ci)} style={rowBtnStyle}>🗑</button>
+                  <div key={ci} style={{ padding: '10px 14px 14px 30px' }}>
+                    <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', marginBottom: 10, flexWrap: 'wrap' }}>
+                      <span style={{ color: '#8B8178', transform: isOpen(cKey) ? 'rotate(0deg)' : 'rotate(-90deg)', display: 'inline-block', fontSize: 11 }}>▾</span>
+                      <span style={{ fontWeight: 500, fontSize: 13.5, color: C.black, flexGrow: 1 }}>{c.name}</span>
+                      <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                        <button onClick={() => renameCategoria(mi, ci)} style={fBtn}>✎</button>
+                        <button onClick={() => addProdotto(mi, ci)} style={fBtn}>+ Prodotto</button>
+                        <button onClick={() => removeCategoria(mi, ci)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 13 }}>🗑️</button>
                       </div>
                     </div>
                     {isOpen(cKey) && (
                       c.prodotti.length === 0 ? (
-                        <p style={{ fontSize: 12, color: C.gray, paddingLeft: 20 }}>Nessun prodotto ancora in questa sottocategoria.</p>
+                        <p style={{ fontSize: 12.5, color: '#9A8F86', fontStyle: 'italic' }}>Nessun prodotto ancora in questa sottocategoria.</p>
                       ) : (
-                        <div style={{ paddingLeft: 20 }}>
-                          {c.prodotti.map((p, pi) => (
-                            <ProdottoCard
-                              key={p.id}
-                              prodotto={p}
-                              onUpdate={(updated) => updateProdotto(mi, ci, pi, updated)}
-                              onRemove={() => removeProdotto(mi, ci, pi)}
-                              onAddToComputo={() => setAddingTo(p)}
-                            />
-                          ))}
-                        </div>
+                        c.prodotti.map((p, pi) => (
+                          <ProdottoCard
+                            key={p.id}
+                            prodotto={p}
+                            onUpdate={(updated) => updateProdotto(mi, ci, pi, updated)}
+                            onRemove={() => removeProdotto(mi, ci, pi)}
+                            onAddToComputo={(variante) => setAddingTo({ prodotto: p, variante })}
+                          />
+                        ))
                       )
                     )}
                   </div>
@@ -5304,7 +5806,8 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
 
       {addingTo && (
         <AddToComputoModal
-          prodotto={addingTo}
+          prodotto={addingTo.prodotto}
+          variante={addingTo.variante}
           projects={projects}
           onClose={() => setAddingTo(null)}
           onAdd={addToComputo}
@@ -5392,91 +5895,97 @@ function TeamPage({ profile }) {
     loadMembers();
   };
 
+  const initials = (nm) => (nm || '').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
+  const inputStyle = { border: `1px solid ${C.paleGray}`, background: '#FAF8F4', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: FONT, boxSizing: 'border-box' };
+
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
-        <h1 style={h1Style}>Team</h1>
-        <span style={freshBadge}>Workspace condiviso</span>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 18, flexWrap: 'wrap', justifyContent: 'space-between' }}>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Team</h1>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: C.accentSoft, color: C.maroon }}>Workspace condiviso</span>
       </div>
 
       {!isAdmin && (
-        <div style={{ ...card, marginBottom: 18, background: '#FFF8E1', border: '1px solid #F0D98C' }}>
-          <p style={{ fontSize: 12, color: C.black, margin: 0 }}>Sei collegato come <strong>membro</strong>: solo l'admin può creare o rimuovere accessi al team.</p>
+        <div style={{ background: '#FFF8E1', border: '1px solid #F0D98C', borderRadius: 14, padding: 18, marginBottom: 16 }}>
+          <p style={{ fontSize: 12.5, color: C.black, margin: 0 }}>Sei collegato come <strong>membro</strong>: solo l'admin può creare o rimuovere accessi al team.</p>
         </div>
       )}
 
       {isAdmin && (
-        <div style={{ ...card, marginBottom: 18 }}>
-          <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Crea un nuovo accesso</h2>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome" style={{ flex: 1, minWidth: 120, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }} />
+        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 12px', fontWeight: 300, fontSize: 18, color: C.black }}>Crea un nuovo accesso</h3>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch' }}>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome" style={{ ...inputStyle, flex: '1 1 140px', maxWidth: 170 }} />
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="nome@studio.it"
-              style={{ flex: 1, minWidth: 180, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }}
+              style={{ ...inputStyle, flex: '1 1 180px', maxWidth: 220 }}
             />
             <input
               type="text"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password (min. 6 caratteri)"
-              style={{ flex: 1, minWidth: 160, fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, background: C.bg }}
+              placeholder="Password (min. 6 caratt.)"
+              style={{ ...inputStyle, flex: '1 1 160px', maxWidth: 190 }}
             />
-            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
-              <option>Membro</option>
-              <option>Admin</option>
+            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontFamily: FONT, color: '#2B2321' }}>
+              <option value="Membro">Membro</option>
+              <option value="Admin">Admin</option>
             </select>
             <button
               onClick={handleCreate}
               disabled={creating}
-              style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 16px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: creating ? 'default' : 'pointer', opacity: creating ? 0.7 : 1 }}
+              style={{ border: 'none', background: C.maroon, color: C.white, padding: '10px 20px', borderRadius: 999, fontSize: 13, fontWeight: 400, fontFamily: FONT, cursor: creating ? 'default' : 'pointer', opacity: creating ? 0.7 : 1 }}
             >
               {creating ? 'Un attimo…' : 'Crea accesso'}
             </button>
           </div>
           {error && <p style={{ fontSize: 12, color: C.maroon, margin: '10px 0 0' }}>{error}</p>}
-          <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0' }}>
+          <p style={{ fontSize: 11.5, color: '#8B8178', margin: '10px 0 0', maxWidth: 640 }}>
             L'account viene attivato subito: non parte nessuna email di conferma. Comunica tu stesso email e password alla persona (di persona, in chat privata…) — potrà accedere subito da "Accedi" con queste credenziali, senza passare da "Crea un account".
           </p>
-        </div>
+        </section>
       )}
 
-      <div style={{ ...card, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Persone con accesso</h2>
-        {loading && <p style={{ fontSize: 12, color: C.gray }}>Caricamento…</p>}
-        {!loading && members.length === 0 && <p style={{ fontSize: 12, color: C.gray }}>Nessuna persona ancora.</p>}
-        {members.map((m) => (
-          <div key={m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: `1px solid ${C.paleGray}`, gap: 10, flexWrap: 'wrap' }}>
-            <div>
-              <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{m.name}</p>
-              <p style={{ fontSize: 12, color: C.gray, margin: '2px 0 0' }}>{m.email}</p>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              {isAdmin ? (
-                <select value={m.role} onChange={(e) => changeRole(m.id, e.target.value)} style={{ fontSize: 11, fontWeight: 600, padding: '5px 8px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}>
-                  <option>Admin</option>
-                  <option>Membro</option>
-                </select>
-              ) : (
-                <span style={{ fontSize: 11, color: C.gray }}>{m.role}</span>
-              )}
-              <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 999, ...badgeStyles[m.status === 'Attivo' ? 'teal' : 'gray'] }}>
-                {m.status}
-              </span>
-              {isAdmin && m.auth_user_id && (
-                <button onClick={() => handleResetPassword(m)} style={rowBtnStyle}>🔑 Reimposta password</button>
-              )}
-              {isAdmin && m.id !== profile.id && (
-                <button onClick={() => removeMember(m.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
-              )}
-            </div>
+      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+        <h3 style={{ margin: '0 0 12px', fontWeight: 300, fontSize: 18, color: C.black }}>Persone con accesso</h3>
+        {loading && <p style={{ fontSize: 12.5, color: '#8B8178' }}>Caricamento…</p>}
+        {!loading && members.length === 0 && <p style={{ fontSize: 12.5, color: '#8B8178' }}>Nessuna persona ancora.</p>}
+        {members.length > 0 && (
+          <div style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden' }}>
+            {members.map((m, i) => (
+              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: i < members.length - 1 ? '1px solid #F0EAE0' : 'none', flexWrap: 'wrap' }}>
+                <div style={{ width: 38, height: 38, borderRadius: '50%', background: C.accentSoft, color: C.maroon, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initials(m.name)}</div>
+                <div style={{ flexGrow: 1, minWidth: 140 }}>
+                  <div style={{ fontWeight: 500, fontSize: 14, color: C.black }}>{m.name}</div>
+                  <div style={{ fontSize: 12.5, color: '#8B8178' }}>{m.email}</div>
+                </div>
+                {isAdmin ? (
+                  <select value={m.role} onChange={(e) => changeRole(m.id, e.target.value)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '7px 12px', fontSize: 12.5, fontFamily: FONT, color: '#2B2321' }}>
+                    <option>Admin</option>
+                    <option>Membro</option>
+                  </select>
+                ) : (
+                  <span style={{ fontSize: 12, color: '#8B8178' }}>{m.role}</span>
+                )}
+                <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, ...(m.status === 'Attivo' ? { background: 'color-mix(in srgb, #4F7A4B 14%, #fff)', color: '#2F5A2B' } : { background: '#EFE7DA', color: C.darkGray }) }}>
+                  {m.status}
+                </span>
+                {isAdmin && m.auth_user_id && (
+                  <span onClick={() => handleResetPassword(m)} style={{ fontSize: 12, color: C.maroon, cursor: 'pointer' }}>🔑 Reimposta password</span>
+                )}
+                {isAdmin && m.id !== profile.id && (
+                  <button onClick={() => removeMember(m.id)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 14 }}>🗑️</button>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        )}
+      </section>
 
-      <div style={{ background: 'rgba(128,20,48,0.06)', border: '1px solid rgba(128,20,48,0.18)', borderRadius: 10, padding: 14, fontSize: 12, color: C.midGray }}>
+      <div style={{ background: `color-mix(in srgb, ${C.maroon} 7%, #fff)`, border: `1px solid color-mix(in srgb, ${C.maroon} 18%, ${C.paleGray})`, borderRadius: 12, padding: '14px 18px', fontSize: 12.5, color: '#5A4F4A' }}>
         <strong style={{ color: C.black }}>Come funziona la condivisione.</strong> Tutti i membri con un accesso creato qui entrano nello stesso workspace e vedono gli stessi progetti, computi e listino con un vero account: i dati restano salvati per sempre e sono visibili a tutto il team.
       </div>
     </div>
@@ -5504,132 +6013,152 @@ function ImpostazioniPage({ settings, onUpdate }) {
     reader.readAsDataURL(file);
   };
 
-  const labelStyle = { fontSize: 11, fontWeight: 700, color: C.midGray };
-  const fieldStyle = { width: '100%', fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 14px', background: C.bg };
+  const sCard = { background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '20px 22px', marginBottom: 18 };
+  const sH3 = { margin: 0, fontWeight: 300, fontSize: 18, color: C.black, fontFamily: FONT };
+  const sTag = { fontSize: 12.5, color: C.gray, margin: '4px 0 0', maxWidth: 640 };
+  const sFlabel = { fontSize: 11.5, fontWeight: 600, color: C.midGray, marginBottom: 5, display: 'block' };
+  const sInput = { border: `1px solid ${C.paleGray}`, background: C.surfaceSubtle, borderRadius: 8, padding: '9px 12px', fontSize: 13, width: '100%', boxSizing: 'border-box', fontFamily: FONT, color: C.black };
+  const sBtn = { border: `1px solid ${C.paleGray}`, background: C.white, color: C.black, fontSize: 11.5, fontWeight: 400, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT };
+  const sChk = { display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 300, color: C.black, marginTop: 10, cursor: 'pointer' };
+  const sPreview = { border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '10px 14px', marginTop: 10, background: C.surfaceSubtle, fontSize: 11, color: C.gray };
+
+  const initials = (settings.nome || 'DSQ').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'DSQ';
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 20 }}>
-        <h1 style={h1Style}>Impostazioni studio</h1>
-        <span style={freshBadge}>Workspace condiviso</span>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 20, flexWrap: 'wrap', marginBottom: 22 }}>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Impostazioni studio</h1>
+        <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, background: C.accentSoft, color: C.maroon }}>Workspace condiviso</span>
       </div>
 
-      <div style={{ ...card, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Dati dello studio</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>Questi dati compaiono automaticamente in intestazione e piè di pagina di ogni computo metrico stampato in PDF, a meno di caricare un'intestazione/piè di pagina personalizzata qui sotto.</p>
+      <div style={sCard}>
+        <h3 style={sH3}>Dati dello studio</h3>
+        <p style={sTag}>Questi dati compaiono automaticamente in intestazione e piè di pagina di ogni computo metrico stampato in PDF, a meno di caricare un'intestazione/piè di pagina personalizzata qui sotto.</p>
 
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 260px' }}>
-            <label style={labelStyle}>Nome studio</label>
-            <input value={settings.nome} onChange={set('nome')} placeholder="Desearq Studio" style={fieldStyle} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+          <div>
+            <span style={sFlabel}>Nome studio</span>
+            <input value={settings.nome} onChange={set('nome')} placeholder="Desearq Studio" style={sInput} />
           </div>
-          <div style={{ flex: '1 1 260px' }}>
-            <label style={labelStyle}>Indirizzo</label>
-            <input value={settings.indirizzo} onChange={set('indirizzo')} placeholder="Via, numero civico, città" style={fieldStyle} />
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 160px' }}>
-            <label style={labelStyle}>P.IVA</label>
-            <input value={settings.piva} onChange={set('piva')} style={fieldStyle} />
-          </div>
-          <div style={{ flex: '1 1 160px' }}>
-            <label style={labelStyle}>Codice fiscale</label>
-            <input value={settings.cf} onChange={set('cf')} style={fieldStyle} />
-          </div>
-          <div style={{ flex: '1 1 160px' }}>
-            <label style={labelStyle}>Telefono</label>
-            <input value={settings.telefono} onChange={set('telefono')} style={fieldStyle} />
+          <div>
+            <span style={sFlabel}>Indirizzo</span>
+            <input value={settings.indirizzo} onChange={set('indirizzo')} placeholder="Via, numero civico, città" style={sInput} />
           </div>
         </div>
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 200px' }}>
-            <label style={labelStyle}>Email</label>
-            <input value={settings.email} onChange={set('email')} style={fieldStyle} />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14, marginTop: 14 }}>
+          <div>
+            <span style={sFlabel}>P.IVA</span>
+            <input value={settings.piva} onChange={set('piva')} style={sInput} />
           </div>
-          <div style={{ flex: '1 1 200px' }}>
-            <label style={labelStyle}>Sito web</label>
-            <input value={settings.sito} onChange={set('sito')} style={fieldStyle} />
+          <div>
+            <span style={sFlabel}>Codice fiscale</span>
+            <input value={settings.cf} onChange={set('cf')} placeholder="Codice fiscale" style={sInput} />
+          </div>
+          <div>
+            <span style={sFlabel}>Telefono</span>
+            <input value={settings.telefono} onChange={set('telefono')} style={sInput} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 14 }}>
+          <div>
+            <span style={sFlabel}>Email</span>
+            <input value={settings.email} onChange={set('email')} style={sInput} />
+          </div>
+          <div>
+            <span style={sFlabel}>Sito web</span>
+            <input value={settings.sito} onChange={set('sito')} style={sInput} />
           </div>
         </div>
 
-        <label style={labelStyle}>Logo studio</label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '4px 0 4px' }}>
-          {settings.logo && <img src={settings.logo} alt="Logo studio" style={{ height: 44, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
-          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+        <span style={{ ...sFlabel, marginTop: 14 }}>Logo studio</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+          {settings.logo ? (
+            <img src={settings.logo} alt="Logo studio" style={{ height: 40, borderRadius: 8, border: `1px solid ${C.paleGray}` }} />
+          ) : (
+            <div style={{ width: 40, height: 40, borderRadius: 8, background: C.maroon, display: 'flex', alignItems: 'center', justifyContent: 'center', color: C.white, fontWeight: 600, fontSize: 11 }}>{initials}</div>
+          )}
+          <label style={{ ...sBtn, cursor: 'pointer' }}>
             {settings.logo ? 'Sostituisci logo' : 'Carica logo'}
             <input type="file" accept="image/*" onChange={(e) => uploadImage('logo', e.target.files[0])} style={{ display: 'none' }} />
           </label>
-          {settings.logo && <button onClick={() => onUpdate({ logo: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+          {settings.logo && <button onClick={() => onUpdate({ logo: null })} style={sBtn}>🗑️ Rimuovi</button>}
         </div>
       </div>
 
-      <div style={{ ...card, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Intestazione personalizzata</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF, dentro il margine della pagina.</p>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
+      <div style={sCard}>
+        <h3 style={sH3}>Intestazione personalizzata</h3>
+        <p style={sTag}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF, dentro il margine della pagina.</p>
+        <label style={sChk}>
           <input type="checkbox" checked={settings.usaIntestazionePersonalizzata} onChange={(e) => onUpdate({ usaIntestazionePersonalizzata: e.target.checked })} />
           Usa l'immagine personalizzata invece dei dati anagrafici
         </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: settings.intestazioneImg ? 14 : 0 }}>
-          {settings.intestazioneImg && <img src={settings.intestazioneImg} alt="Intestazione personalizzata" style={{ maxHeight: 70, maxWidth: 260, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
-          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+        {settings.intestazioneImg && (
+          <div style={sPreview}>
+            <img src={settings.intestazioneImg} alt="Intestazione personalizzata" style={{ maxHeight: 50, maxWidth: 260, display: 'block', borderRadius: 4 }} />
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+          <label style={{ ...sBtn, cursor: 'pointer' }}>
             {settings.intestazioneImg ? 'Sostituisci immagine' : 'Carica immagine'}
             <input type="file" accept="image/*" onChange={(e) => uploadImage('intestazioneImg', e.target.files[0])} style={{ display: 'none' }} />
           </label>
-          {settings.intestazioneImg && <button onClick={() => onUpdate({ intestazioneImg: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+          {settings.intestazioneImg && <button onClick={() => onUpdate({ intestazioneImg: null })} style={sBtn}>🗑️ Rimuovi</button>}
         </div>
         {settings.intestazioneImg && (
           <div>
-            <label style={labelStyle}>Dimensione immagine ({settings.intestazioneScala || 100}% della larghezza disponibile)</label>
+            <span style={{ ...sFlabel, marginTop: 14 }}>Dimensione immagine ({settings.intestazioneScala || 100}% della larghezza disponibile)</span>
             <input type="range" min="25" max="200" step="5" value={settings.intestazioneScala || 100}
-              onChange={(e) => onUpdate({ intestazioneScala: Number(e.target.value) })} style={{ width: '100%', maxWidth: 320, display: 'block', margin: '4px 0 0' }} />
+              onChange={(e) => onUpdate({ intestazioneScala: Number(e.target.value) })} style={{ width: '100%', maxWidth: 320, display: 'block', margin: '2px 0 0' }} />
           </div>
         )}
       </div>
 
-      <div style={{ ...card, marginBottom: 18 }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Piè di pagina</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Un testo breve (es. dati di contatto o un promemoria legale) ripetuto in fondo a ogni pagina, oppure un'immagine personalizzata al posto del testo, anche questa dentro il margine della pagina.</p>
+      <div style={sCard}>
+        <h3 style={sH3}>Piè di pagina</h3>
+        <p style={sTag}>Un testo breve (es. dati di contatto o un promemoria legale) ripetuto in fondo a ogni pagina, oppure un'immagine personalizzata al posto del testo, anche questa dentro il margine della pagina.</p>
 
-        <label style={labelStyle}>Testo piè di pagina</label>
-        <input value={settings.testoPiePagina} onChange={set('testoPiePagina')} placeholder="es. Desearq Studio — Via Roma 1, Milano — info@desearq.com" style={fieldStyle} />
+        <span style={{ ...sFlabel, marginTop: 12 }}>Testo piè di pagina</span>
+        <input value={settings.testoPiePagina} onChange={set('testoPiePagina')} placeholder="es. Desearq Studio — Via Roma 1, Milano — info@desearq.com" style={sInput} />
 
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
+        <label style={sChk}>
           <input type="checkbox" checked={settings.usaPiePersonalizzato} onChange={(e) => onUpdate({ usaPiePersonalizzato: e.target.checked })} />
           Usa un'immagine personalizzata invece del testo
         </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: settings.pieImg ? 14 : 0 }}>
-          {settings.pieImg && <img src={settings.pieImg} alt="Piè di pagina personalizzato" style={{ maxHeight: 50, maxWidth: 260, borderRadius: 6, border: `1px solid ${C.paleGray}` }} />}
-          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+        {settings.pieImg && (
+          <div style={sPreview}>
+            <img src={settings.pieImg} alt="Piè di pagina personalizzato" style={{ maxHeight: 40, maxWidth: 260, display: 'block', borderRadius: 4 }} />
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
+          <label style={{ ...sBtn, cursor: 'pointer' }}>
             {settings.pieImg ? 'Sostituisci immagine' : 'Carica immagine'}
             <input type="file" accept="image/*" onChange={(e) => uploadImage('pieImg', e.target.files[0])} style={{ display: 'none' }} />
           </label>
-          {settings.pieImg && <button onClick={() => onUpdate({ pieImg: null })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+          {settings.pieImg && <button onClick={() => onUpdate({ pieImg: null })} style={sBtn}>🗑️ Rimuovi</button>}
         </div>
         {settings.pieImg && (
           <div>
-            <label style={labelStyle}>Dimensione immagine ({settings.pieScala || 100}% della larghezza disponibile)</label>
+            <span style={{ ...sFlabel, marginTop: 14 }}>Dimensione immagine ({settings.pieScala || 100}% della larghezza disponibile)</span>
             <input type="range" min="25" max="200" step="5" value={settings.pieScala || 100}
-              onChange={(e) => onUpdate({ pieScala: Number(e.target.value) })} style={{ width: '100%', maxWidth: 320, display: 'block', margin: '4px 0 0' }} />
+              onChange={(e) => onUpdate({ pieScala: Number(e.target.value) })} style={{ width: '100%', maxWidth: 320, display: 'block', margin: '2px 0 0' }} />
           </div>
         )}
       </div>
 
-      <div style={{ ...card }}>
-        <h2 style={{ fontSize: 18, margin: '0 0 4px', color: C.black, fontFamily: FONT }}>Font personalizzato</h2>
-        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Carica il font del tuo studio (.woff2, .woff, .ttf o .otf) da usare nel testo dei computi metrici stampati in PDF, al posto del font di sistema.</p>
-        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: C.black, marginBottom: 10, cursor: 'pointer' }}>
+      <div style={{ ...sCard, marginBottom: 0 }}>
+        <h3 style={sH3}>Font personalizzato</h3>
+        <p style={sTag}>Carica il font del tuo studio (.woff2, .woff, .ttf o .otf) da usare nel testo dei computi metrici stampati in PDF, al posto del font di sistema.</p>
+        <label style={sChk}>
           <input type="checkbox" checked={settings.usaFontPersonalizzato} disabled={!settings.fontPersonalizzato} onChange={(e) => onUpdate({ usaFontPersonalizzato: e.target.checked })} />
           Usa il font personalizzato nel PDF invece del font di sistema
         </label>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          {settings.fontPersonalizzatoNome && <span style={{ fontSize: 12, color: C.darkGray }}>{settings.fontPersonalizzatoNome}</span>}
-          <label style={{ ...rowBtnStyle, cursor: 'pointer' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
+          {settings.fontPersonalizzatoNome && <span style={{ fontSize: 12.5, color: C.darkGray, fontVariantNumeric: 'tabular-nums' }}>{settings.fontPersonalizzatoNome}</span>}
+          <label style={{ ...sBtn, cursor: 'pointer' }}>
             {settings.fontPersonalizzato ? 'Sostituisci font' : 'Carica font'}
             <input type="file" accept=".woff,.woff2,.ttf,.otf" onChange={(e) => uploadFont(e.target.files[0])} style={{ display: 'none' }} />
           </label>
-          {settings.fontPersonalizzato && <button onClick={() => onUpdate({ fontPersonalizzato: null, fontPersonalizzatoNome: '', usaFontPersonalizzato: false })} style={rowBtnStyle}>🗑 Rimuovi</button>}
+          {settings.fontPersonalizzato && <button onClick={() => onUpdate({ fontPersonalizzato: null, fontPersonalizzatoNome: '', usaFontPersonalizzato: false })} style={sBtn}>🗑️ Rimuovi</button>}
         </div>
       </div>
     </div>
@@ -5692,7 +6221,7 @@ function LoginScreen({ onSignedIn }) {
   return (
     <div className="dc-login">
       <style>{`
-        .dc-login { --paper:#f7f5ef; --ink:#090909; --muted:#77756f; --line:#d8d4cc; --bordeaux:#6e2635; --dark:#171411; }
+        .dc-login { --paper:#F4EFE8; --ink:#090909; --muted:#77756f; --line:#DED3C4; --bordeaux:#862D2D; --dark:#171411; }
         .dc-login, .dc-login * { box-sizing: border-box; }
         .dc-login { margin:0; background:var(--paper); color:var(--ink); font-family:'Inter',Arial,Helvetica,sans-serif; -webkit-font-smoothing:antialiased; }
         .dc-login a { color:inherit; text-decoration:none; }
@@ -6029,7 +6558,7 @@ export default function GestionaleEdilePreview() {
       if (saved.projects) setProjects(saved.projects);
       if (saved.listini) setListini(saved.listini);
       if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
-      if (saved.fornitoriCatalog) setFornitoriCatalog(saved.fornitoriCatalog);
+      if (saved.fornitoriCatalog) setFornitoriCatalog(migrateFornitoriCatalog(saved.fornitoriCatalog));
       if (saved.studioSettings) setStudioSettings({ ...DEFAULT_STUDIO_SETTINGS, ...saved.studioSettings });
       setDataLoaded(true);
     });
@@ -6118,7 +6647,7 @@ export default function GestionaleEdilePreview() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         * { box-sizing: border-box; }
         html, body, #root { max-width: 100%; overflow-x: clip; }
         .print-only { display: none; }
@@ -6136,8 +6665,8 @@ export default function GestionaleEdilePreview() {
           .print-only tfoot { display: table-footer-group; }
         }
         .sidebar-item-btn:not(.active):hover { background: ${C.sidebarHover} !important; color: ${C.black} !important; }
-        .btn-accent-pill:hover { background: #650F26 !important; }
-        .input-focus:focus { outline: none; border-color: ${C.maroon} !important; box-shadow: 0 0 0 3px rgba(128,20,48,0.25); }
+        .btn-accent-pill:hover { background: #6E2424 !important; }
+        .input-focus:focus { outline: none; border-color: ${C.maroon} !important; box-shadow: 0 0 0 3px rgba(134,45,45,0.25); }
 
         /* --- Rendering mobile --- */
         input, select, textarea, button { max-width: 100%; }
@@ -6219,79 +6748,113 @@ export default function GestionaleEdilePreview() {
           <PrintableComputo project={printJob.project} revision={printJob.revision} clientOnly={printJob.clientOnly} studioSettings={studioSettings} />
         </div>
       )}
-      <div className="no-print app-shell" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: PAGE_GRADIENT, backgroundAttachment: 'fixed' }}>
+      <div className="no-print app-shell" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: '#F4EFE8' }}>
       <div className={`sidebar-backdrop${mobileNavOpen ? ' open' : ''}`} onClick={() => setMobileNavOpen(false)} />
-      <aside className={`sidebar-aside${mobileNavOpen ? ' open' : ''}`} style={{ width: 280, flexShrink: 0, background: C.sidebar, color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '22px 14px' }}>
-        <div style={{ padding: '0 6px 20px', borderBottom: `1px solid ${C.paleGray}`, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <img src="/quant-logo.png" alt="Quant" style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, objectFit: 'cover' }} />
-          <div>
-            <p style={{ fontFamily: FONT, fontWeight: 700, fontSize: 15, color: C.black, margin: 0 }}>Software di Computazione Edile</p>
-            <p style={{ fontSize: 11, margin: '2px 0 0', lineHeight: 1.4, color: C.gray }}>Desearq Studio</p>
+      <aside className={`sidebar-aside${mobileNavOpen ? ' open' : ''}`} style={{ width: 270, flexShrink: 0, background: '#FBFAF7', color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '28px 16px 22px', boxSizing: 'border-box', gap: 2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px 18px' }}>
+          <img src="/quant-logo.png" alt="Quant" style={{ height: 36, width: 36, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
+          <div style={{ lineHeight: 1.2, minWidth: 0 }}>
+            <p style={{ fontFamily: FONT, fontWeight: 600, fontSize: 13, color: C.black, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{studioSettings.nome || 'Software di Computazione Edile'}</p>
           </div>
         </div>
-        <p style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: C.gray, padding: '0 6px', marginBottom: 8 }}>Area di lavoro</p>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          {NAV_ITEMS.map((item) => {
-            const active = page === item.key;
-            const Icon = item.Icon;
-            return (
-              <button
-                key={item.key}
-                className={`sidebar-item-btn${active ? ' active' : ''}`}
-                onClick={() => { setPage(item.key); setMobileNavOpen(false); }}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 10,
-                  padding: '11px 12px',
-                  borderRadius: 999,
-                  fontSize: 15,
-                  fontWeight: 500,
-                  textAlign: 'left',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontFamily: FONT,
-                  background: active ? C.black : 'transparent',
-                  color: active ? C.white : C.black,
-                }}
-              >
-                <Icon size={18} strokeWidth={1.5} />
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
-        <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: `1px solid ${C.paleGray}`, display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 999, background: '#8B6F5C', color: C.white, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 600, fontSize: 13, flexShrink: 0 }}>{profile.email[0].toUpperCase()}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontSize: 12, fontWeight: 600, color: C.black, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</p>
-            <p style={{ fontSize: 10, color: C.gray, margin: '2px 0 0' }}>{profile.role === 'Admin' ? 'Admin' : 'Membro del team'}</p>
+        <div style={{ fontSize: 9.5, letterSpacing: 2, color: '#8C8776', textTransform: 'uppercase', marginTop: 1, lineHeight: 2, marginBottom: 10, padding: '0 12px' }}>Desearq Lab</div>
+
+        {NAV_GROUPS.map((group, gi) => (
+          <React.Fragment key={gi}>
+            {group.label && (
+              <div style={{ fontSize: 10.5, letterSpacing: '.16em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, padding: '16px 14px 4px' }}>{group.label}</div>
+            )}
+            {group.items.map((item) => {
+              const active = page === item.key;
+              const count = item.key === 'progetti'
+                ? projects.length
+                : item.key === 'computi'
+                  ? projects.filter((p) => latestStatus(p) === 'In attesa di approvazione').length
+                  : null;
+              return (
+                <a
+                  key={item.key}
+                  className={`sidebar-item-btn${active ? ' active' : ''}`}
+                  onClick={() => { setPage(item.key); setMobileNavOpen(false); }}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 14, padding: '9px 14px', borderRadius: 10,
+                    fontFamily: FONT, fontSize: 15, fontWeight: 300, cursor: 'pointer', textDecoration: 'none',
+                    color: active ? C.white : '#4A403C',
+                    background: active ? C.black : 'transparent',
+                  }}
+                >
+                  {item.icon}
+                  <span style={{ flex: count ? '0 1 auto' : 1 }}>{item.label}</span>
+                  {!!count && (
+                    <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, minWidth: 20, height: 20, borderRadius: 10, background: active ? 'rgba(255,255,255,.22)' : C.maroon, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{count}</span>
+                  )}
+                </a>
+              );
+            })}
+          </React.Fragment>
+        ))}
+
+        <div style={{ flexGrow: 1, minHeight: 24 }} />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, background: '#2B2321' }}>
+          <svg viewBox="0 0 24 24" style={{ width: 20, height: 20, fill: 'none', stroke: '#fff', strokeWidth: 1.5 }}><path d="M6 3h9l4 4v14H6z" /></svg>
+          <div style={{ flexGrow: 1, lineHeight: 1.25, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Studio</div>
+            <div style={{ fontSize: 12, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{studioSettings.nome || 'Desearq Studio'}</div>
           </div>
-          <button onClick={handleLogout} style={{ width: 32, height: 32, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: 'transparent', color: C.darkGray, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-            <LogOut size={16} strokeWidth={1.5} />
-          </button>
+          <span onClick={() => { setPage('impostazioni'); setMobileNavOpen(false); }} style={{ color: '#B8ADA0', cursor: 'pointer' }}>&rsaquo;</span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 8px 0' }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: C.maroon, flexShrink: 0 }}>{profile.email[0].toUpperCase()}</div>
+          <div style={{ flexGrow: 1, lineHeight: 1.25, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</div>
+            <div style={{ fontSize: 12, color: '#8B8178' }}>{profile.role === 'Admin' ? 'Amministratore' : 'Membro del team'}</div>
+          </div>
+          <button onClick={handleLogout} title="Esci" style={{ border: 'none', background: 'transparent', color: '#8B8178', letterSpacing: 2, cursor: 'pointer', fontSize: 16, padding: 4 }}>&middot;&middot;&middot;</button>
         </div>
       </aside>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
-        <header className="top-header" style={{ background: 'transparent', padding: '18px 24px 0', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 12 }}>
-          <button
-            className="mobile-menu-btn"
-            onClick={() => setMobileNavOpen(true)}
-            aria-label="Apri il menu"
-            style={{ fontSize: 16 }}
-          >
-            ☰
-          </button>
-          <div className="search-input-wrap" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 18px', boxShadow: '0 1px 2px rgba(0,0,0,0.03), 0 4px 12px rgba(0,0,0,0.04)' }}>
-            <Search size={16} strokeWidth={1.5} color={C.darkGray} />
+        <header className="top-header" style={{ background: 'transparent', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 20, borderBottom: `1px solid ${C.paleGray}` }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <button
+              className="mobile-menu-btn"
+              onClick={() => setMobileNavOpen(true)}
+              aria-label="Apri il menu"
+              style={{ fontSize: 16 }}
+            >
+              ☰
+            </button>
+            <select
+              value={activeListinoId}
+              onChange={(e) => setActiveListinoId(Number(e.target.value))}
+              style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 300, fontFamily: FONT, color: C.black, cursor: 'pointer' }}
+            >
+              {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            <select
+              value={selectedProjectId || ''}
+              onChange={(e) => { if (e.target.value) openProject(Number(e.target.value)); }}
+              style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 300, fontFamily: FONT, color: C.darkGray, cursor: 'pointer', minWidth: 170 }}
+            >
+              <option value="">Scegli progetto</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="search-input-wrap" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 16px' }}>
+            <Search size={15} strokeWidth={1.5} color={C.darkGray} />
             <input
               type="text"
               placeholder="Cerca progetto, cliente, voce o codice…"
               className="search-input"
-              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: C.darkGray, width: 'clamp(120px, 30vw, 260px)' }}
+              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontWeight: 300, color: C.darkGray, width: 'clamp(140px, 24vw, 240px)' }}
             />
           </div>
+          <button
+            onClick={() => setPage('progetti')}
+            style={{ border: 'none', background: C.black, color: C.white, fontFamily: FONT, fontSize: 13, fontWeight: 400, padding: '11px 22px', borderRadius: 999, cursor: 'pointer' }}
+          >
+            Nuovo progetto +
+          </button>
         </header>
 
         {/* overflowX qui era 'auto': su qualunque browser questo trasforma <main> in un "contenitore di scroll",
@@ -6299,8 +6862,8 @@ export default function GestionaleEdilePreview() {
             colonna Listino nel computo metrico (restava ancorato al box di <main>, che non scorre mai da solo,
             invece che alla pagina). 'clip' taglia comunque l'overflow orizzontale ma senza creare quel contenitore,
             quindi lo sticky funziona di nuovo; le singole tabelle larghe restano scorrevili con la classe .table-scroll. */}
-        <main className="app-main" style={{ padding: 24, flex: 1, overflowX: 'clip', minWidth: 0, width: '100%' }}>
-          {page === 'dashboard' && <Dashboard onNavigate={setPage} onOpenProject={openProject} projects={projects} />}
+        <main className="app-main" style={{ padding: 24, flex: 1, overflowX: 'clip', minWidth: 0, width: '100%', background: '#FAF9F6' }}>
+          {page === 'dashboard' && <Dashboard onNavigate={setPage} onOpenProject={openProject} projects={projects} listini={listini} activeListinoId={activeListinoId} fornitoriCatalog={fornitoriCatalog} profile={profile} />}
           {page === 'listino' && <ListinoPage listini={listini} setListini={setListini} activeId={activeListinoId} setActiveId={setActiveListinoId} />}
           {page === 'progetti' && <ProgettiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} />}
           {page === 'progetto-dettaglio' && selectedProject && (
@@ -6309,6 +6872,7 @@ export default function GestionaleEdilePreview() {
               onBack={() => setPage('progetti')}
               onUpdateProject={(updated) => setProjects(projects.map((p) => (p.id === updated.id ? updated : p)))}
               listini={listini}
+              fornitoriCatalog={fornitoriCatalog}
               initialRevisionId={openRevisionId}
               requestPdf={requestPdf}
               onOpenRilievo={() => { setRilievoProjectId(selectedProject.id); setPage('rilievo'); }}
