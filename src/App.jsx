@@ -1692,12 +1692,12 @@ function EditableCatalog({ macros, setMacros }) {
       {coded.map((m, mi) => {
         const mKey = `${mi}`;
         return (
-          <div key={mi} style={{ marginBottom: 10, border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden' }}>
-            <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', background: '#FBF6EC', cursor: 'pointer', flexWrap: 'wrap' }}>
-              <span style={{ color: '#8B8178', transition: 'transform .15s', transform: isOpen(mKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
-              <span style={{ fontWeight: 500, fontSize: 14.5, color: C.black, textTransform: 'uppercase', letterSpacing: '.02em' }}>{m.name}</span>
-              <span style={codeTag}>{m.code}</span>
-              <span style={{ fontSize: 11, color: '#8B8178', fontWeight: 400 }}>{m.categorie.length} categorie · {m.categorie.reduce((n, c) => n + c.sottocategorie.reduce((n2, s) => n2 + s.voci.length, 0), 0)} voci</span>
+          <div key={mi} style={{ marginBottom: 10, border: '1px solid #2B2321', borderRadius: 10, overflow: 'hidden' }}>
+            <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', background: '#2B2321', cursor: 'pointer', flexWrap: 'wrap' }}>
+              <span style={{ color: '#B8ADA0', transition: 'transform .15s', transform: isOpen(mKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
+              <span style={{ fontWeight: 500, fontSize: 14.5, color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '.02em' }}>{m.name}</span>
+              <span style={{ ...codeTag, background: 'rgba(255,255,255,.14)', color: '#FFFFFF', border: 'none' }}>{m.code}</span>
+              <span style={{ fontSize: 11, color: '#B8ADA0', fontWeight: 400 }}>{m.categorie.length} categorie · {m.categorie.reduce((n, c) => n + c.sottocategorie.reduce((n2, s) => n2 + s.voci.length, 0), 0)} voci</span>
               <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                 <button onClick={() => moveItem('macro', [mi], 'up')} disabled={mi === 0} style={{ ...rowBtn, opacity: mi === 0 ? 0.4 : 1 }}>▲</button>
                 <button onClick={() => moveItem('macro', [mi], 'down')} disabled={mi === coded.length - 1} style={{ ...rowBtn, opacity: mi === coded.length - 1 ? 0.4 : 1 }}>▼</button>
@@ -5953,14 +5953,14 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
         {catalog.map((m, mi) => {
           const mKey = `m${mi}`;
           return (
-            <div key={mi} style={{ marginBottom: 12, border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
-              <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#FBF6EC', cursor: 'pointer', flexWrap: 'wrap' }}>
-                <span style={{ color: '#8B8178', transform: isOpen(mKey) ? 'rotate(0deg)' : 'rotate(-90deg)', display: 'inline-block', fontSize: 11 }}>▾</span>
-                <span style={{ fontWeight: 600, fontSize: 14.5, color: C.black, flexGrow: 1 }}>{m.name}</span>
+            <div key={mi} style={{ marginBottom: 12, border: '1px solid #2B2321', borderRadius: 12, overflow: 'hidden' }}>
+              <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', background: '#2B2321', cursor: 'pointer', flexWrap: 'wrap' }}>
+                <span style={{ color: '#B8ADA0', transform: isOpen(mKey) ? 'rotate(0deg)' : 'rotate(-90deg)', display: 'inline-block', fontSize: 11 }}>▾</span>
+                <span style={{ fontWeight: 600, fontSize: 14.5, color: '#FFFFFF', flexGrow: 1 }}>{m.name}</span>
                 <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                   <button onClick={() => renameMacro(mi)} style={fBtn}>✎ Rinomina</button>
                   <button onClick={() => addCategoria(mi)} style={fBtn}>+ Sottocategoria</button>
-                  <button onClick={() => removeMacro(mi)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 13 }}>🗑️</button>
+                  <button onClick={() => removeMacro(mi)} style={{ border: 'none', background: 'transparent', color: '#B8ADA0', cursor: 'pointer', fontSize: 13 }}>🗑️</button>
                 </div>
               </div>
 
