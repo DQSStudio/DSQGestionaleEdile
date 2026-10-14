@@ -5658,7 +5658,127 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
   );
 }
 
-function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
+// Campo di testo con suggerimenti "mentre scrivi": nessun elenco a tendina all'apertura, i valori già
+// usati nel catalogo compaiono solo quando si digitano lettere che contengono (prima quelli che iniziano
+// con quelle lettere). Si può sempre scrivere un valore nuovo: i suggerimenti sono solo un aiuto.
+function SuggestInput({ value, onChange, options, placeholder, autoFocus, style }) {
+  const [open, setOpen] = useState(false);
+  const [hi, setHi] = useState(0);
+  const q = String(value || '').trim().toLowerCase();
+  const uniq = [...new Set((options || []).map((o) => String(o || '').trim()).filter(Boolean))];
+  const matches = q
+    ? uniq
+      .filter((o) => o.toLowerCase().includes(q) && o.toLowerCase() !== q)
+      .sort((a, b) => (a.toLowerCase().startsWith(q) ? 0 : 1) - (b.toLowerCase().startsWith(q) ? 0 : 1) || a.localeCompare(b, 'it'))
+      .slice(0, 8)
+    : [];
+  const show = open && matches.length > 0;
+  const pick = (o) => { onChange(o); setOpen(false); };
+  const hl = (o) => {
+    const i = o.toLowerCase().indexOf(q);
+    if (i < 0) return o;
+    return <>{o.slice(0, i)}<b style={{ fontWeight: 600, color: C.maroon }}>{o.slice(i, i + q.length)}</b>{o.slice(i + q.length)}</>;
+  };
+  return (
+    <div style={{ position: 'relative' }}>
+      <input
+        value={value}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        autoComplete="off"
+        onChange={(e) => { onChange(e.target.value); setOpen(true); setHi(0); }}
+        onBlur={() => setTimeout(() => setOpen(false), 120)}
+        onKeyDown={(e) => {
+          if (!show) return;
+          if (e.key === 'ArrowDown') { e.preventDefault(); setHi((hi + 1) % matches.length); }
+          else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((hi - 1 + matches.length) % matches.length); }
+          else if (e.key === 'Enter') { e.preventDefault(); pick(matches[hi]); }
+          else if (e.key === 'Escape') { setOpen(false); }
+        }}
+        style={style}
+      />
+      {show && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 50, background: '#fff', border: '1px solid #E3D9CC', borderRadius: 10, boxShadow: '0 8px 24px rgba(33,26,22,.10)', marginTop: 4, overflow: 'hidden' }}>
+          {matches.map((o, i) => (
+            <div
+              key={o}
+              onMouseDown={(e) => { e.preventDefault(); pick(o); }}
+              onMouseEnter={() => setHi(i)}
+              style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', color: '#2B2321', background: i === hi ? '#F4EFE8' : '#fff' }}
+            >
+              {hl(o)}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Modale unica per prodotti e varianti del catalogo Fornitori (sostituisce le finestre "prompt" del browser,
+// che non permettevano i suggerimenti). mode: 'nuovo' (marca, modello, variante, prezzo di listino),
+// 'modifica' (marca, modello), 'variante-nuova' (variante, prezzo), 'variante-rinomina' (variante).
+function ProdottoFornitoreModal({ mode, initial = {}, suggestions, onClose, onSave }) {
+  const [marca, setMarca] = useState(initial.marca || '');
+  const [modello, setModello] = useState(initial.modello || '');
+  const [variante, setVariante] = useState(initial.variante || '');
+  const [listinoPrice, setListinoPrice] = useState(initial.listinoPrice || '');
+  const showProdotto = mode === 'nuovo' || mode === 'modifica';
+  const showVariante = mode !== 'modifica';
+  const showPrezzo = mode === 'nuovo' || mode === 'variante-nuova';
+  const title = { nuovo: 'Nuovo prodotto', modifica: 'Marca e modello', 'variante-nuova': 'Nuova variante', 'variante-rinomina': 'Rinomina variante' }[mode];
+  // I modelli suggeriti sono quelli della marca scritta, se esiste già; altrimenti tutti.
+  const marcaKey = marca.trim().toLowerCase();
+  const modelliDellaMarca = (suggestions.modelli || []).filter((x) => String(x.marca || '').trim().toLowerCase() === marcaKey).map((x) => x.modello);
+  const modelliOpts = marcaKey && modelliDellaMarca.length ? modelliDellaMarca : (suggestions.modelli || []).map((x) => x.modello);
+  const field = { width: '100%', boxSizing: 'border-box', fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, fontFamily: FONT, color: C.black, background: '#fff' };
+  const label = { fontSize: 11, fontWeight: 700, color: C.midGray, display: 'block', margin: '0 0 4px' };
+  const canSave = mode === 'modifica' ? !!modello.trim() : mode === 'nuovo' ? !!modello.trim() : mode === 'variante-rinomina' ? true : true;
+  const save = () => {
+    if (!canSave) return;
+    onSave({ marca: marca.trim(), modello: modello.trim(), variante: variante.trim(), listinoPrice: listinoPrice.trim() || '0,00' });
+    onClose();
+  };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && !e.defaultPrevented) save(); }} style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: '100%' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, margin: '0 0 4px', color: C.black }}>{title}</h2>
+        <p style={{ fontSize: 11.5, color: C.gray, margin: '0 0 16px' }}>Mentre scrivi compaiono i valori già inseriti nel catalogo: sceglili oppure continua a scrivere per crearne uno nuovo.</p>
+        {showProdotto && (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <span style={label}>Marca</span>
+              <SuggestInput value={marca} onChange={setMarca} options={suggestions.marche} placeholder="Es. Geberit" autoFocus style={field} />
+            </div>
+            <div style={{ marginBottom: 12 }}>
+              <span style={label}>Modello</span>
+              <SuggestInput value={modello} onChange={setModello} options={modelliOpts} placeholder="Es. Sigma 70" style={field} />
+            </div>
+          </>
+        )}
+        {showVariante && (
+          <div style={{ marginBottom: 12 }}>
+            <span style={label}>Variante / finitura {mode === 'nuovo' && <span style={{ fontWeight: 400, color: C.gray }}>(facoltativa)</span>}</span>
+            <SuggestInput value={variante} onChange={setVariante} options={suggestions.varianti} placeholder="Es. bianco opaco, cromo…" autoFocus={!showProdotto} style={field} />
+          </div>
+        )}
+        {showPrezzo && (
+          <div style={{ marginBottom: 12 }}>
+            <span style={label}>Prezzo di listino (€)</span>
+            <input value={listinoPrice} onChange={(e) => setListinoPrice(e.target.value)} placeholder="0,00" style={field} />
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+          <button onClick={onClose} style={{ background: 'transparent', color: C.black, border: `1px solid ${C.paleGray}`, padding: '9px 16px', borderRadius: 999, fontSize: 12.5, cursor: 'pointer', fontFamily: FONT }}>Annulla</button>
+          <button onClick={save} disabled={!canSave} style={{ background: C.maroon, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 500, cursor: canSave ? 'pointer' : 'default', opacity: canSave ? 1 : 0.5, fontFamily: FONT }}>Salva</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo, suggestions }) {
+  const [modal, setModal] = useState(null); // { mode, vi?, initial }
   const uploadPhoto = (file) => {
     if (!file) return;
     const reader = new FileReader();
@@ -5666,13 +5786,7 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
     reader.readAsDataURL(file);
   };
 
-  const renameProdotto = () => {
-    const marca = prompt('Marca:', prodotto.marca || '');
-    if (marca === null) return;
-    const modello = prompt('Modello:', prodotto.modello || '');
-    if (modello === null) return;
-    onUpdate({ ...prodotto, marca, modello });
-  };
+  const renameProdotto = () => setModal({ mode: 'modifica', initial: { marca: prodotto.marca || '', modello: prodotto.modello || '' } });
 
   // Chiede il prezzo finale, oppure — se è più comodo — lo sconto percentuale dal prezzo di
   // listino da cui il prezzo finale si calcola da solo. Lasciare vuoto il primo prompt salta
@@ -5689,16 +5803,16 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
     return prompt(`${label} — prezzo finale (€):`, currentValue ?? listinoPriceStr) ?? (currentValue ?? listinoPriceStr);
   };
 
-  const addVariante = () => {
-    const nome = prompt('Nome variante / finitura (es. colore, materiale):') || '';
-    const listinoPrice = prompt('Prezzo di listino di questa variante (€):', '0,00') || '0,00';
-    onUpdate({ ...prodotto, varianti: [...prodotto.varianti, { id: Date.now(), nome, listinoPrice, fornitori: [] }] });
-  };
-  const renameVariante = (vi) => {
-    const v = prodotto.varianti[vi];
-    const nome = prompt('Nome variante / finitura:', v.nome);
-    if (nome === null) return;
-    onUpdate({ ...prodotto, varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, nome } : x)) });
+  const addVariante = () => setModal({ mode: 'variante-nuova', initial: { listinoPrice: '' } });
+  const renameVariante = (vi) => setModal({ mode: 'variante-rinomina', vi, initial: { variante: prodotto.varianti[vi].nome || '' } });
+  const saveModal = (vals) => {
+    if (modal.mode === 'modifica') {
+      onUpdate({ ...prodotto, marca: vals.marca, modello: vals.modello });
+    } else if (modal.mode === 'variante-nuova') {
+      onUpdate({ ...prodotto, varianti: [...prodotto.varianti, { id: Date.now(), nome: vals.variante, listinoPrice: vals.listinoPrice, fornitori: [] }] });
+    } else if (modal.mode === 'variante-rinomina') {
+      onUpdate({ ...prodotto, varianti: prodotto.varianti.map((x, i) => (i === modal.vi ? { ...x, nome: vals.variante } : x)) });
+    }
   };
   const updateVarianteListino = (vi) => {
     const v = prodotto.varianti[vi];
@@ -5746,6 +5860,7 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo }) {
 
   return (
     <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '14px 16px', marginBottom: 12, display: 'flex', gap: 14 }}>
+      {modal && <ProdottoFornitoreModal mode={modal.mode} initial={modal.initial} suggestions={suggestions || {}} onClose={() => setModal(null)} onSave={saveModal} />}
       <label style={{ width: 64, height: 64, borderRadius: 8, background: '#F0EAE0', border: '1px dashed #CFC4B6', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', textAlign: 'center' }}>
         {prodotto.photo ? (
           <img src={prodotto.photo} alt={prodottoLabel(prodotto)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -5906,17 +6021,31 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
     next[mi].categorie.splice(ci, 1);
     setCatalog(next);
   };
-  const addProdotto = (mi, ci) => {
-    const marca = prompt('Marca del nuovo prodotto:') || '';
-    const modello = prompt('Modello:');
-    if (!modello) return;
-    const variantNome = prompt('Variante / finitura (es. colore, materiale — lascia vuoto se il prodotto non ne ha):') || '';
-    const listinoPrice = prompt('Prezzo di listino di questa variante (€):', '0,00') || '0,00';
+  const [nuovoProdottoAt, setNuovoProdottoAt] = useState(null); // [mi, ci] della sottocategoria in cui aggiungere
+  const allProdotti = catalog.flatMap((m) => (m.categorie || []).flatMap((c) => c.prodotti || []));
+  const suggestions = {
+    marche: allProdotti.map((p) => p.marca),
+    modelli: allProdotti.map((p) => ({ marca: p.marca, modello: p.modello })),
+    varianti: allProdotti.flatMap((p) => (p.varianti || []).map((v) => v.nome)),
+  };
+  const addProdotto = (mi, ci) => setNuovoProdottoAt([mi, ci]);
+  const saveNuovoProdotto = ({ marca, modello, variante, listinoPrice }) => {
+    const [mi, ci] = nuovoProdottoAt;
     const next = structuredClone(catalog);
-    next[mi].categorie[ci].prodotti.push({
-      id: Date.now(), marca, modello, photo: null,
-      varianti: [{ id: Date.now() + 1, nome: variantNome, listinoPrice, fornitori: [] }],
-    });
+    const prodotti = next[mi].categorie[ci].prodotti;
+    // Stessa marca e stesso modello già presenti in questa sottocategoria: invece di un doppione si propone
+    // di aggiungere la variante al prodotto esistente.
+    const same = prodotti.find((p) => (p.marca || '').trim().toLowerCase() === marca.toLowerCase() && (p.modello || '').trim().toLowerCase() === modello.toLowerCase());
+    if (same && confirm(`"${[marca, modello].filter(Boolean).join(' ')}" esiste già in questa sottocategoria. Vuoi aggiungere la variante a quel prodotto invece di crearne un altro?`)) {
+      if (!same.varianti.some((v) => (v.nome || '').trim().toLowerCase() === variante.toLowerCase())) {
+        same.varianti.push({ id: Date.now(), nome: variante, listinoPrice, fornitori: [] });
+      }
+    } else {
+      prodotti.push({
+        id: Date.now(), marca, modello, photo: null,
+        varianti: [{ id: Date.now() + 1, nome: variante, listinoPrice, fornitori: [] }],
+      });
+    }
     setCatalog(next);
   };
   const updateProdotto = (mi, ci, pi, updated) => {
@@ -5988,6 +6117,7 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
                             onUpdate={(updated) => updateProdotto(mi, ci, pi, updated)}
                             onRemove={() => removeProdotto(mi, ci, pi)}
                             onAddToComputo={(variante) => setAddingTo({ prodotto: p, variante, tipoFornitura: m.name, gruppoFornitura: c.name })}
+                            suggestions={suggestions}
                           />
                         ))
                       )
@@ -5999,6 +6129,10 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
           );
         })}
       </div>
+
+      {nuovoProdottoAt && (
+        <ProdottoFornitoreModal mode="nuovo" suggestions={suggestions} onClose={() => setNuovoProdottoAt(null)} onSave={saveNuovoProdotto} />
+      )}
 
       {addingTo && (
         <AddToComputoModal
