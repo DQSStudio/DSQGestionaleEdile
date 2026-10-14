@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase, cea } from './supabaseClient';
 import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
@@ -957,7 +958,7 @@ function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListino
   );
 }
 
-function ListinoPage({ listini, setListini, activeId, setActiveId }) {
+function ListinoPage({ listini, setListini, activeId, setActiveId, projects, setProjects }) {
   const active = listini.find((l) => l.id === activeId);
   const [showFornitoreSharing, setShowFornitoreSharing] = useState(false);
   const [pendingCount, setPendingCount] = useState(0);
@@ -1045,7 +1046,7 @@ function ListinoPage({ listini, setListini, activeId, setActiveId }) {
         <DKpi label="CATEGORIE" value={categorieCount} note="su tutte le macrosezioni" />
       </div>
 
-      <EditableCatalog macros={active.macros} setMacros={setMacrosForActive} />
+      <EditableCatalog macros={active.macros} setMacros={setMacrosForActive} projects={projects} setProjects={setProjects} listinoId={active.id} />
 
       {showFornitoreSharing && (
         <FornitoreSharingModal listini={listini} setListini={setListini} activeId={activeId} onClose={() => setShowFornitoreSharing(false)} />
@@ -1151,7 +1152,7 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
   const pending = (submissions || []).filter((s) => s.status === 'pending');
   const decided = (submissions || []).filter((s) => s.status !== 'pending').slice(0, 20);
 
-  return (
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,23,23,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, width: 680, maxWidth: '100%', maxHeight: '88vh', overflowY: 'auto', padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
@@ -1263,7 +1264,7 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
         )}
       </div>
     </div>
-  );
+  , document.body);
 }
 
 const INITIAL_MACROS = [
@@ -1453,7 +1454,7 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
   const previewImpresa = parseEuro(priceImpresa);
   const previewCliente = evalClientPrice(priceCliente, previewImpresa);
 
-  return (
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 400, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>{isEdit ? 'Modifica voce di listino' : 'Nuova voce di listino'}</h2>
@@ -1536,7 +1537,7 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 const CALC_UNIT_OPTIONS = [
@@ -1639,7 +1640,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
   const labelStyle = { fontSize: 11, fontWeight: 700, color: C.midGray };
   const fieldStyle = { width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' };
 
-  return (
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 640, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 4px', color: C.black }}>{isEdit ? 'Modifica voce' : 'Nuova voce'}</h2>
@@ -1834,10 +1835,99 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
-function EditableCatalog({ macros, setMacros }) {
+// Aggiunge una voce di listino a un computo scelto dalla pagina Listino prezzi. Se il computo scelto è
+// già approvato (o non è l'ultima versione) non viene toccato: si crea una nuova revisione in attesa di
+// approvazione che contiene anche la nuova voce — gli approvati restano intatti.
+function addListinoVoceToProject(project, revisionId, item) {
+  let revisions = project.revisions || [];
+  if (revisions.length === 0) {
+    revisions = [{ id: Date.now(), label: 'Revisione 1', customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: [], extraSections: [], total: '0,00 €', totalCliente: '0,00 €' }];
+  }
+  const latest = revisions[revisions.length - 1];
+  const target = revisions.find((r) => String(r.id) === String(revisionId)) || latest;
+  const editable = target.id === latest.id && (target.status || STATUS_OPTIONS[0]) === STATUS_OPTIONS[0];
+  const nextItems = regenerateItemCodes(resolveLinkedQuantities([...(target.items || []), item]));
+  const real = nextItems.filter((it) => it.type !== 'subtotal');
+  const total = formatEuro(sumImpresa(real));
+  const totalCliente = formatEuro(sumCliente(real));
+  if (editable) {
+    return { project: { ...project, revisions: revisions.map((r) => (r.id === target.id ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r)), value: total }, label: target.customName || target.label, forked: false };
+  }
+  const label = `Revisione ${revisions.length + 1}`;
+  const newRev = { ...target, id: Date.now() + 1, label, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: nextItems, total, totalCliente };
+  return { project: { ...project, revisions: [...revisions, newRev], value: total }, label, forked: true };
+}
+
+function ListinoAddToComputoModal({ voce, projects, onClose, onAdd }) {
+  const sorted = [...projects].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'it'));
+  const [projectId, setProjectId] = useState(sorted[0]?.id ?? '');
+  const project = projects.find((p) => String(p.id) === String(projectId));
+  const revs = project?.revisions || [];
+  const [revisionId, setRevisionId] = useState(revs[revs.length - 1]?.id ?? '');
+  const [qty, setQty] = useState('1');
+  const rev = revs.find((r) => String(r.id) === String(revisionId)) || revs[revs.length - 1];
+  const willFork = rev && ((rev.status || STATUS_OPTIONS[0]) !== STATUS_OPTIONS[0] || rev.id !== revs[revs.length - 1]?.id);
+  const impresa = parseEuro(voce.priceImpresa);
+  const cliente = evalClientPrice(voce.priceCliente, impresa);
+  const field = { width: '100%', boxSizing: 'border-box', fontSize: 12.5, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px', fontFamily: FONT, background: '#fff' };
+  const label = { fontSize: 11, fontWeight: 700, color: C.midGray };
+  const changeProject = (id) => {
+    setProjectId(id);
+    const p = projects.find((x) => String(x.id) === String(id));
+    const r = p?.revisions || [];
+    setRevisionId(r[r.length - 1]?.id ?? '');
+  };
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 14, padding: 22, width: 460, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, margin: '0 0 4px', color: C.black }}>Aggiungi al computo</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 14px' }}>
+          <strong style={{ color: C.black, fontWeight: 600 }}>{voce.code}</strong> — {voce.desc}<br />
+          {voce.unit} · impresa {formatEuro(impresa)} · <span style={{ color: C.maroon }}>cliente {formatEuro(cliente)}</span>
+        </p>
+        {sorted.length === 0 ? (
+          <p style={{ fontSize: 13, color: C.gray }}>Non ci sono ancora progetti: creane uno dalla sezione Progetti.</p>
+        ) : (
+          <>
+            <label style={label}>Progetto</label>
+            <select value={projectId} onChange={(e) => changeProject(e.target.value)} style={field}>
+              {sorted.map((p) => <option key={p.id} value={p.id}>{p.name}{p.client ? ` — ${p.client}` : ''}</option>)}
+            </select>
+            <label style={label}>Computo (versione)</label>
+            {revs.length === 0 ? (
+              <p style={{ fontSize: 12, color: C.gray, margin: '4px 0 12px' }}>Questo progetto non ha ancora un computo: verrà creata la "Revisione 1".</p>
+            ) : (
+              <select value={revisionId} onChange={(e) => setRevisionId(e.target.value)} style={field}>
+                {revs.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.status || STATUS_OPTIONS[0]} · {r.dateModified}</option>)}
+              </select>
+            )}
+            {willFork && (
+              <p style={{ fontSize: 11.5, color: C.maroon, margin: '-6px 0 12px' }}>
+                Questa versione è {rev.status !== STATUS_OPTIONS[0] ? 'già approvata' : 'una versione precedente'}: resterà intatta e la voce verrà aggiunta in una nuova revisione in attesa di approvazione.
+              </p>
+            )}
+            <label style={label}>Quantità ({voce.unit})</label>
+            <input value={qty} onChange={(e) => setQty(e.target.value)} style={field} />
+            <p style={{ fontSize: 11, color: C.gray, margin: '-6px 0 14px' }}>Le misurazioni dettagliate (lunghezze, larghezze…) puoi inserirle poi dal computo con ✎.</p>
+          </>
+        )}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ background: 'transparent', color: C.black, border: `1px solid ${C.paleGray}`, padding: '9px 16px', borderRadius: 999, fontSize: 12.5, cursor: 'pointer', fontFamily: FONT }}>Annulla</button>
+          {sorted.length > 0 && (
+            <button onClick={() => onAdd(projectId, revisionId, qty || '1')} style={{ background: C.maroon, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>Aggiungi</button>
+          )}
+        </div>
+      </div>
+    </div>
+  , document.body);
+}
+
+function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }) {
+  const [addToComputoVoce, setAddToComputoVoce] = useState(null); // voce di listino da aggiungere a un computo
+  const [addedNotice, setAddedNotice] = useState('');
   const [showVoceModal, setShowVoceModal] = useState(false);
   const [editingVoce, setEditingVoce] = useState(null); // { path: [mi,ci,si,vi] }
   const [newVoceAt, setNewVoceAt] = useState(null); // [mi,ci,si] quando si aggiunge dal pulsante "+ Voce" di una sottocategoria
@@ -2087,6 +2177,15 @@ function EditableCatalog({ macros, setMacros }) {
                                     <span style={{ width: 92, flexShrink: 0, textAlign: 'right', fontWeight: 500, color: C.black }}>{formatEuro(impresaVal)}</span>
                                     <span style={{ width: 92, flexShrink: 0, textAlign: 'right', color: C.maroon, fontWeight: 500 }}>{formatEuro(clienteVal)}</span>
                                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                      {setProjects && (
+                                        <button
+                                          onClick={() => setAddToComputoVoce({ ...v, macro: m.name, categoria: c.name, sotto: s.name })}
+                                          title="Aggiungi questa voce a un computo"
+                                          style={{ ...rowBtn, padding: '2px 10px', background: C.maroon, color: '#fff', border: 'none' }}
+                                        >
+                                          + Computo
+                                        </button>
+                                      )}
                                       <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'up')} disabled={vi === 0} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === 0 ? 0.4 : 1 }}>▲</button>
                                       <button onClick={() => moveItem('voce', [mi, ci, si, vi], 'down')} disabled={vi === s.voci.length - 1} style={{ ...rowBtn, padding: '2px 6px', opacity: vi === s.voci.length - 1 ? 0.4 : 1 }}>▼</button>
                                       <button
@@ -2113,6 +2212,40 @@ function EditableCatalog({ macros, setMacros }) {
         );
       })}
 
+      {addToComputoVoce && (
+        <ListinoAddToComputoModal
+          voce={addToComputoVoce}
+          projects={projects || []}
+          onClose={() => setAddToComputoVoce(null)}
+          onAdd={(projectId, revisionId, qty) => {
+            const v = addToComputoVoce;
+            const project = (projects || []).find((p) => String(p.id) === String(projectId));
+            if (!project) return;
+            const revs = project.revisions || [];
+            const target = revs.find((r) => String(r.id) === String(revisionId)) || revs[revs.length - 1];
+            const dupe = (target?.items || []).find((it) => it.type !== 'subtotal' && normText(it.desc) === normText(v.desc));
+            if (dupe && !confirm(`La voce "${v.desc}" è già presente in questo computo${dupe.code ? ` (${dupe.code})` : ''}. Vuoi aggiungere comunque un duplicato?`)) return;
+            const impresa = parseEuro(v.priceImpresa);
+            const item = {
+              id: Date.now() + Math.random(), code: '', autoCode: true,
+              listinoRef: v.uid ? { listinoId, uid: v.uid } : null,
+              desc: v.desc, unit: v.unit, note: v.note || '',
+              unitPriceImpresa: formatEuro(impresa).replace(' €', ''),
+              unitPriceCliente: formatEuro(evalClientPrice(v.priceCliente, impresa)).replace(' €', ''),
+              qty: String(qty), macro: v.macro, section: v.macro, categoria: v.categoria || 'Generale', sottocategoria: v.sotto || 'Generale',
+            };
+            const res = addListinoVoceToProject(project, revisionId, item);
+            setProjects((projects || []).map((p) => (p.id === project.id ? res.project : p)));
+            setAddToComputoVoce(null);
+            setAddedNotice(`Aggiunta a "${project.name}" — ${res.label}${res.forked ? ' (nuova revisione: la versione approvata resta intatta)' : ''}.`);
+            setTimeout(() => setAddedNotice(''), 6000);
+          }}
+        />
+      )}
+      {addedNotice && createPortal(
+        <div role="status" onClick={() => setAddedNotice('')} style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 300, maxWidth: 380, background: '#2B2321', color: '#fff', borderRadius: 12, padding: '12px 16px', fontSize: 13, fontWeight: 300, boxShadow: '0 10px 30px rgba(0,0,0,.18)', cursor: 'pointer' }}>{addedNotice}</div>
+      , document.body)}
+
       <p style={{ fontSize: 11.5, color: '#8B8178', margin: '10px 0 0', fontWeight: 300 }}>Con le freccette ▲▼ puoi riordinare manualmente macrocategorie, categorie, sottocategorie e singole voci: i codici si aggiornano da soli in base al nuovo ordine.</p>
 
       {showVoceModal && (
@@ -2136,7 +2269,7 @@ function NewProjectModal({ onClose, onCreate }) {
   const [name, setName] = useState('');
   const [client, setClient] = useState('');
 
-  return (
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>Crea nuovo progetto</h2>
@@ -2183,7 +2316,7 @@ function NewProjectModal({ onClose, onCreate }) {
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 function ProjectCard({ p, onOpen, onDelete }) {
@@ -4800,7 +4933,7 @@ function PlanLinkModal({ mode, listino, computoItems, initialCode, initialComput
 
   const title = mode === 'punto' ? 'Collega un punto al listino' : mode === 'area' ? 'Collega l\'area al listino' : 'Collega la lunghezza al listino';
 
-  return (
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={onCancel}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>{title}</h2>
@@ -4878,7 +5011,7 @@ function PlanLinkModal({ mode, listino, computoItems, initialCode, initialComput
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 // --- Rilievo planimetrico: sezione a sé nel menu laterale. Prima si scegli il progetto di riferimento
@@ -6038,7 +6171,7 @@ function ImportPdfComputoModal({ onClose, onConfirm }) {
 
   const canConfirm = rows.length > 0 && rows.every((r) => r.name.trim()) && sommaCategorie > 0;
 
-  return (
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 560, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Importa computo da PDF</h2>
@@ -6112,7 +6245,7 @@ function ImportPdfComputoModal({ onClose, onConfirm }) {
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
@@ -6138,17 +6271,17 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
   };
 
   if (eligible.length === 0) {
-    return (
+    return createPortal(
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
         <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
           <p style={{ fontSize: 13, color: C.gray, margin: '0 0 16px' }}>Nessun progetto ha ancora un computo creato. Apri un progetto e crea il primo computo prima di aggiungere forniture.</p>
           <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Chiudi</button>
         </div>
       </div>
-    );
+    , document.body);
   }
 
-  return (
+  return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Aggiungi al computo</h2>
@@ -6193,7 +6326,7 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 // Campo di testo con suggerimenti "mentre scrivi": nessun elenco a tendina all'apertura, i valori già
@@ -6277,7 +6410,7 @@ function ProdottoFornitoreModal({ mode, initial = {}, suggestions, onClose, onSa
     onSave({ marca: marca.trim(), modello: modello.trim(), variante: variante.trim(), listinoPrice: listinoPrice.trim() || '0,00' });
     onClose();
   };
-  return (
+  return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && !e.defaultPrevented) save(); }} style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: '100%' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, margin: '0 0 4px', color: C.black }}>{title}</h2>
@@ -6312,7 +6445,7 @@ function ProdottoFornitoreModal({ mode, initial = {}, suggestions, onClose, onSa
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 // Modale per aggiungere/modificare un fornitore di una variante: il nome ha i suggerimenti "mentre scrivi"
@@ -6360,7 +6493,7 @@ function FornitorePrezziModal({ initial = {}, isNew, suggestions, onClose, onSav
     onSave({ name: name.trim(), prezzoListino: l, prezzoScontato: impresa.trim() || l, prezzoCliente: cliente.trim() || l });
     onClose();
   };
-  return (
+  return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && !e.defaultPrevented) save(); }} style={{ background: C.white, borderRadius: 14, padding: 22, width: 440, maxWidth: '100%' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, margin: '0 0 4px', color: C.black }}>{isNew ? 'Nuovo fornitore' : 'Modifica fornitore'}</h2>
@@ -6384,7 +6517,7 @@ function FornitorePrezziModal({ initial = {}, isNew, suggestions, onClose, onSav
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo, suggestions }) {
@@ -6857,7 +6990,7 @@ function TeamMemberModal({ member, isAdmin, isSelf, onClose, onSaved, onRemoved 
     onRemoved(member.id);
   };
 
-  return (
+  return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFFDFA', borderRadius: 16, width: 560, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '22px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
@@ -6931,7 +7064,7 @@ function TeamMemberModal({ member, isAdmin, isSelf, onClose, onSaved, onRemoved 
         </div>
       </div>
     </div>
-  );
+  , document.body);
 }
 
 function TeamPage({ profile, onProfileChange }) {
@@ -8049,7 +8182,7 @@ export default function GestionaleEdilePreview() {
             quindi lo sticky funziona di nuovo; le singole tabelle larghe restano scorrevili con la classe .table-scroll. */}
         <main className="app-main" style={{ padding: '22px 32px 48px', flex: 1, overflowX: 'clip', minWidth: 0, width: '100%', background: '#FAF9F6' }}>
           {page === 'dashboard' && <Dashboard onNavigate={setPage} onOpenProject={openProject} projects={projects} listini={listini} activeListinoId={activeListinoId} fornitoriCatalog={fornitoriCatalog} profile={profile} />}
-          {page === 'listino' && <ListinoPage listini={listini} setListini={updateListini} activeId={activeListinoId} setActiveId={setActiveListinoId} />}
+          {page === 'listino' && <ListinoPage listini={listini} setListini={updateListini} activeId={activeListinoId} setActiveId={setActiveListinoId} projects={projects} setProjects={setProjects} />}
           {page === 'progetti' && <ProgettiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} />}
           {page === 'progetto-dettaglio' && selectedProject && (
             <ProjectDetailPage
