@@ -506,25 +506,106 @@ function DKpi({ label, value, note, accent }) {
   );
 }
 
+// --- Dashboard: copia 1:1 della board "Main" dell'artefatto "Quant — Nuova grafica (Flow)" ---
+// Stessa sequenza di blocchi, stessi stili (card #FFFFFF, bordo #E8E0D4, raggio 14, titoli 20/23px peso 300),
+// riempita con i dati reali dell'app. Dove l'artefatto mostrava numeri d'esempio non tracciabili, il blocco
+// resta identico ma mostra solo dati veri (es. cronoprogramma e scadenze: usano "Inizio lavori" / "Fine lavori"
+// inseriti nei Dati generali del computo di ogni progetto).
+const DASH = {
+  card: { background: '#FFFFFF', border: '1px solid #E8E0D4', borderRadius: 14, boxSizing: 'border-box' },
+  h3: { margin: 0, fontWeight: 300, letterSpacing: '-.01em', display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', color: '#2B2321' },
+  tag2: { fontSize: 11.5, fontWeight: 400, color: '#8B8178', letterSpacing: 0 },
+  th: { fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: 'left', padding: '8px 10px', borderBottom: '1px solid #E3D9CC' },
+  td: { fontSize: 13.5, padding: '12px 10px', borderBottom: '1px solid #EFE8DD' },
+  mono: { fontVariantNumeric: 'tabular-nums', color: '#6F655F', fontSize: 12.5 },
+  pill: { fontSize: 11, padding: '3px 10px', borderRadius: 999, fontWeight: 500, whiteSpace: 'nowrap' },
+  act: { display: 'flex', gap: 12, padding: '11px 0', borderBottom: '1px solid #EFE8DD' },
+  actIc: { width: 28, height: 28, borderRadius: 8, flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 },
+  li: { display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: '1px solid #EFE8DD', fontSize: 13.5 },
+  quick: { display: 'flex', alignItems: 'center', gap: 10, border: '1px solid #E3D9CC', background: '#fff', borderRadius: 999, padding: '12px 18px', font: 'inherit', fontFamily: FONT, fontSize: 13, fontWeight: 300, color: '#2B2321', cursor: 'pointer', textAlign: 'left' },
+};
+const IT_MONTHS_SHORT = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic'];
+const fmtDayMonth = (d) => `${String(d.getDate()).padStart(2, '0')} ${IT_MONTHS_SHORT[d.getMonth()]}`;
+const fmtDayMonthYear = (d) => `${fmtDayMonth(d)} ${d.getFullYear()}`;
+const fmtTime = (d) => `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+// Le date "Inizio/Fine lavori" arrivano dal campo data del progetto (AAAA-MM-GG) o, se scritte a mano, in formato italiano.
+function parseWorkDate(v) {
+  if (!v) return null;
+  const iso = String(v).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  return parseItDate(v);
+}
+function relDayLabel(d, now) {
+  const a = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diff = Math.round((b - a) / 86400000);
+  if (diff === 0) return `oggi, ${fmtTime(d)}`;
+  if (diff === 1) return `ieri, ${fmtTime(d)}`;
+  return `${fmtDayMonth(d)}, ${fmtTime(d)}`;
+}
+function DashIcon({ children, stroke }) {
+  return (
+    <svg viewBox="0 0 24 24" style={{ width: 17, height: 17, flex: 'none', fill: 'none', stroke: stroke || C.maroon, strokeWidth: 1.6, strokeLinecap: 'round', strokeLinejoin: 'round' }}>{children}</svg>
+  );
+}
+function DashKpi({ label, value, note, noteTone, valueColor, compactLabel = true, highlight = false }) {
+  return (
+    <div style={{ ...DASH.card, padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 6, borderColor: highlight ? `color-mix(in srgb, ${C.maroon} 35%, #E8E0D4)` : '#E8E0D4' }}>
+      <div style={{ fontSize: compactLabel ? 10.5 : 12.5, letterSpacing: compactLabel ? '1.2px' : 0, color: '#6F655F', display: 'flex', alignItems: 'center', gap: 8 }}>{label}<KpiInfo /></div>
+      <div style={{ fontSize: 30, fontWeight: 500, letterSpacing: '-.03em', lineHeight: 1.1, color: valueColor || '#2B2321' }}>{value}</div>
+      {note && <div style={{ fontSize: 11.5, color: noteTone === 'up' ? '#4F7A4B' : noteTone === 'down' ? '#B3452B' : '#6F655F' }}>{note}</div>}
+    </div>
+  );
+}
+
 function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListinoId, fornitoriCatalog, profile }) {
   const activeListino = listini.find((l) => l.id === activeListinoId) || listini[0];
   const listinoVoci = activeListino ? flattenListino(activeListino) : [];
   const macrosezioni = activeListino?.macros?.length || 0;
-
-  const allRevisions = projects.flatMap((p) => p.revisions.map((r) => ({ project: p, revision: r })));
   const now = new Date();
-  const revisioniQuestoMese = allRevisions.filter(({ revision }) => {
-    const d = parseItDate(revision.dateCreated);
-    return d && d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-  }).length;
-  const modificheUltime48h = allRevisions.filter(({ revision }) => {
-    const d = parseItDate(revision.dateModified);
-    return d && (now - d) / 36e5 <= 48;
-  }).length;
-  const valoreAttivo = projects.reduce((sum, p) => {
-    const last = p.revisions[p.revisions.length - 1];
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const sameMonth = (d, y, m) => d && d.getFullYear() === y && d.getMonth() === m;
+  const prevMonthRef = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+
+  // Proposte di prezzo dei fornitori esterni ancora da approvare (stessa tabella del pannello "🔗 Fornitori" del Listino).
+  const [proposteInAttesa, setProposteInAttesa] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    cea.from('fornitore_submissions').select('id', { count: 'exact', head: true }).eq('status', 'pending')
+      .then(({ count, error }) => { if (!cancelled) setProposteInAttesa(error ? null : (count || 0)); });
+    return () => { cancelled = true; };
+  }, []);
+
+  const allRevisions = projects.flatMap((p) => p.revisions.map((r) => ({
+    project: p, revision: r, created: parseItDate(r.dateCreated), modified: parseItDate(r.dateModified),
+  })));
+
+  // Valore progetti attivi = somma del totale impresa del computo attivo (ultima revisione) di ogni progetto.
+  // Lo stesso calcolo "a una certa data" (contando solo le revisioni create prima) dà il confronto col mese
+  // precedente e i punti del grafico a linea, così pill e grafico sono dati veri e non decorazione.
+  const valoreAl = (cutoff) => projects.reduce((sum, p) => {
+    const revs = cutoff ? p.revisions.filter((r) => { const d = parseItDate(r.dateCreated); return d && d < cutoff; }) : p.revisions;
+    const last = revs[revs.length - 1];
     return sum + (last ? parseEuro(last.total) : 0);
   }, 0);
+  const valoreAttivo = valoreAl(null);
+  const valoreMesePrec = valoreAl(new Date(now.getFullYear(), now.getMonth(), 1));
+  const deltaValorePct = valoreMesePrec > 0 ? Math.round(((valoreAttivo - valoreMesePrec) / valoreMesePrec) * 100) : null;
+  const sparkVals = [];
+  for (let i = 5; i >= 0; i -= 1) sparkVals.push(valoreAl(new Date(now.getFullYear(), now.getMonth() - i + 1, 1)));
+  sparkVals.push(valoreAttivo);
+  const sMin = Math.min(...sparkVals);
+  const sMax = Math.max(...sparkVals);
+  const sparkPts = sparkVals.map((v, i) => [Math.round((i * 160) / (sparkVals.length - 1)), Math.round(44 - (sMax === sMin ? 0.5 : (v - sMin) / (sMax - sMin)) * 38)]);
+  const sparkLine = sparkPts.map(([x, y], i) => `${i ? 'L' : 'M'}${x} ${y}`).join(' ');
+
+  const firstRevDate = (p) => parseItDate(p.revisions[0]?.dateCreated);
+  const progettiNuoviMese = projects.filter((p) => sameMonth(firstRevDate(p), now.getFullYear(), now.getMonth())).length;
+  const revisioniQuestoMese = allRevisions.filter((x) => sameMonth(x.created, now.getFullYear(), now.getMonth())).length;
+  const revisioniMesePrec = allRevisions.filter((x) => sameMonth(x.created, prevMonthRef.getFullYear(), prevMonthRef.getMonth())).length;
+  const deltaRev = revisioniQuestoMese - revisioniMesePrec;
+  const ultime48h = allRevisions.filter((x) => x.modified && (now - x.modified) / 36e5 <= 48);
+  const progetti48h = new Set(ultime48h.map((x) => x.project.id)).size;
 
   const fornitoriNomi = new Set();
   let categorieForniture = 0;
@@ -533,178 +614,282 @@ function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListino
     (cat.prodotti || []).forEach((prod) => (prod.varianti || []).forEach((v) => (v.fornitori || []).forEach((f) => fornitoriNomi.add(f.name))));
   }));
 
-  const initials = (name) => name.split(' ').map((w) => w[0]).slice(0, 2).join('').toUpperCase();
-  const progressByStatus = { 'In attesa di approvazione': 33, 'Approvato': 66, 'In fase di cantiere': 100 };
-
-  const computiDaApprovare = allRevisions
-    .filter(({ revision }) => revision.status === 'In attesa di approvazione')
-    .map(({ project, revision }) => ({ project, revision, modified: parseItDate(revision.dateModified) }))
+  // "Computi da approvare" = progetti il cui computo attivo (ultima revisione) è in attesa; "Revisioni in attesa"
+  // = tutte le versioni in attesa di approvazione, anche quelle più vecchie dello stesso progetto.
+  const computiDaApprovare = projects
+    .map((p) => ({ project: p, revision: p.revisions[p.revisions.length - 1] }))
+    .filter((x) => x.revision && x.revision.status === 'In attesa di approvazione')
+    .map((x) => ({ ...x, modified: parseItDate(x.revision.dateModified) }))
     .sort((a, b) => (a.modified?.getTime() || 0) - (b.modified?.getTime() || 0));
+  const revisioniInAttesa = allRevisions.filter((x) => x.revision.status === 'In attesa di approvazione');
+  const oltre5gg = revisioniInAttesa.filter((x) => !x.modified || daysBetween(x.modified, now) > 5).length;
 
-  const modificheRecenti = allRevisions
-    .map(({ project, revision }) => ({ project, revision, modified: parseItDate(revision.dateModified) }))
-    .filter((x) => x.modified)
-    .sort((a, b) => b.modified - a.modified)
-    .slice(0, 5);
+  const work = projects.map((p) => {
+    const h = p.header || {};
+    const start = parseWorkDate(h.dataInizioLavori);
+    const endRaw = parseWorkDate(h.dataFineLavori);
+    const end = endRaw && start && endRaw < start ? start : endRaw;
+    return { project: p, start, end, status: latestStatus(p) };
+  });
+  const inPartenza30 = work.filter((w) => w.start && w.start >= today && daysBetween(today, w.start) <= 30).length;
 
+  const recentiOrdinate = allRevisions.filter((x) => x.modified).sort((a, b) => b.modified - a.modified);
+  const modificheRecenti = (ultime48h.length ? recentiOrdinate.filter((x) => (now - x.modified) / 36e5 <= 48) : recentiOrdinate).slice(0, 5);
+  const computiRecenti = recentiOrdinate.slice(0, 6);
+
+  // Cronoprogramma: 6 mesi a partire dal mese corrente.
+  const ganttStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const ganttEnd = new Date(now.getFullYear(), now.getMonth() + 6, 1);
+  const span = ganttEnd - ganttStart;
+  const pct = (d) => Math.min(100, Math.max(0, ((d - ganttStart) / span) * 100));
+  const todayPct = pct(now);
+  const ganttMonths = Array.from({ length: 6 }, (_, i) => {
+    const m = IT_MONTHS_SHORT[(now.getMonth() + i) % 12];
+    return m.charAt(0).toUpperCase() + m.slice(1);
+  });
+  const ganttRows = work
+    .filter((w) => w.start)
+    .map((w) => {
+      const end = w.end || new Date(w.start.getFullYear(), w.start.getMonth(), w.start.getDate() + 30);
+      let kind; let label; let sub;
+      if (w.status === 'In fase di cantiere') { kind = 'cantiere'; label = 'Esecuzione lavori'; sub = 'in cantiere'; }
+      else if (w.start > today && daysBetween(today, w.start) <= 30) { kind = 'breve'; label = 'Avvio previsto'; sub = 'in partenza a breve'; }
+      else if (w.start > today) { kind = 'futuro'; label = w.status === 'Approvato' ? 'Avvio programmato' : 'In attesa di conferma'; sub = 'non ancora iniziato'; }
+      else { kind = 'attivo'; label = w.status === 'Approvato' ? 'Computo approvato' : 'Computo in revisione'; sub = 'attivo'; }
+      return { ...w, end, kind, label, sub, left: pct(w.start), right: pct(end) };
+    })
+    .filter((r) => r.right > 0 && r.left < 100)
+    .sort((a, b) => a.start - b.start);
+  const barStyle = {
+    attivo: { background: C.maroon, color: '#fff' },
+    cantiere: { background: '#3A332F', color: '#fff' },
+    breve: { background: '#C98A2E', color: '#fff' },
+    futuro: { background: 'transparent', border: '1.6px dashed #B9AE9F', color: '#8B8178' },
+  };
+
+  // Scadenze imminenti: inizio e fine lavori nei prossimi 7 giorni.
+  const scadenze = [];
+  work.forEach((w) => {
+    if (w.start && w.start >= today && daysBetween(today, w.start) <= 7) scadenze.push({ title: 'Inizio lavori', where: w.project.name, date: w.start, project: w.project });
+    if (w.end && w.end >= today && daysBetween(today, w.end) <= 7) scadenze.push({ title: 'Fine lavori', where: w.project.name, date: w.end, project: w.project });
+  });
+  scadenze.sort((a, b) => a.date - b.date);
+
+  // Situazione listino
+  const vociModificateMese = listini.reduce((n, l) => n + flattenListino(l).filter((v) => {
+    const d = v.updatedAt ? new Date(v.updatedAt) : null;
+    return d && !isNaN(d) && sameMonth(d, now.getFullYear(), now.getMonth());
+  }).length, 0);
   const rilieviInCorso = projects.filter((p) => (p.planimetrie || []).length > 0).length;
 
   const oggiLabel = now.toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).toUpperCase();
-  const nomeUtente = profile?.email ? profile.email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) : '';
+  const nomeBase = (profile?.name || (profile?.email ? profile.email.split('@')[0].replace(/[._]/g, ' ') : '')).trim();
+  const nomeUtente = nomeBase ? nomeBase.split(/\s+/)[0].replace(/^\w/, (c) => c.toUpperCase()) : '';
+  const revName = (r) => r.customName || r.label;
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, color: '#2B2321' }}>
       {/* HERO */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 11, letterSpacing: '.2em', color: C.gray, fontWeight: 600, marginBottom: 8 }}>{oggiLabel}</div>
-        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(40px, 7.5vw, 90px)', lineHeight: 1.05, fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>
+      <div>
+        <div style={{ fontSize: 11, letterSpacing: '.2em', color: '#8B8178', fontWeight: 600, marginBottom: 8 }}>{oggiLabel}</div>
+        <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(44px, 7vw, 90px)', lineHeight: 1.05, fontWeight: 200, letterSpacing: '-.03em', color: '#2B2321' }}>
           Bentornato{nomeUtente ? `, ${nomeUtente}` : ''}.
         </h1>
-        <p style={{ margin: '8px 0 0', fontSize: 16, fontWeight: 300, color: C.darkGray }}>Ecco listino, progetti e computi metrici dello studio, in tempo reale.</p>
+        <p style={{ margin: '8px 0 0', fontSize: 16, fontWeight: 200, color: '#4A403C' }}>Ecco listino, progetti e computi metrici dello studio, in tempo reale.</p>
       </div>
 
-      {/* KPI HERO */}
-      <div style={{ color: C.white, padding: '20px 22px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 158, borderRadius: 14, background: 'linear-gradient(145deg, #8A4443 0%, #15110F 100%)', marginBottom: 16, boxSizing: 'border-box' }}>
-        <div style={{ fontSize: 15, fontWeight: 300 }}>Valore progetti attivi</div>
-        <div style={{ fontSize: 'clamp(36px, 5vw, 60px)', fontWeight: 200, letterSpacing: 0, lineHeight: 1 }}>{formatEuro(valoreAttivo)}</div>
+      {/* KPI PRINCIPALE */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ ...DASH.card, color: '#fff', padding: '20px 22px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 168, border: 0, width: 602, maxWidth: '100%', background: 'linear-gradient(145deg, #8A4443 0%, #15110F 100%)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+            <div style={{ fontSize: 15, color: '#fff', fontWeight: 300 }}>Valore progetti attivi</div>
+            {deltaValorePct !== null && (
+              <span style={{ ...DASH.pill, background: 'rgba(255,255,255,.12)', color: '#fff', fontSize: 15 }}>{deltaValorePct >= 0 ? '+' : ''}{deltaValorePct}% vs mese prec.</span>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
+            <div style={{ fontSize: 'clamp(38px, 5.5vw, 70px)', fontWeight: 200, letterSpacing: 0, lineHeight: 1, whiteSpace: 'nowrap' }}>€ {Math.round(valoreAttivo).toLocaleString('it-IT')}</div>
+            <svg viewBox="0 0 160 50" style={{ width: 150, height: 48, flex: 'none' }}>
+              <defs><linearGradient id="dashSpk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#fff" stopOpacity=".25" /><stop offset="1" stopColor="#fff" stopOpacity="0" /></linearGradient></defs>
+              <path d={`${sparkLine} L160 50 L0 50Z`} fill="url(#dashSpk)" />
+              <path d={sparkLine} fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        </div>
       </div>
 
-      {/* KPI GRID */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 22 }}>
-        <DKpi label="PROGETTI ATTIVI" value={projects.length} note={`${projects.filter((p) => latestStatus(p) === 'In fase di cantiere').length} in cantiere`} />
-        <DKpi label="VOCI DI LISTINO" value={listinoVoci.length} note={`su ${listini.length} listin${listini.length === 1 ? 'o' : 'i'} attiv${listini.length === 1 ? 'o' : 'i'}`} />
-        <DKpi label="MACROSEZIONI" value={macrosezioni} note="catalogo listino attivo" />
-        <DKpi label="COMPUTI DA APPROVARE" value={computiDaApprovare.length} note="in attesa di approvazione" accent={computiDaApprovare.length > 0} />
-        <DKpi label="REVISIONI QUESTO MESE" value={revisioniQuestoMese} note="nuove revisioni" />
-        <DKpi label="FORNITORI COLLEGATI" value={fornitoriNomi.size} note={`su ${categorieForniture} categorie`} />
-        <DKpi label="MODIFICHE ULTIME 48H" value={modificheUltime48h} note="su tutti i progetti" />
+      {/* KPI */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+        <DashKpi label="PROGETTI ATTIVI" value={projects.length} note={`+${progettiNuoviMese} questo mese`} noteTone={progettiNuoviMese > 0 ? 'up' : null} />
+        <DashKpi label="VOCI DI LISTINO" value={listinoVoci.length} note={`su ${listini.length} listin${listini.length === 1 ? 'o' : 'i'} attiv${listini.length === 1 ? 'o' : 'i'}`} />
+        <DashKpi label="MACROSEZIONI" value={macrosezioni} note={`catalogo ${(activeListino?.name || 'listino').toLowerCase()}`} />
+        <DashKpi label="COMPUTI DA APPROVARE" value={computiDaApprovare.length} valueColor={C.maroon} note="in attesa di approvazione" />
+        <DashKpi label="REVISIONI QUESTO MESE" value={revisioniQuestoMese} note={`${deltaRev >= 0 ? '+' : ''}${deltaRev} vs mese prec.`} noteTone={deltaRev > 0 ? 'up' : deltaRev < 0 ? 'down' : null} />
+        <DashKpi label="FORNITORI COLLEGATI" value={fornitoriNomi.size} note={`su ${categorieForniture} categorie`} />
+        <DashKpi label="REVISIONI IN ATTESA" value={revisioniInAttesa.length} valueColor={C.maroon} note={`${oltre5gg} oltre i 5 giorni`} compactLabel={false} highlight />
+        <DashKpi label="MODIFICHE ULTIME 48H" value={ultime48h.length} note={`su ${progetti48h} progett${progetti48h === 1 ? 'o' : 'i'}`} noteTone={ultime48h.length > 0 ? 'up' : null} compactLabel={false} />
+        <DashKpi label="IN PARTENZA ENTRO 30GG" value={inPartenza30} valueColor="#862D2D" note="da preparare listino/team" compactLabel={false} />
       </div>
 
       {/* COMPUTI DA APPROVARE */}
-      {computiDaApprovare.length > 0 && (
-        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16, overflowX: 'auto' }}>
-          <h3 style={{ margin: '0 0 10px', fontWeight: 300, fontSize: 20, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            COMPUTI DA APPROVARE<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>ordinati per urgenza</span>
-          </h3>
-          <table style={{ borderCollapse: 'collapse', width: '100%' }}>
-            <thead>
-              <tr>
-                {['Progetto', 'Revisione', 'In attesa da', 'Totale impresa', 'Urgenza'].map((h) => (
-                  <th key={h} style={{ fontSize: 11, letterSpacing: '.1em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, textAlign: 'left', padding: '8px 10px', borderBottom: `1px solid ${C.borderStrong}` }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {computiDaApprovare.map(({ project, revision, modified }, i) => {
-                const giorni = modified ? daysBetween(modified, now) : null;
-                const critica = giorni === null || giorni >= 5;
-                return (
-                  <tr key={i} onClick={() => onOpenProject(project.id)} style={{ cursor: 'pointer' }}>
-                    <td style={{ fontSize: 13.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}`, fontWeight: 400 }}>{project.name}</td>
-                    <td style={{ fontSize: 13.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}` }}>{revision.label}</td>
-                    <td style={{ fontSize: 12.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}`, color: C.darkGray }}>{giorni === null ? '—' : `${giorni} giorn${giorni === 1 ? 'o' : 'i'}`}</td>
-                    <td style={{ fontSize: 12.5, padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}`, color: C.darkGray }}>{revision.total}</td>
-                    <td style={{ padding: '12px 10px', borderBottom: `1px solid ${C.paleGray}` }}>
-                      <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 999, fontWeight: 500, background: critica ? 'rgba(179,69,43,0.16)' : '#F2E4C6', color: critica ? '#8C3220' : '#8A5A12' }}>
-                        {critica ? 'Critica' : "Da tenere d'occhio"}
-                      </span>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </section>
-      )}
+      <section style={{ ...DASH.card, padding: '18px 22px', overflowX: 'auto' }}>
+        <h3 style={{ ...DASH.h3, fontSize: 20 }}>COMPUTI DA APPROVARE<span style={DASH.tag2}>ordinati per urgenza</span></h3>
+        <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 10, minWidth: 560 }}>
+          <thead><tr>{['Progetto', 'Revisione', 'Richiesta da', 'In attesa da', 'Totale impresa', 'Urgenza'].map((h) => <th key={h} style={DASH.th}>{h}</th>)}</tr></thead>
+          <tbody>
+            {computiDaApprovare.length === 0 && (
+              <tr><td colSpan={6} style={{ ...DASH.td, color: '#8B8178', fontWeight: 300 }}>Nessun computo in attesa di approvazione.</td></tr>
+            )}
+            {computiDaApprovare.map(({ project, revision, modified }) => {
+              const giorni = modified ? daysBetween(modified, now) : null;
+              const critica = giorni === null || giorni >= 5;
+              return (
+                <tr key={project.id} onClick={() => onOpenProject(project.id)} style={{ cursor: 'pointer' }}>
+                  <td style={{ ...DASH.td, fontWeight: 400 }}>{project.name}</td>
+                  <td style={DASH.td}>{revName(revision)}</td>
+                  <td style={DASH.td}>{revision.modifiedBy || revision.createdBy || '—'}</td>
+                  <td style={{ ...DASH.td, ...DASH.mono }}>{giorni === null ? '—' : `${giorni} giorn${giorni === 1 ? 'o' : 'i'}`}</td>
+                  <td style={{ ...DASH.td, ...DASH.mono }}>€ {Math.round(parseEuro(revision.total)).toLocaleString('it-IT')}</td>
+                  <td style={DASH.td}>
+                    <span style={{ ...DASH.pill, background: critica ? 'color-mix(in srgb, #B3452B 16%, #fff)' : '#F2E4C6', color: critica ? '#8C3220' : '#8A5A12' }}>{critica ? 'Critica' : "Da tenere d'occhio"}</span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
 
       {/* MODIFICHE RECENTI */}
-      {modificheRecenti.length > 0 && (
-        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
-          <h3 style={{ margin: '0 0 6px', fontWeight: 300, fontSize: 20, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-            MODIFICHE RECENTI<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>ultime revisioni aggiornate</span>
-          </h3>
-          <div>
-            {modificheRecenti.map(({ project, revision }, i) => (
-              <div key={i} onClick={() => onOpenProject(project.id)} style={{ display: 'flex', gap: 12, padding: '11px 0', borderBottom: i < modificheRecenti.length - 1 ? `1px solid ${C.paleGray}` : 'none', cursor: 'pointer' }}>
-                <div style={{ width: 28, height: 28, borderRadius: 8, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, background: C.accentSoft, color: C.maroon }}>✎</div>
+      <section style={{ ...DASH.card, padding: '18px 22px' }}>
+        <h3 style={{ ...DASH.h3, fontSize: 20 }}>MODIFICHE RECENTI<span style={DASH.tag2}>{ultime48h.length ? 'ultime 48 ore' : 'le più recenti'}</span></h3>
+        <div style={{ marginTop: 6 }}>
+          {modificheRecenti.length === 0 && <div style={{ ...DASH.act, borderBottom: 0, fontSize: 13.5, fontWeight: 300, color: '#8B8178' }}>Nessuna modifica registrata.</div>}
+          {modificheRecenti.map(({ project, revision, created, modified }, i) => {
+            const nuova = created && modified && Math.abs(modified - created) < 60000;
+            const chi = revision.modifiedBy || revision.createdBy;
+            return (
+              <div key={`${project.id}-${revision.id}`} onClick={() => onOpenProject(project.id)} style={{ ...DASH.act, borderBottom: i === modificheRecenti.length - 1 ? 0 : DASH.act.borderBottom, cursor: 'pointer' }}>
+                <div style={{ ...DASH.actIc, background: nuova ? 'color-mix(in srgb, #4F7A4B 14%, #fff)' : `color-mix(in srgb, ${C.maroon} 14%, #fff)`, color: nuova ? '#2F5A2B' : C.maroon }}>{nuova ? '+' : '✎'}</div>
                 <div>
-                  <div style={{ fontSize: 13.5, fontWeight: 300 }}><b style={{ fontWeight: 500 }}>{project.name}</b> — {revision.label} aggiornata</div>
-                  <div style={{ fontSize: 11.5, color: '#8B8178', marginTop: 2 }}>{revision.dateModified}</div>
+                  <div style={{ fontSize: 13.5, fontWeight: 300 }}>
+                    {chi ? <><b style={{ fontWeight: 500 }}>{chi}</b> {nuova ? 'ha creato' : 'ha modificato'} </> : (nuova ? 'Creato ' : 'Modificato ')}
+                    il computo <b style={{ fontWeight: 500 }}>{revName(revision)}</b>
+                  </div>
+                  <div style={{ fontSize: 11.5, color: '#8B8178', marginTop: 2 }}>{project.name} · {relDayLabel(modified, now)}</div>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* SITUAZIONE LISTINO */}
-      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
-        <h3 style={{ margin: 0, fontWeight: 300, fontSize: 23, letterSpacing: 0 }}>SITUAZIONE LISTINO</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px 28px', marginTop: 14 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: C.maroon }} />
-            <span style={{ fontSize: 13.5, flexGrow: 1, fontWeight: 300 }}>Listini attivi</span>
-            <b style={{ fontWeight: 600 }}>{listini.length}</b>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', flexShrink: 0, background: C.maroon }} />
-            <span style={{ fontSize: 13.5, flexGrow: 1, fontWeight: 300 }}>Rilievi planimetrici in corso</span>
-            <b style={{ fontWeight: 600 }}>{rilieviInCorso}</b>
-          </div>
+            );
+          })}
         </div>
       </section>
 
-      {/* PROGETTI ATTIVI */}
-      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
-        <h3 style={{ margin: '0 0 16px', fontWeight: 300, fontSize: 23, display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
-          PROGETTI ATTIVI<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>computo e revisioni</span>
-        </h3>
-        {projects.length === 0 && <p style={{ fontSize: 13, color: C.gray, margin: 0 }}>Nessun progetto.</p>}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', gap: 16 }}>
-          {projects.map((p) => (
-            <div key={p.id} onClick={() => onOpenProject(p.id)} style={{ display: 'flex', flexDirection: 'column', border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden', background: C.white, cursor: 'pointer' }}>
-              <div style={{ position: 'relative', aspectRatio: '4/3', background: `linear-gradient(135deg, color-mix(in srgb, ${C.maroon} 60%, #999), ${C.maroon})`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg viewBox="0 0 24 24" style={{ width: 34, height: 34, fill: 'none', stroke: 'rgba(255,255,255,.75)', strokeWidth: 1.1, strokeLinecap: 'round', strokeLinejoin: 'round' }}>
-                  <rect x="3" y="5" width="18" height="14" rx="1.5" /><circle cx="8.5" cy="10" r="1.6" /><path d="M3 17l5-4.5 4 3 3-2.5 6 4.5" />
-                </svg>
-                <span style={{ position: 'absolute', left: 10, bottom: 8, fontSize: 10, letterSpacing: '.12em', textTransform: 'uppercase', color: 'rgba(255,255,255,.85)' }}>Foto di copertina</span>
+      {/* AVANZAMENTO PROGETTI */}
+      <section style={{ ...DASH.card, padding: '18px 22px', overflowX: 'auto' }}>
+        <h3 style={{ ...DASH.h3, fontSize: 23 }}>AVANZAMENTO PROGETTI<span style={DASH.tag2}>cronoprogramma, 6 mesi</span></h3>
+        <div style={{ minWidth: 620, marginTop: 16 }}>
+          <div style={{ display: 'flex', paddingLeft: 168, marginBottom: 6 }}>
+            {ganttMonths.map((m) => <span key={m} style={{ flex: 1, textAlign: 'center', fontSize: 11, color: '#8E847C', letterSpacing: '.04em' }}>{m}</span>)}
+          </div>
+          {ganttRows.length === 0 && (
+            <p style={{ fontSize: 13, fontWeight: 300, color: '#8B8178', margin: '10px 0 0' }}>
+              Inserisci «Inizio lavori» e «Fine lavori» nei Dati generali del computo di ogni progetto per vederlo nel cronoprogramma.
+            </p>
+          )}
+          {ganttRows.map((r, i) => (
+            <div key={r.project.id} onClick={() => onOpenProject(r.project.id)} style={{ display: 'flex', alignItems: 'center', padding: '9px 0', cursor: 'pointer' }}>
+              <div style={{ width: 168, flex: 'none', paddingRight: 12, boxSizing: 'border-box' }}>
+                <div style={{ fontSize: 13, fontWeight: 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.project.name}</div>
+                <div style={{ fontSize: 11, color: '#8B8178' }}>{r.sub}</div>
               </div>
-              <div style={{ padding: '14px 16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div>
-                  <div style={{ fontSize: 15, fontWeight: 400 }}>{p.name}</div>
-                  <div style={{ fontSize: 11, color: '#8B8178', letterSpacing: '.08em' }}>{p.client}</div>
+              <div style={{ position: 'relative', flex: 1, height: 22, background: 'repeating-linear-gradient(90deg,#EFE8DD,#EFE8DD 1px,transparent 1px,transparent calc(100%/6))', borderRadius: 6 }}>
+                <div style={{ position: 'absolute', top: -4, bottom: -4, width: 0, left: `${todayPct}%`, borderLeft: `1.6px dashed ${C.maroon}` }}>
+                  {i === 0 && <span style={{ position: 'absolute', top: -18, left: 4, fontSize: 9.5, color: C.maroon, fontWeight: 600, whiteSpace: 'nowrap' }}>Oggi</span>}
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 500, padding: '4px 12px', borderRadius: 999, alignSelf: 'flex-start', ...badgeStyles[statusTone[latestStatus(p)]] }}>{latestStatus(p)}</span>
-                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: 24, fontWeight: 200, letterSpacing: '-.03em', lineHeight: 1 }}>{p.revisions[p.revisions.length - 1]?.total || p.value}</span>
-                  <span style={{ fontSize: 11, color: '#8B8178', letterSpacing: '.1em', textTransform: 'uppercase' }}>{p.revisions.length} revision{p.revisions.length === 1 ? 'e' : 'i'}</span>
-                </div>
-                <div style={{ background: C.paleGray, borderRadius: 999, height: 6, overflow: 'hidden' }}>
-                  <div style={{ background: C.maroon, height: '100%', width: `${progressByStatus[latestStatus(p)] || 10}%`, borderRadius: 999 }} />
-                </div>
+                <div title={`${fmtDayMonthYear(r.start)} → ${fmtDayMonthYear(r.end)}`} style={{ position: 'absolute', top: 2, height: 18, borderRadius: 999, display: 'flex', alignItems: 'center', padding: '0 10px', fontSize: 10.5, fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', boxSizing: 'border-box', left: `${r.left}%`, width: `${Math.max(2, r.right - r.left)}%`, ...barStyle[r.kind] }}>{r.label}</div>
               </div>
             </div>
           ))}
+          <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', fontSize: 12, color: '#6F655F', marginTop: 14 }}>
+            {[['Attivo', { background: C.maroon }], ['In cantiere', { background: '#3A332F' }], ['In partenza entro 30 gg', { background: '#C98A2E' }], ['Non ancora iniziato', { background: 'transparent', border: '1.6px dashed #B9AE9F', boxSizing: 'border-box' }]].map(([t, s]) => (
+              <span key={t}><i style={{ display: 'inline-block', width: 12, height: 12, borderRadius: 4, marginRight: 6, verticalAlign: -1, ...s }} />{t}</span>
+            ))}
+          </div>
         </div>
-        <div style={{ fontSize: 11.5, color: '#8B8178', marginTop: 12, fontWeight: 300 }}>La foto di copertina viene presa dalla sezione Progetti (una per progetto).</div>
       </section>
 
+      {/* SITUAZIONE LISTINO */}
+      <section style={{ ...DASH.card, padding: '18px 22px' }}>
+        <h3 style={{ ...DASH.h3, fontSize: 23, letterSpacing: 0 }}>SITUAZIONE LISTINO</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '10px 28px', marginTop: 14 }}>
+          {[
+            ['Voci modificate questo mese', vociModificateMese],
+            ['Listini attivi', listini.length],
+            ['Proposte fornitori in attesa', proposteInAttesa === null ? '—' : proposteInAttesa],
+            ['Rilievi planimetrici in corso', rilieviInCorso],
+          ].map(([t, v]) => (
+            <div key={t} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <span style={{ width: 10, height: 10, borderRadius: '50%', flex: 'none', background: C.maroon }} />
+              <span style={{ fontSize: 13.5, flexGrow: 1, fontWeight: 300 }}>{t}</span>
+              <b style={{ fontWeight: 600 }}>{v}</b>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* COMPUTI MODIFICATI DI RECENTE */}
+      <section style={{ ...DASH.card, padding: '18px 22px', overflowX: 'auto' }}>
+        <h3 style={{ ...DASH.h3, fontSize: 23 }}>COMPUTI MODIFICATI DI RECENTE<span style={DASH.tag2}>{computiRecenti.length} totali</span></h3>
+        <table style={{ borderCollapse: 'collapse', width: '100%', marginTop: 10, minWidth: 560 }}>
+          <thead><tr>{['Progetto', 'Versione', 'Stato', 'Totale impresa', 'Modificato'].map((h) => <th key={h} style={{ ...DASH.th, fontWeight: 500, fontSize: 13 }}>{h}</th>)}</tr></thead>
+          <tbody>
+            {computiRecenti.length === 0 && <tr><td colSpan={5} style={{ ...DASH.td, color: '#8B8178', fontWeight: 300 }}>Nessun computo ancora creato.</td></tr>}
+            {computiRecenti.map(({ project, revision, modified }) => {
+              const pending = revision.status === 'In attesa di approvazione';
+              return (
+                <tr key={`${project.id}-${revision.id}`} onClick={() => onOpenProject(project.id)} style={{ cursor: 'pointer' }}>
+                  <td style={{ ...DASH.td, fontWeight: 300 }}>{project.name}</td>
+                  <td style={{ ...DASH.td, fontWeight: 300 }}>{revName(revision)}</td>
+                  <td style={{ ...DASH.td, fontWeight: 300 }}>{revision.status}</td>
+                  <td style={{ ...DASH.td, ...DASH.mono, ...(pending ? { color: C.maroon, fontWeight: 500 } : {}) }}>€ {Math.round(parseEuro(revision.total)).toLocaleString('it-IT')}</td>
+                  <td style={{ ...DASH.td, fontWeight: 300 }}>{fmtDayMonthYear(modified)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+
+      {/* SCADENZE IMMINENTI */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'stretch' }}>
+        <section style={{ ...DASH.card, flex: '2 1 320px', minWidth: 0, padding: '18px 22px' }}>
+          <h3 style={{ ...DASH.h3, fontSize: 23 }}>SCADENZE IMMINENTI<span style={{ ...DASH.tag2, fontWeight: 300 }}>prossimi 7 giorni</span></h3>
+          <div style={{ marginTop: 6 }}>
+            {scadenze.length === 0 && <div style={{ ...DASH.li, borderBottom: 0, fontWeight: 300, color: '#8B8178' }}>Nessuna scadenza nei prossimi 7 giorni (inizio/fine lavori dai Dati generali del computo).</div>}
+            {scadenze.map((s, i) => {
+              const vicina = daysBetween(today, s.date) <= 1;
+              return (
+                <div key={i} onClick={() => onOpenProject(s.project.id)} style={{ ...DASH.li, borderBottom: i === scadenze.length - 1 ? 0 : DASH.li.borderBottom, fontWeight: 300, cursor: 'pointer' }}>
+                  <div style={{ flexGrow: 1 }}>
+                    <div style={{ fontWeight: 400 }}>{s.title}</div>
+                    <div style={{ fontSize: 12, color: '#8B8178', fontWeight: 300 }}>{s.where}</div>
+                  </div>
+                  <span style={{ ...DASH.mono, ...(vicina ? { color: C.maroon, fontWeight: 500 } : { fontWeight: 300 }) }}>{fmtDayMonth(s.date)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
       {/* AZIONI RAPIDE */}
-      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, padding: '18px 22px' }}>
-        <h3 style={{ margin: '0 0 12px', fontWeight: 300, fontSize: 23 }}>AZIONI RAPIDE</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 10 }}>
-          <button onClick={() => onNavigate('computi')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 300, color: C.black, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-            <Calculator size={16} strokeWidth={1.6} color={C.maroon} />Apri computo e listino
-          </button>
-          <button onClick={() => onNavigate('confronto')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 300, color: C.black, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-            <GitCompare size={16} strokeWidth={1.6} color={C.maroon} />Confronta revisioni
-          </button>
-          <button onClick={() => onNavigate('rilievo')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 300, color: C.black, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-            <MapPin size={16} strokeWidth={1.6} color={C.maroon} />Apri rilievo planimetrico
-          </button>
-          <button onClick={() => onNavigate('listino')} style={{ display: 'flex', alignItems: 'center', gap: 10, border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '12px 18px', font: 'inherit', fontSize: 13, fontWeight: 400, cursor: 'pointer', textAlign: 'left', fontFamily: FONT }}>
-            <BookOpen size={16} strokeWidth={1.6} color={C.white} />Nuova voce di listino
-          </button>
+      <section style={{ ...DASH.card, padding: '18px 22px' }}>
+        <h3 style={{ ...DASH.h3, fontSize: 23 }}>AZIONI RAPIDE</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginTop: 12 }}>
+          <button onClick={() => onNavigate('computi')} style={DASH.quick}><DashIcon><rect x="5" y="2.5" width="14" height="19" rx="2" /><path d="M8 7h8 M8 12h2 M8 16h2 M14 12h2 M14 16h2" /></DashIcon>Apri computo e listino</button>
+          <button onClick={() => onNavigate('confronto')} style={DASH.quick}><DashIcon><path d="M8 3v14 M3 12l5 5 5-5" /><path d="M16 21V7 M21 12l-5-5-5 5" /></DashIcon>Confronta revisioni</button>
+          <button onClick={() => onNavigate('rilievo')} style={DASH.quick}><DashIcon><path d="M3 6l6-2.3 6 2.3 6-2.3v15l-6 2.3-6-2.3-6 2.3z" /><path d="M9 3.7v15 M15 6v15" /></DashIcon>Apri rilievo planimetrico</button>
+          <button onClick={() => onNavigate('listino')} style={{ ...DASH.quick, border: 0, background: C.maroon, color: '#fff', fontWeight: 400 }}><DashIcon stroke="#fff"><path d="M4 4.5h7a2 2 0 0 1 2 2V20a2 2 0 0 0-2-1.5H4z" /><path d="M20 4.5h-7a2 2 0 0 0-2 2V20a2 2 0 0 1 2-1.5h7z" /></DashIcon>Nuova voce di listino</button>
         </div>
       </section>
     </div>
@@ -1162,7 +1347,7 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
             onClick={() => {
               if (!desc.trim()) return;
               const finalUnit = unit === 'Altro' ? (customUnit || '—') : unit;
-              onSave(locations[locationIdx].path, { code: code || '—', desc, unit: finalUnit, priceImpresa: priceImpresa || '0,00', priceCliente: priceCliente || '', note: note || '' });
+              onSave(locations[locationIdx].path, { code: code || '—', desc, unit: finalUnit, priceImpresa: priceImpresa || '0,00', priceCliente: priceCliente || '', note: note || '', updatedAt: new Date().toISOString() });
               onClose();
             }}
             style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}
@@ -1942,7 +2127,7 @@ function FornitoriSidebarTree({ catalog, onAdd }) {
                                     <p style={{ margin: '2px 0 0', fontSize: 10.5, color: C.gray }}>impresa {opt.prezzoScontato} € · cliente {opt.prezzoCliente} €</p>
                                   </div>
                                   <button
-                                    onClick={() => onAdd(p, v, opt)}
+                                    onClick={() => onAdd(p, v, opt, m.name, c.name)}
                                     title="Aggiungi al computo"
                                     aria-label="Aggiungi al computo"
                                     style={{ flexShrink: 0, width: 26, height: 26, borderRadius: 999, border: `1px solid ${C.paleGray}`, background: C.white, color: C.maroon, fontSize: 14, fontWeight: 700, lineHeight: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -2424,10 +2609,10 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
     const total = formatEuro(sumImpresa(realNextItems));
     const totalCliente = formatEuro(sumCliente(realNextItems));
     if (isEditingLatest) {
-      const updatedRevisions = revisions.map((r) => (r.id === selectedRevision.id ? { ...r, ...patchWithCodes, dateModified: nowLabel(), total, totalCliente } : r));
+      const updatedRevisions = revisions.map((r) => (r.id === selectedRevision.id ? { ...r, ...patchWithCodes, dateModified: nowLabel(), modifiedBy: myBookmarkName, total, totalCliente } : r));
       onUpdateProject({ ...project, revisions: updatedRevisions, value: total });
     } else {
-      const newRev = { ...selectedRevision, ...patchWithCodes, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], total, totalCliente };
+      const newRev = { ...selectedRevision, ...patchWithCodes, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0], total, totalCliente };
       onUpdateProject({ ...project, revisions: [...revisions, newRev], value: total });
       setSelectedRevisionId(newRev.id);
     }
@@ -2466,11 +2651,14 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
   // listino non serve misurare nulla, basta la quantità. Stessa segnalazione di duplicato già vista altrove
   // (Listino->computo, Fornitori->computo): se una voce con la stessa descrizione esiste già, si chiede
   // conferma prima di crearne un'altra uguale.
-  const addFornitoreToComputo = (prodotto, variante, priceSource) => {
+  // Tutte le forniture finiscono nella sezione "FORNITURE", divise in sottosezioni per tipo (la macrosezione
+  // del catalogo Fornitori: Forniture sanitarie, elettriche, infissi…), senza il nome del fornitore nella voce:
+  // il fornitore scelto resta salvato a parte (campo "fornitore") ma non compare nel computo né nel PDF.
+  const addFornitoreToComputo = (prodotto, variante, priceSource, tipoFornitura, gruppoFornitura) => {
     const desc = prodottoLabel(prodotto) + (variante.nome ? ` — ${variante.nome}` : '');
     const qtyStr = prompt(`Quantità per "${desc}":`, '1');
     if (qtyStr === null) return;
-    const sectionName = priceSource.id !== 'listino' ? priceSource.name : 'FORNITURE';
+    const sectionName = 'FORNITURE';
     applyItemsChange((its) => {
       const dupe = its.find((it) => it.type !== 'subtotal' && String(it.desc || '').trim().toLowerCase() === desc.trim().toLowerCase());
       if (dupe && !confirm(`La voce "${desc}" è già presente nel computo${dupe.code ? ` (${dupe.code})` : ''}. Vuoi aggiungere comunque un duplicato?`)) {
@@ -2480,6 +2668,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
         id: Date.now() + Math.random(), code: '', desc, unit: 'cad',
         unitPriceImpresa: priceSource.prezzoScontato, unitPriceCliente: priceSource.prezzoCliente,
         listinoRef: priceSource.prezzoListino, qty: qtyStr || '1', macro: sectionName, section: sectionName,
+        categoria: tipoFornitura || 'Generale', sottocategoria: gruppoFornitura || 'Generale',
+        fornitore: priceSource.id !== 'listino' ? priceSource.name : null,
       };
       return [...its, newItem];
     });
@@ -2966,10 +3156,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
     updateCronoTask(id, { linkedCodes: next });
   };
 
-  const headerField = (label, field, placeholder) => (
+  const headerField = (label, field, placeholder, type = 'text') => (
     <div>
       <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>{label}</label>
       <input
+        type={type}
         value={header[field] || ''}
         onChange={(e) => updateHeader(field, e.target.value)}
         placeholder={placeholder}
@@ -3061,6 +3252,10 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
             <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {headerField('Numero pratica / commessa', 'numeroPratica', 'Es. 24/2026')}
               {headerField('Data documento', 'dataDocumento', 'Es. 31/07/2026')}
+            </div>
+            <div className="form-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 12 }}>
+              {headerField('Inizio lavori', 'dataInizioLavori', '', 'date')}
+              {headerField('Fine lavori', 'dataFineLavori', '', 'date')}
             </div>
             <p style={{ fontSize: 11, color: C.gray, margin: '10px 0 0' }}>
               Committente: {project.client} · Progetto: {project.name}
@@ -5642,12 +5837,10 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
   const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
 
   const addToComputo = (projectId, revisionId, priceSource, qty) => {
-    const { prodotto, variante } = addingTo;
-    // La voce va nella categoria del fornitore scelto come fonte prezzo (non in un generico "FORNITURE"):
-    // cosi' ogni categoria del computo raggruppa le voci di un solo fornitore, ed e' collegabile a
-    // un'unica impresa/fattura in "Stati avanzamento pagamenti" senza mischiare fornitori diversi.
-    // Solo se si sceglie il prezzo di listino del prodotto (nessun fornitore reale) si resta su "FORNITURE".
-    const sectionName = priceSource.id !== 'listino' ? priceSource.name : 'FORNITURE';
+    const { prodotto, variante, tipoFornitura, gruppoFornitura } = addingTo;
+    // Sezione unica "FORNITURE", sottosezione = tipo di fornitura (macrosezione del catalogo), nessun nome
+    // del fornitore nella voce (resta solo nel campo nascosto "fornitore").
+    const sectionName = 'FORNITURE';
     const desc = prodottoLabel(prodotto) + (variante.nome ? ` — ${variante.nome}` : '');
 
     // Se questo prodotto/variante è già stato aggiunto a questo computo, lo si segnala e si chiede
@@ -5670,6 +5863,9 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
       qty,
       macro: sectionName,
       section: sectionName,
+      categoria: tipoFornitura || 'Generale',
+      sottocategoria: gruppoFornitura || 'Generale',
+      fornitore: priceSource.id !== 'listino' ? priceSource.name : null,
     };
     setProjects(projects.map((p) => (p.id === projectId ? addItemToProjectRevision(p, revisionId, newItem) : p)));
   };
@@ -5791,7 +5987,7 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
                             prodotto={p}
                             onUpdate={(updated) => updateProdotto(mi, ci, pi, updated)}
                             onRemove={() => removeProdotto(mi, ci, pi)}
-                            onAddToComputo={(variante) => setAddingTo({ prodotto: p, variante })}
+                            onAddToComputo={(variante) => setAddingTo({ prodotto: p, variante, tipoFornitura: m.name, gruppoFornitura: c.name })}
                           />
                         ))
                       )
@@ -6752,12 +6948,9 @@ export default function GestionaleEdilePreview() {
       <div className={`sidebar-backdrop${mobileNavOpen ? ' open' : ''}`} onClick={() => setMobileNavOpen(false)} />
       <aside className={`sidebar-aside${mobileNavOpen ? ' open' : ''}`} style={{ width: 270, flexShrink: 0, background: '#FBFAF7', color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '28px 16px 22px', boxSizing: 'border-box', gap: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px 18px' }}>
-          <img src="/quant-logo.png" alt="Quant" style={{ height: 36, width: 36, borderRadius: 10, objectFit: 'cover', flexShrink: 0 }} />
-          <div style={{ lineHeight: 1.2, minWidth: 0 }}>
-            <p style={{ fontFamily: FONT, fontWeight: 600, fontSize: 13, color: C.black, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{studioSettings.nome || 'Software di Computazione Edile'}</p>
-          </div>
+          <img src="/quant-logo-full.png" alt="Quant" width={169} height={228} style={{ maxWidth: '100%', height: 63, width: 'auto', display: 'block', objectFit: 'contain', aspectRatio: '169 / 228' }} />
         </div>
-        <div style={{ fontSize: 9.5, letterSpacing: 2, color: '#8C8776', textTransform: 'uppercase', marginTop: 1, lineHeight: 2, marginBottom: 10, padding: '0 12px' }}>Desearq Lab</div>
+        <div style={{ fontSize: 9.5, letterSpacing: 2, color: '#8C8776', textTransform: 'uppercase', marginTop: 1, lineHeight: 2, marginBottom: 10 }}>Desearq Lab</div>
 
         {NAV_GROUPS.map((group, gi) => (
           <React.Fragment key={gi}>
@@ -6778,7 +6971,7 @@ export default function GestionaleEdilePreview() {
                   onClick={() => { setPage(item.key); setMobileNavOpen(false); }}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 14, padding: '9px 14px', borderRadius: 10,
-                    fontFamily: FONT, fontSize: 15, fontWeight: 300, cursor: 'pointer', textDecoration: 'none',
+                    fontFamily: FONT, fontSize: 17, fontWeight: 300, cursor: 'pointer', textDecoration: 'none',
                     color: active ? C.white : '#4A403C',
                     background: active ? C.black : 'transparent',
                   }}
@@ -6804,9 +6997,11 @@ export default function GestionaleEdilePreview() {
           <span onClick={() => { setPage('impostazioni'); setMobileNavOpen(false); }} style={{ color: '#B8ADA0', cursor: 'pointer' }}>&rsaquo;</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 8px 0' }}>
-          <div style={{ width: 40, height: 40, borderRadius: '50%', background: C.accentSoft, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: C.maroon, flexShrink: 0 }}>{profile.email[0].toUpperCase()}</div>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E3D6CC', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: C.maroon, flexShrink: 0 }}>
+            {((profile.name || profile.email || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase()}
+          </div>
           <div style={{ flexGrow: 1, lineHeight: 1.25, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.email}</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#2B2321', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.name || profile.email}</div>
             <div style={{ fontSize: 12, color: '#8B8178' }}>{profile.role === 'Admin' ? 'Amministratore' : 'Membro del team'}</div>
           </div>
           <button onClick={handleLogout} title="Esci" style={{ border: 'none', background: 'transparent', color: '#8B8178', letterSpacing: 2, cursor: 'pointer', fontSize: 16, padding: 4 }}>&middot;&middot;&middot;</button>
@@ -6814,7 +7009,7 @@ export default function GestionaleEdilePreview() {
       </aside>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
-        <header className="top-header" style={{ background: 'transparent', padding: '14px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 20, borderBottom: `1px solid ${C.paleGray}` }}>
+        <header className="top-header" style={{ background: '#FAF9F6', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 20, borderBottom: '1px solid #E8E0D4' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button
               className="mobile-menu-btn"
@@ -6827,34 +7022,35 @@ export default function GestionaleEdilePreview() {
             <select
               value={activeListinoId}
               onChange={(e) => setActiveListinoId(Number(e.target.value))}
-              style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 300, fontFamily: FONT, color: C.black, cursor: 'pointer' }}
+              style={{ border: '1px solid #E3D9CC', background: '#fff', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 300, fontFamily: FONT, color: '#2B2321', cursor: 'pointer', minWidth: 180 }}
             >
               {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
             <select
               value={selectedProjectId || ''}
               onChange={(e) => { if (e.target.value) openProject(Number(e.target.value)); }}
-              style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 300, fontFamily: FONT, color: C.darkGray, cursor: 'pointer', minWidth: 170 }}
+              style={{ border: '1px solid #E3D9CC', background: '#fff', borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 300, fontFamily: FONT, color: '#2B2321', cursor: 'pointer', minWidth: 170 }}
             >
               <option value="">Scegli progetto</option>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
-          <div className="search-input-wrap" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 16px' }}>
-            <Search size={15} strokeWidth={1.5} color={C.darkGray} />
-            <input
-              type="text"
-              placeholder="Cerca progetto, cliente, voce o codice…"
-              className="search-input"
-              style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 13, fontWeight: 300, color: C.darkGray, width: 'clamp(140px, 24vw, 240px)' }}
-            />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 26, fontSize: 13, fontWeight: 300, color: '#5E5550', flexWrap: 'wrap' }}>
+            <div className="search-input-wrap" style={{ display: 'inline-flex', alignItems: 'center' }}>
+              <input
+                type="text"
+                placeholder="Cerca progetto, cliente, voce o codice…"
+                className="search-input"
+                style={{ border: 'none', outline: 'none', background: 'transparent', fontFamily: FONT, fontSize: 13, fontWeight: 300, color: '#5E5550', width: 'clamp(160px, 22vw, 250px)', padding: 0 }}
+              />
+            </div>
+            <button
+              onClick={() => setPage('progetti')}
+              style={{ border: 0, background: '#1E1A18', color: '#F7F3EC', fontFamily: FONT, fontSize: 13, fontWeight: 400, padding: '11px 22px', borderRadius: 999, cursor: 'pointer' }}
+            >
+              Nuovo progetto +
+            </button>
           </div>
-          <button
-            onClick={() => setPage('progetti')}
-            style={{ border: 'none', background: C.black, color: C.white, fontFamily: FONT, fontSize: 13, fontWeight: 400, padding: '11px 22px', borderRadius: 999, cursor: 'pointer' }}
-          >
-            Nuovo progetto +
-          </button>
         </header>
 
         {/* overflowX qui era 'auto': su qualunque browser questo trasforma <main> in un "contenitore di scroll",
@@ -6862,7 +7058,7 @@ export default function GestionaleEdilePreview() {
             colonna Listino nel computo metrico (restava ancorato al box di <main>, che non scorre mai da solo,
             invece che alla pagina). 'clip' taglia comunque l'overflow orizzontale ma senza creare quel contenitore,
             quindi lo sticky funziona di nuovo; le singole tabelle larghe restano scorrevili con la classe .table-scroll. */}
-        <main className="app-main" style={{ padding: 24, flex: 1, overflowX: 'clip', minWidth: 0, width: '100%', background: '#FAF9F6' }}>
+        <main className="app-main" style={{ padding: '22px 32px 48px', flex: 1, overflowX: 'clip', minWidth: 0, width: '100%', background: '#FAF9F6' }}>
           {page === 'dashboard' && <Dashboard onNavigate={setPage} onOpenProject={openProject} projects={projects} listini={listini} activeListinoId={activeListinoId} fornitoriCatalog={fornitoriCatalog} profile={profile} />}
           {page === 'listino' && <ListinoPage listini={listini} setListini={setListini} activeId={activeListinoId} setActiveId={setActiveListinoId} />}
           {page === 'progetti' && <ProgettiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} />}
