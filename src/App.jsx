@@ -1330,6 +1330,27 @@ function ensureVoceUids(listini) {
   return changed ? next : listini;
 }
 const normText = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+// Ricerca "a filtro" usata in computo, listino e fornitori: il testo cercato viene diviso in parole e una
+// riga compare solo se le contiene TUTTE (in qualsiasi ordine), confrontando i campi indicati.
+const searchTerms = (q) => String(q || '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+const matchesTerms = (terms, ...fields) => {
+  if (!terms.length) return true;
+  const hay = fields.map((f) => String(f || '')).join(' ').toLowerCase();
+  return terms.every((tm) => hay.includes(tm));
+};
+function SidebarSearch({ value, onChange, placeholder, count }) {
+  return (
+    <div style={{ margin: '0 0 10px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: '1px solid #E3D9CC', background: '#fff', borderRadius: 999, padding: '6px 10px' }}>
+        <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="#8B8178" strokeWidth={1.6} strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+        <input value={value} onChange={(e) => onChange(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') onChange(''); }} placeholder={placeholder}
+          style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1, minWidth: 0, fontSize: 12, fontFamily: FONT, color: '#2B2321' }} />
+        {value && <button onClick={() => onChange('')} aria-label="Cancella ricerca" style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 12, padding: 0 }}>✕</button>}
+      </div>
+      {value.trim() && <div style={{ fontSize: 11, color: count ? C.maroon : '#8B8178', margin: '5px 2px 0' }}>{count ? `${count} vo${count === 1 ? 'ce trovata' : 'ci trovate'}` : 'Nessuna voce trovata'}</div>}
+    </div>
+  );
+}
 
 // Quando cambiano i prezzi di una voce di listino, li aggiorna nelle voci dei computi ANCORA IN ATTESA DI
 // APPROVAZIONE nate da quella voce. Non tocca mai:
@@ -1872,7 +1893,7 @@ function EditableCatalog({ macros, setMacros }) {
       </div>
 
       {coded.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap', position: 'sticky', top: 'var(--header-h, 68px)', zIndex: 15, background: C.white, padding: '10px 0', margin: '0 0 14px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 320px', maxWidth: 560, border: '1px solid #E3D9CC', background: '#fff', borderRadius: 999, padding: '8px 14px' }}>
             <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="#8B8178" strokeWidth={1.6} strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
             <input
@@ -2197,8 +2218,12 @@ const SECTION_COLORS = [DEFAULT_ACCENT, C.darkGray, '#94706C', '#4A3F35'];
 
 function DraggableCatalogTree({ listino, onAdd, onEdit }) {
   const [expanded, setExpanded] = useState({});
-  const isOpen = (key) => expanded[key] !== false;
-  const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
+  const [q, setQ] = useState('');
+  const terms = searchTerms(q);
+  const searching = terms.length > 0;
+  const isOpen = (key) => searching || expanded[key] !== false;
+  const toggle = (key) => setExpanded({ ...expanded, [key]: !(expanded[key] !== false) });
+  const voceMatch = (v) => matchesTerms(terms, v.code, v.desc, v.note);
 
   if (!listino) return null;
   const coded = withCodes(listino.macros);
@@ -2207,10 +2232,15 @@ function DraggableCatalogTree({ listino, onAdd, onEdit }) {
     return <p style={{ fontSize: 12, color: C.gray }}>Questo listino non ha ancora voci.</p>;
   }
 
+  const found = searching ? coded.reduce((n, m) => n + m.categorie.reduce((n2, c) => n2 + c.sottocategorie.reduce((n3, s) => n3 + s.voci.filter(voceMatch).length, 0), 0), 0) : 0;
   return (
     <div>
+      <div style={{ position: 'sticky', top: 0, zIndex: 2, background: '#FFFDFA', paddingBottom: 2 }}>
+        <SidebarSearch value={q} onChange={setQ} placeholder="Cerca nel listino (codice o parole)…" count={found} />
+      </div>
       {coded.map((m, mi) => {
         const mKey = `m${mi}`;
+        if (searching && !m.categorie.some((c) => c.sottocategorie.some((s) => s.voci.some(voceMatch)))) return null;
         return (
           <div key={mi} style={{ marginBottom: 8 }}>
             <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '6px 4px', borderRadius: 6, background: C.bg }}>
@@ -2219,6 +2249,7 @@ function DraggableCatalogTree({ listino, onAdd, onEdit }) {
             </div>
             {isOpen(mKey) && m.categorie.map((c, ci) => {
               const cKey = `m${mi}c${ci}`;
+              if (searching && !c.sottocategorie.some((s) => s.voci.some(voceMatch))) return null;
               return (
                 <div key={ci} style={{ paddingLeft: 12 }}>
                   <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '5px 4px' }}>
@@ -2227,6 +2258,7 @@ function DraggableCatalogTree({ listino, onAdd, onEdit }) {
                   </div>
                   {isOpen(cKey) && c.sottocategorie.map((s, si) => {
                     const sKey = `m${mi}c${ci}s${si}`;
+                    if (searching && !s.voci.some(voceMatch)) return null;
                     return (
                       <div key={si} style={{ paddingLeft: 12 }}>
                         <div onClick={() => toggle(sKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '4px 4px' }}>
@@ -2236,6 +2268,7 @@ function DraggableCatalogTree({ listino, onAdd, onEdit }) {
                         {isOpen(sKey) && (
                           <div style={{ paddingLeft: 12 }}>
                             {s.voci.map((v, vi) => {
+                              if (searching && !voceMatch(v)) return null;
                               const impresaVal = parseEuro(v.priceImpresa);
                               const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
                               const voceData = { ...v, macro: m.name, categoria: c.name, sotto: s.name, impresaValue: impresaVal, clienteValue: clienteVal };
@@ -2295,19 +2328,30 @@ function DraggableCatalogTree({ listino, onAdd, onEdit }) {
 // sta modificando, senza dover scegliere progetto/revisione (si è già dentro quella giusta).
 function FornitoriSidebarTree({ catalog, onAdd }) {
   const [expanded, setExpanded] = useState({});
-  const isOpen = (key) => expanded[key] !== false;
-  const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
+  const [q, setQ] = useState('');
+  const terms = searchTerms(q);
+  const searching = terms.length > 0;
+  const isOpen = (key) => searching || expanded[key] !== false;
+  const toggle = (key) => setExpanded({ ...expanded, [key]: !(expanded[key] !== false) });
+  // Una variante corrisponde se marca/modello del prodotto, nome della variante o nomi dei fornitori contengono tutte le parole cercate.
+  const varMatch = (p, v) => matchesTerms(terms, prodottoLabel(p), v.nome, ...(v.fornitori || []).map((f) => f.name));
+  const prodMatch = (p) => (p.varianti || []).some((v) => varMatch(p, v));
 
   const macros = catalog || [];
   if (macros.length === 0) {
     return <p style={{ fontSize: 12, color: C.gray }}>Catalogo fornitori vuoto: aggiungi prodotti dalla pagina "Fornitori".</p>;
   }
 
+  const found = searching ? macros.reduce((n, m) => n + (m.categorie || []).reduce((n2, c) => n2 + (c.prodotti || []).filter(prodMatch).length, 0), 0) : 0;
   return (
     <div>
+      <div style={{ position: 'sticky', top: 0, zIndex: 2, background: '#FFFDFA', paddingBottom: 2 }}>
+        <SidebarSearch value={q} onChange={setQ} placeholder="Cerca marca, modello, variante o fornitore…" count={found} />
+      </div>
       {macros.map((m, mi) => {
         const mKey = `fm${mi}`;
         const categorie = m.categorie || [];
+        if (searching && !categorie.some((c) => (c.prodotti || []).some(prodMatch))) return null;
         return (
           <div key={mi} style={{ marginBottom: 8 }}>
             <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '6px 4px', borderRadius: 6, background: C.bg }}>
@@ -2316,7 +2360,8 @@ function FornitoriSidebarTree({ catalog, onAdd }) {
             </div>
             {isOpen(mKey) && categorie.map((c, ci) => {
               const cKey = `${mKey}c${ci}`;
-              const prodotti = c.prodotti || [];
+              const prodotti = (c.prodotti || []).filter((p) => !searching || prodMatch(p));
+              if (searching && prodotti.length === 0) return null;
               return (
                 <div key={ci} style={{ paddingLeft: 12 }}>
                   <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '5px 4px' }}>
@@ -2334,7 +2379,7 @@ function FornitoriSidebarTree({ catalog, onAdd }) {
                           <span style={{ fontSize: 10, color: C.gray }}>{isOpen(pKey) ? '⌄' : '›'}</span>
                           <span style={{ fontSize: 12, color: C.midGray }}>{prodottoLabel(p)}</span>
                         </div>
-                        {isOpen(pKey) && (p.varianti || []).map((v) => {
+                        {isOpen(pKey) && (p.varianti || []).filter((v) => !searching || matchesTerms(terms, prodottoLabel(p)) || varMatch(p, v)).map((v) => {
                           const priceOptions = [
                             { id: 'listino', name: 'Prezzo di listino', prezzoListino: v.listinoPrice, prezzoScontato: v.listinoPrice, prezzoCliente: v.listinoPrice },
                             ...(v.fornitori || []),
@@ -2830,8 +2875,10 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   // Ricerca testuale fra le voci del computo aperto (per codice o descrizione): utile per ritrovare in
   // fretta una voce già inserita e da aggiornare/sistemare, senza dover scorrere a occhio tutto il computo.
   const voceSearchTerm = voceSearch.trim().toLowerCase();
+  const voceTerms = searchTerms(voceSearch);
+  const itemMatchesSearch = (it) => it.type !== 'subtotal' && matchesTerms(voceTerms, it.code, it.desc, it.note, it.noteCliente);
   const voceSearchMatches = voceSearchTerm
-    ? realItems.filter((it) => (it.desc || '').toLowerCase().includes(voceSearchTerm) || (it.code || '').toLowerCase().includes(voceSearchTerm))
+    ? realItems.filter(itemMatchesSearch)
     : [];
   const goToSearchMatch = (idx) => {
     if (voceSearchMatches.length === 0) return;
@@ -3671,7 +3718,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
           </div>
 
           <div style={{ display: 'flex', gap: 18, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            <div className="listino-catalog-card" style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 16, alignSelf: 'flex-start', maxHeight: 'calc(100vh - 32px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="listino-catalog-card" style={{ ...card, width: 300, maxWidth: '100%', flexShrink: 0, border: `2px solid ${C.maroon}`, position: 'sticky', top: 'calc(var(--header-h, 68px) + 12px)', alignSelf: 'flex-start', maxHeight: 'calc(100vh - var(--header-h, 68px) - 24px)', display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', flexDirection: 'column', flex: sidebarOpen.listino ? 1 : '0 0 auto', minHeight: sidebarOpen.listino ? 60 : 'auto', overflow: 'hidden' }}>
                 <div onClick={() => toggleSidebarSection('listino')} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', flexShrink: 0 }}>
                   <p style={{ fontSize: 14, fontWeight: 700, margin: 0, color: C.black, fontFamily: FONT }}>Listino</p>
@@ -3712,24 +3759,21 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
             </div>
 
             <div style={{ flex: 1, minWidth: 320 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap', position: 'sticky', top: 'var(--header-h, 68px)', zIndex: 15, background: '#FAF9F6', padding: '8px 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 220px', maxWidth: 320 }}>
                   <input
                     value={voceSearch}
                     onChange={(e) => { setVoceSearch(e.target.value); setVoceSearchIdx(0); }}
-                    onKeyDown={(e) => { if (e.key === 'Enter') goToSearchMatch(e.shiftKey ? voceSearchIdx - 1 : voceSearchIdx + 1); }}
-                    placeholder="🔍 Cerca una voce per codice o descrizione…"
+                    onKeyDown={(e) => { if (e.key === 'Escape') setVoceSearch(''); }}
+                    placeholder="🔍 Cerca nel computo per codice o parole…"
                     style={{ width: '100%', fontSize: 12, padding: '7px 10px', borderRadius: 999, border: `1px solid ${C.paleGray}`, background: C.white }}
                   />
                   {voceSearchTerm && (
-                    <span style={{ fontSize: 11, color: voceSearchMatches.length ? C.midGray : C.maroon, whiteSpace: 'nowrap' }}>
-                      {voceSearchMatches.length ? `${voceSearchIdx + 1}/${voceSearchMatches.length}` : 'nessuna voce'}
-                    </span>
-                  )}
-                  {voceSearchMatches.length > 1 && (
                     <>
-                      <button onClick={() => goToSearchMatch(voceSearchIdx - 1)} style={{ ...iconBtn, height: 24 }}>▲</button>
-                      <button onClick={() => goToSearchMatch(voceSearchIdx + 1)} style={{ ...iconBtn, height: 24 }}>▼</button>
+                      <span style={{ fontSize: 11, color: voceSearchMatches.length ? C.maroon : '#8B8178', whiteSpace: 'nowrap', fontWeight: 500 }}>
+                        {voceSearchMatches.length ? `${voceSearchMatches.length} vo${voceSearchMatches.length === 1 ? 'ce' : 'ci'}` : 'nessuna voce'}
+                      </span>
+                      <button onClick={() => setVoceSearch('')} title="Cancella ricerca" style={{ ...iconBtn, height: 24 }}>✕</button>
                     </>
                   )}
                 </div>
@@ -3773,6 +3817,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                     // La macrosezione è eliminabile finché non contiene voci vere (le eventuali "Sommatoria
                     // parziale" rimaste vengono ripulite da removeMarkerOrEmptySection insieme alla sezione).
                     const hasRealItems = section.items.some((it) => it.type !== 'subtotal');
+                    // Durante la ricerca restano visibili solo le voci che la contengono (e le loro sezioni/categorie).
+                    if (voceSearchTerm && !section.items.some(itemMatchesSearch)) return null;
                     return (
                       <div
                         key={section.name}
@@ -3820,6 +3866,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                           <p style={{ fontSize: 12, color: C.gray, padding: '10px 14px' }}>Nessuna categoria ancora in questa macrocategoria.</p>
                         ) : section.categorie.map((cat, catIdx) => {
                           const catKey = `${section.name}|${cat.name}`;
+                          if (voceSearchTerm && !cat.items.some(itemMatchesSearch)) return null;
                           return (
                             <div
                               key={cat.name}
@@ -3879,13 +3926,14 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                   </thead>
                                   <tbody>
                                     {cat.items.map((it) => {
+                                      if (voceSearchTerm && !itemMatchesSearch(it)) return null;
                                       const detailRows = (it.misurazioni || []).flatMap((g) => g.rows || []);
                                       const hasDetail = detailRows.length > 0 || !!it.note;
                                       const isExpanded = !!expandedItems[it.id];
                                       const itemBookmarks = (selectedRevision.bookmarks || []).filter((b) => b.itemId === it.id);
                                       const myBookmarkHere = itemBookmarks.some((b) => b.key === myBookmarkKey);
-                                      const searchMatchIdx = voceSearchTerm ? voceSearchMatches.findIndex((m) => m.id === it.id) : -1;
-                                      const isCurrentSearchMatch = searchMatchIdx >= 0 && searchMatchIdx === voceSearchIdx;
+                                      const searchMatchIdx = -1; // con la ricerca "a filtro" le voci non trovate sono nascoste: niente più evidenziazione
+                                      const isCurrentSearchMatch = false;
                                       const qtyIsZero = parseEuro(it.qty) === 0;
                                       const impresaIsZero = parseEuro(it.unitPriceImpresa) === 0;
                                       const clienteIsZero = parseEuro(it.unitPriceCliente) === 0;
@@ -4031,7 +4079,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                           );
                         })}
 
-                        {markerRows.length > 0 && (
+                        {!voceSearchTerm && markerRows.length > 0 && (
                           <div style={{ borderTop: `1px solid ${C.paleGray}` }}>
                             {markerRows.map(({ marker, runImp, runCli }) => {
                               const hasVat = marker.vatRate !== null && marker.vatRate !== undefined;
@@ -4068,7 +4116,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                           </div>
                         )}
 
-                        <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.paleGray}` }}>
+                        {!voceSearchTerm && <div style={{ padding: '8px 14px', borderTop: `1px solid ${C.paleGray}` }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: C.black, marginBottom: section.discountPct ? 6 : 0 }}>
                             <span>Subtotale {section.name} (impresa)&nbsp;&nbsp;{formatEuro(section.subtotalImpresa)}</span>
                             <span style={{ color: C.maroon }}>Subtotale {section.name} (cliente)&nbsp;&nbsp;{formatEuro(section.subtotalCliente)}</span>
@@ -4134,7 +4182,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                               </div>
                             );
                           })()}
-                        </div>
+                        </div>}
                       </div>
                     );
                   })
@@ -7496,6 +7544,16 @@ export default function GestionaleEdilePreview() {
   const [studioSettings, setStudioSettings] = useState(DEFAULT_STUDIO_SETTINGS);
   React.useEffect(() => { applyAccentColor(studioSettings.coloreAccento); }, [studioSettings.coloreAccento]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const topHeaderRef = useRef(null);
+  React.useEffect(() => {
+    const el = topHeaderRef.current;
+    if (!el) return undefined;
+    const setH = () => document.documentElement.style.setProperty('--header-h', `${Math.ceil(el.getBoundingClientRect().height)}px`);
+    setH();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(setH) : null;
+    if (ro) ro.observe(el); else window.addEventListener('resize', setH);
+    return () => { if (ro) ro.disconnect(); else window.removeEventListener('resize', setH); };
+  });
 
   // --- Autenticazione reale (Supabase Auth) ---
   const [authUser, setAuthUser] = useState(undefined); // undefined = ancora in caricamento, null = non collegato
@@ -7836,7 +7894,7 @@ export default function GestionaleEdilePreview() {
       </aside>
 
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, width: '100%' }}>
-        <header className="top-header" style={{ background: '#FAF9F6', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 20, borderBottom: '1px solid #E8E0D4' }}>
+        <header ref={topHeaderRef} className="top-header" style={{ background: '#FAF9F6', padding: '14px 32px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap', position: 'sticky', top: 0, zIndex: 20, borderBottom: '1px solid #E8E0D4' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
             <button
               className="mobile-menu-btn"
