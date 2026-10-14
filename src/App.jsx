@@ -46,7 +46,7 @@ const NAV_ITEMS = [
 // qui serve riprodurre esattamente il disegno del mockup, non un'icona "equivalente".
 function NavIcon({ children }) {
   return (
-    <svg viewBox="0 0 24 24" width={18} height={18} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <svg viewBox="0 0 24 24" width={20} height={20} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
       {children}
     </svg>
   );
@@ -5777,6 +5777,78 @@ function ProdottoFornitoreModal({ mode, initial = {}, suggestions, onClose, onSa
   );
 }
 
+// Modale per aggiungere/modificare un fornitore di una variante: il nome ha i suggerimenti "mentre scrivi"
+// tra i fornitori già presenti nel catalogo (così non nascono doppioni con nomi scritti in modo diverso),
+// e i prezzi impresa/cliente si inseriscono come prezzo finale oppure come sconto % dal listino.
+function FornitorePrezziModal({ initial = {}, isNew, suggestions, onClose, onSave }) {
+  const fmt = (n) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const [name, setName] = useState(initial.name || '');
+  const [listino, setListino] = useState(initial.prezzoListino || '');
+  const [impresa, setImpresa] = useState(initial.prezzoScontato || '');
+  const [cliente, setCliente] = useState(initial.prezzoCliente || '');
+  const [scImpresa, setScImpresa] = useState('');
+  const [scCliente, setScCliente] = useState('');
+  const fromSconto = (pctStr, listinoStr) => {
+    const pct = parseFloat(String(pctStr).replace(',', '.'));
+    const base = parseEuro(listinoStr);
+    return !isNaN(pct) && base > 0 ? fmt(base * (1 - pct / 100)) : null;
+  };
+  const changeListino = (v) => {
+    setListino(v);
+    if (scImpresa) { const p = fromSconto(scImpresa, v); if (p) setImpresa(p); }
+    if (scCliente) { const p = fromSconto(scCliente, v); if (p) setCliente(p); }
+  };
+  const field = { width: '100%', boxSizing: 'border-box', fontSize: 13, padding: '9px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}`, fontFamily: FONT, color: C.black, background: '#fff' };
+  const label = { fontSize: 11, fontWeight: 700, color: C.midGray, display: 'block', margin: '0 0 4px' };
+  const priceRow = (title, sc, setSc, val, setVal) => (
+    <div style={{ marginBottom: 12 }}>
+      <span style={label}>{title}</span>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ position: 'relative', width: 110, flex: 'none' }}>
+          <input value={sc} onChange={(e) => { setSc(e.target.value); const p = fromSconto(e.target.value, listino); if (p) setVal(p); }} placeholder="Sconto" style={{ ...field, paddingRight: 26 }} />
+          <span style={{ position: 'absolute', right: 10, top: 9, fontSize: 13, color: C.gray }}>%</span>
+        </div>
+        <div style={{ position: 'relative', flex: 1 }}>
+          <input value={val} onChange={(e) => { setVal(e.target.value); setSc(''); }} placeholder="0,00" style={{ ...field, paddingRight: 26 }} />
+          <span style={{ position: 'absolute', right: 10, top: 9, fontSize: 13, color: C.gray }}>€</span>
+        </div>
+      </div>
+    </div>
+  );
+  const canSave = !!name.trim();
+  const save = () => {
+    if (!canSave) return;
+    const l = listino.trim() || '0,00';
+    onSave({ name: name.trim(), prezzoListino: l, prezzoScontato: impresa.trim() || l, prezzoCliente: cliente.trim() || l });
+    onClose();
+  };
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && !e.defaultPrevented) save(); }} style={{ background: C.white, borderRadius: 14, padding: 22, width: 440, maxWidth: '100%' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, margin: '0 0 4px', color: C.black }}>{isNew ? 'Nuovo fornitore' : 'Modifica fornitore'}</h2>
+        <p style={{ fontSize: 11.5, color: C.gray, margin: '0 0 16px' }}>Mentre scrivi il nome compaiono i fornitori già inseriti nel catalogo: sceglilo oppure scrivine uno nuovo. Per i prezzi puoi scrivere lo sconto % sul listino oppure direttamente il prezzo.</p>
+        <div style={{ marginBottom: 12 }}>
+          <span style={label}>Fornitore</span>
+          <SuggestInput value={name} onChange={setName} options={suggestions.fornitori} placeholder="Es. Edilceramica Rusconi" autoFocus style={field} />
+        </div>
+        <div style={{ marginBottom: 12 }}>
+          <span style={label}>Prezzo di listino del fornitore</span>
+          <div style={{ position: 'relative' }}>
+            <input value={listino} onChange={(e) => changeListino(e.target.value)} placeholder="0,00" style={{ ...field, paddingRight: 26 }} />
+            <span style={{ position: 'absolute', right: 10, top: 9, fontSize: 13, color: C.gray }}>€</span>
+          </div>
+        </div>
+        {priceRow('Prezzo impresa (scontato)', scImpresa, setScImpresa, impresa, setImpresa)}
+        {priceRow('Prezzo cliente', scCliente, setScCliente, cliente, setCliente)}
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
+          <button onClick={onClose} style={{ background: 'transparent', color: C.black, border: `1px solid ${C.paleGray}`, padding: '9px 16px', borderRadius: 999, fontSize: 12.5, cursor: 'pointer', fontFamily: FONT }}>Annulla</button>
+          <button onClick={save} disabled={!canSave} style={{ background: C.maroon, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 500, cursor: canSave ? 'pointer' : 'default', opacity: canSave ? 1 : 0.5, fontFamily: FONT }}>Salva</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo, suggestions }) {
   const [modal, setModal] = useState(null); // { mode, vi?, initial }
   const uploadPhoto = (file) => {
@@ -5787,21 +5859,6 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo, suggestion
   };
 
   const renameProdotto = () => setModal({ mode: 'modifica', initial: { marca: prodotto.marca || '', modello: prodotto.modello || '' } });
-
-  // Chiede il prezzo finale, oppure — se è più comodo — lo sconto percentuale dal prezzo di
-  // listino da cui il prezzo finale si calcola da solo. Lasciare vuoto il primo prompt salta
-  // direttamente alla richiesta del prezzo finale, come prima.
-  const askPriceOrDiscount = (label, listinoPriceStr, currentValue) => {
-    const listinoNum = parseEuro(listinoPriceStr);
-    const pctStr = prompt(`${label} — sconto % dal prezzo di listino (${listinoPriceStr} €)? Lascia vuoto per inserire invece il prezzo finale.`);
-    if (pctStr !== null && pctStr.trim() !== '') {
-      const pct = parseFloat(pctStr.replace(',', '.'));
-      if (!isNaN(pct) && listinoNum > 0) {
-        return (listinoNum * (1 - pct / 100)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-      }
-    }
-    return prompt(`${label} — prezzo finale (€):`, currentValue ?? listinoPriceStr) ?? (currentValue ?? listinoPriceStr);
-  };
 
   const addVariante = () => setModal({ mode: 'variante-nuova', initial: { listinoPrice: '' } });
   const renameVariante = (vi) => setModal({ mode: 'variante-rinomina', vi, initial: { variante: prodotto.varianti[vi].nome || '' } });
@@ -5828,27 +5885,23 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo, suggestion
 
   const addFornitore = (vi) => {
     const v = prodotto.varianti[vi];
-    const name = prompt('Nome fornitore:');
-    if (!name) return;
-    const prezzoListino = prompt(`Prezzo di listino del fornitore "${name}" (€):`, v.listinoPrice) || v.listinoPrice || '0,00';
-    const prezzoScontato = askPriceOrDiscount('Prezzo impresa (scontato)', prezzoListino, prezzoListino);
-    const prezzoCliente = askPriceOrDiscount('Prezzo cliente', prezzoListino, prezzoListino);
-    const nuovoFornitore = { id: Date.now(), name, prezzoListino, prezzoScontato, prezzoCliente };
-    onUpdate({ ...prodotto, varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, fornitori: [...x.fornitori, nuovoFornitore] } : x)) });
+    setModal({ mode: 'fornitore', vi, fid: null, initial: { prezzoListino: v.listinoPrice || '', prezzoScontato: v.listinoPrice || '', prezzoCliente: v.listinoPrice || '' } });
   };
-
   const editFornitore = (vi, fid) => {
+    const f = prodotto.varianti[vi].fornitori.find((x) => x.id === fid);
+    setModal({ mode: 'fornitore', vi, fid, initial: { ...f } });
+  };
+  const saveFornitore = (vals) => {
+    const { vi, fid } = modal;
     const v = prodotto.varianti[vi];
-    const f = v.fornitori.find((x) => x.id === fid);
-    const name = prompt('Nome fornitore:', f.name);
-    if (!name) return;
-    const prezzoListino = prompt('Prezzo di listino del fornitore (€):', f.prezzoListino);
-    if (prezzoListino === null) return;
-    const prezzoScontato = askPriceOrDiscount('Prezzo impresa (scontato)', prezzoListino, f.prezzoScontato);
-    const prezzoCliente = askPriceOrDiscount('Prezzo cliente', prezzoListino, f.prezzoCliente);
+    const doppio = v.fornitori.find((y) => y.id !== fid && (y.name || '').trim().toLowerCase() === vals.name.toLowerCase());
+    if (doppio && !confirm(`"${vals.name}" è già tra i fornitori di questa variante. Vuoi aggiungerlo comunque?`)) return;
     onUpdate({
       ...prodotto,
-      varianti: prodotto.varianti.map((x, i) => (i === vi ? { ...x, fornitori: x.fornitori.map((y) => (y.id === fid ? { ...y, name, prezzoListino, prezzoScontato, prezzoCliente } : y)) } : x)),
+      varianti: prodotto.varianti.map((x, i) => (i !== vi ? x : {
+        ...x,
+        fornitori: fid ? x.fornitori.map((y) => (y.id === fid ? { ...y, ...vals } : y)) : [...x.fornitori, { id: Date.now(), ...vals }],
+      })),
     });
   };
 
@@ -5860,7 +5913,8 @@ function ProdottoCard({ prodotto, onUpdate, onRemove, onAddToComputo, suggestion
 
   return (
     <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '14px 16px', marginBottom: 12, display: 'flex', gap: 14 }}>
-      {modal && <ProdottoFornitoreModal mode={modal.mode} initial={modal.initial} suggestions={suggestions || {}} onClose={() => setModal(null)} onSave={saveModal} />}
+      {modal && modal.mode !== 'fornitore' && <ProdottoFornitoreModal mode={modal.mode} initial={modal.initial} suggestions={suggestions || {}} onClose={() => setModal(null)} onSave={saveModal} />}
+      {modal && modal.mode === 'fornitore' && <FornitorePrezziModal isNew={!modal.fid} initial={modal.initial} suggestions={suggestions || {}} onClose={() => setModal(null)} onSave={saveFornitore} />}
       <label style={{ width: 64, height: 64, borderRadius: 8, background: '#F0EAE0', border: '1px dashed #CFC4B6', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', overflow: 'hidden', textAlign: 'center' }}>
         {prodotto.photo ? (
           <img src={prodotto.photo} alt={prodottoLabel(prodotto)} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -6027,6 +6081,7 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
     marche: allProdotti.map((p) => p.marca),
     modelli: allProdotti.map((p) => ({ marca: p.marca, modello: p.modello })),
     varianti: allProdotti.flatMap((p) => (p.varianti || []).map((v) => v.nome)),
+    fornitori: allProdotti.flatMap((p) => (p.varianti || []).flatMap((v) => (v.fornitori || []).map((f) => f.name))),
   };
   const addProdotto = (mi, ci) => setNuovoProdottoAt([mi, ci]);
   const saveNuovoProdotto = ({ marca, modello, variante, listinoPrice }) => {
@@ -6161,7 +6216,187 @@ async function extractFunctionErrorMessage(err, fallback) {
   return err?.message || fallback;
 }
 
-function TeamPage({ profile }) {
+// Ridimensiona una foto scelta dall'utente a un quadrato (taglio centrato) in JPEG, così la scheda del team
+// resta leggera da salvare nel database e da caricare (circa 20–40 KB invece di diversi MB).
+function resizeImageToDataUrl(file, size = 256) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Lettura del file non riuscita.'));
+    reader.onload = () => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('Il file scelto non è un\'immagine valida.'));
+      img.onload = () => {
+        const side = Math.min(img.width, img.height);
+        const canvas = document.createElement('canvas');
+        canvas.width = size; canvas.height = size;
+        canvas.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+const memberInitials = (nm) => (nm || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
+
+function MemberAvatar({ member, size = 38 }) {
+  const base = { width: size, height: size, borderRadius: '50%', flex: 'none', border: '1px solid #E3D9CC', boxSizing: 'border-box' };
+  if (member?.photo) return <img src={member.photo} alt="" style={{ ...base, objectFit: 'cover', display: 'block' }} />;
+  return (
+    <span style={{ ...base, background: '#F1EBE2', color: '#5A4F4A', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontWeight: 500, letterSpacing: '.02em', fontSize: size >= 34 ? Math.round(size * 0.33) : 11 }}>
+      {memberInitials(member?.name || member?.email)}
+    </span>
+  );
+}
+
+function generatePassword(len = 10) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const arr = new Uint32Array(len);
+  (window.crypto || window.msCrypto).getRandomValues(arr);
+  return Array.from(arr, (n) => chars[n % chars.length]).join('');
+}
+
+// Scheda di una persona del team: tutti la possono aprire, solo un admin può modificarla
+// (lo impone anche il database: la tabella accetta modifiche solo da un admin attivo).
+function TeamMemberModal({ member, isAdmin, isSelf, onClose, onSaved, onRemoved }) {
+  const [name, setName] = useState(member.name || '');
+  const [jobTitle, setJobTitle] = useState(member.job_title || '');
+  const [email, setEmail] = useState(member.email || '');
+  const [phone, setPhone] = useState(member.phone || '');
+  const [notes, setNotes] = useState(member.notes || '');
+  const [role, setRole] = useState(member.role || 'Membro');
+  const [photo, setPhoto] = useState(member.photo || null);
+  const [newPassword, setNewPassword] = useState('');
+  const [showPw, setShowPw] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
+  const ro = !isAdmin;
+
+  const field = { width: '100%', boxSizing: 'border-box', border: '1px solid #E3D9CC', background: ro ? '#FAF8F4' : '#fff', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: FONT, color: '#2B2321' };
+  const label = { fontSize: 11, fontWeight: 600, color: '#6F655F', display: 'block', margin: '0 0 4px', letterSpacing: '.02em' };
+  const pillBtn = { border: '1px solid #E3D9CC', background: '#fff', color: '#2B2321', borderRadius: 999, padding: '7px 14px', fontSize: 12, fontWeight: 300, fontFamily: FONT, cursor: 'pointer' };
+
+  const pickPhoto = async (file) => {
+    if (!file) return;
+    try { setPhoto(await resizeImageToDataUrl(file)); setError(''); } catch (e) { setError(e.message); }
+  };
+
+  const save = async () => {
+    if (!isAdmin) return;
+    if (!name.trim()) { setError('Il nome è obbligatorio.'); return; }
+    if (newPassword && newPassword.length < 6) { setError('La nuova password deve avere almeno 6 caratteri.'); return; }
+    if (isSelf && role !== 'Admin' && member.role === 'Admin' && !confirm('Stai togliendo a te stesso il ruolo di Admin: non potrai più modificare il team. Continuare?')) return;
+    setSaving(true); setError(''); setInfo('');
+    const { data: updated, error: upErr } = await cea.from('team_members')
+      .update({ name: name.trim(), job_title: jobTitle.trim() || null, phone: phone.trim() || null, notes: notes.trim() || null, role, photo })
+      .eq('id', member.id).select().maybeSingle();
+    if (upErr || !updated) { setSaving(false); setError(upErr?.message || 'Salvataggio non riuscito (servono i permessi di admin).'); return; }
+    let finalRow = updated;
+    const newEmail = email.trim().toLowerCase();
+    if (newEmail && newEmail !== (member.email || '').toLowerCase()) {
+      const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', { body: { action: 'update_email', memberId: member.id, email: newEmail } });
+      const msg = err ? await extractFunctionErrorMessage(err, 'Cambio email non riuscito.') : data?.error;
+      if (msg) { setSaving(false); onSaved(finalRow); setError(`Dati salvati, ma l'email non è stata cambiata: ${msg}`); return; }
+      finalRow = { ...finalRow, email: newEmail };
+    }
+    if (newPassword) {
+      const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', { body: { action: 'reset_password', memberId: member.id, password: newPassword } });
+      const msg = err ? await extractFunctionErrorMessage(err, 'Cambio password non riuscito.') : data?.error;
+      if (msg) { setSaving(false); onSaved(finalRow); setError(`Dati salvati, ma la password non è stata cambiata: ${msg}`); return; }
+    }
+    setSaving(false);
+    onSaved(finalRow);
+    setNewPassword('');
+    setInfo(newPassword ? 'Salvato. Nuova password attiva: comunicala alla persona di persona o in chat privata.' : 'Salvato.');
+  };
+
+  const remove = async () => {
+    if (!confirm(`Rimuovere ${member.name} dal team? Perderà l'accesso al workspace.`)) return;
+    const { error: err } = await cea.from('team_members').delete().eq('id', member.id);
+    if (err) { setError(err.message); return; }
+    onRemoved(member.id);
+  };
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFFDFA', borderRadius: 16, width: 560, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '22px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+          <MemberAvatar member={{ ...member, name, photo }} size={72} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 20, fontWeight: 300, color: '#2B2321', letterSpacing: '-.01em' }}>{name || member.email}</div>
+            <div style={{ fontSize: 12.5, color: '#8B8178', fontWeight: 300 }}>{jobTitle || (role === 'Admin' ? 'Amministratore' : 'Membro del team')}</div>
+            {isAdmin && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+                <label style={{ ...pillBtn, display: 'inline-block' }}>
+                  {photo ? 'Cambia foto' : 'Carica foto'}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => pickPhoto(e.target.files[0])} />
+                </label>
+                {photo && <button onClick={() => setPhoto(null)} style={pillBtn}>Rimuovi foto</button>}
+              </div>
+            )}
+          </div>
+          <button onClick={onClose} aria-label="Chiudi" style={{ alignSelf: 'flex-start', border: 'none', background: 'transparent', fontSize: 18, color: '#8B8178', cursor: 'pointer' }}>✕</button>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }} className="form-grid">
+          <div><span style={label}>Nome e cognome</span><input value={name} onChange={(e) => setName(e.target.value)} readOnly={ro} style={field} /></div>
+          <div><span style={label}>Qualifica</span><input value={jobTitle} onChange={(e) => setJobTitle(e.target.value)} readOnly={ro} placeholder="Es. Architetto, CEO…" style={field} /></div>
+          <div><span style={label}>Email di accesso</span><input type="email" value={email} onChange={(e) => setEmail(e.target.value)} readOnly={ro} style={field} /></div>
+          <div><span style={label}>Telefono</span><input value={phone} onChange={(e) => setPhone(e.target.value)} readOnly={ro} style={field} /></div>
+          <div>
+            <span style={label}>Ruolo nell'app</span>
+            {isAdmin ? (
+              <select value={role} onChange={(e) => setRole(e.target.value)} style={field}><option value="Admin">Admin</option><option value="Membro">Membro</option></select>
+            ) : <input value={role} readOnly style={field} />}
+          </div>
+          <div><span style={label}>Stato</span><input value={member.status || ''} readOnly style={{ ...field, background: '#FAF8F4' }} /></div>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <span style={label}>Note</span>
+          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} readOnly={ro} rows={2} style={{ ...field, resize: 'vertical' }} />
+        </div>
+
+        {isAdmin && (
+          <div style={{ marginTop: 16, border: '1px solid #E8E0D4', borderRadius: 12, padding: '14px 16px', background: '#fff' }}>
+            <div style={{ fontSize: 14, fontWeight: 400, color: '#2B2321', marginBottom: 4 }}>Password di accesso</div>
+            <p style={{ fontSize: 11.5, color: '#8B8178', margin: '0 0 10px', fontWeight: 300 }}>
+              Per sicurezza le password sono salvate criptate: nessuno, nemmeno l'admin, può leggere quella attuale. Puoi impostarne una nuova qui — la vedi mentre la scrivi — e comunicarla alla persona.
+            </p>
+            {member.auth_user_id ? (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input type={showPw ? 'text' : 'password'} value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Nuova password (min. 6 caratteri)" autoComplete="new-password" style={{ ...field, flex: '1 1 200px', width: 'auto', fontVariantNumeric: 'tabular-nums' }} />
+                <button onClick={() => setShowPw(!showPw)} style={pillBtn}>{showPw ? 'Nascondi' : 'Mostra'}</button>
+                <button onClick={() => { setNewPassword(generatePassword()); setShowPw(true); }} style={pillBtn}>Genera</button>
+                {newPassword && <button onClick={() => navigator.clipboard?.writeText(newPassword)} style={pillBtn}>Copia</button>}
+              </div>
+            ) : (
+              <p style={{ fontSize: 12, color: '#6F655F', margin: 0 }}>Questa persona non ha ancora un account collegato.</p>
+            )}
+          </div>
+        )}
+
+        {error && <p style={{ fontSize: 12.5, color: C.maroon, margin: '12px 0 0' }}>{error}</p>}
+        {info && <p style={{ fontSize: 12.5, color: '#2F5A2B', margin: '12px 0 0' }}>{info}</p>}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'space-between', alignItems: 'center', marginTop: 18, flexWrap: 'wrap' }}>
+          <div>{isAdmin && !isSelf && <button onClick={remove} style={{ ...pillBtn, color: C.maroon }}>Rimuovi dal team</button>}</div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={onClose} style={pillBtn}>{isAdmin ? 'Chiudi' : 'Chiudi'}</button>
+            {isAdmin && (
+              <button onClick={save} disabled={saving} style={{ border: 'none', background: C.maroon, color: '#fff', borderRadius: 999, padding: '9px 18px', fontSize: 12.5, fontWeight: 400, fontFamily: FONT, cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+                {saving ? 'Salvataggio…' : 'Salva modifiche'}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TeamPage({ profile, onProfileChange }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [email, setEmail] = useState('');
@@ -6170,6 +6405,7 @@ function TeamPage({ profile }) {
   const [role, setRole] = useState('Membro');
   const [error, setError] = useState('');
   const [creating, setCreating] = useState(false);
+  const [openId, setOpenId] = useState(null);
   const isAdmin = profile?.role === 'Admin';
 
   const loadMembers = async () => {
@@ -6183,8 +6419,7 @@ function TeamPage({ profile }) {
 
   // Crea (o completa, se c'era già una vecchia riga "Invito inviato" con la stessa email) l'accesso
   // di una persona: l'admin sceglie qui email e password, l'account viene attivato subito lato server
-  // (funzione Edge "cea-admin-create-user", con service role) senza inviare alcuna email di conferma —
-  // la persona può accedere da subito con "Accedi" usando queste credenziali.
+  // (funzione Edge "cea-admin-create-user", con service role) senza inviare alcuna email di conferma.
   const handleCreate = async () => {
     const trimmedEmail = email.trim();
     if (!name.trim() || !trimmedEmail || !password) { setError('Nome, email e password sono obbligatori.'); return; }
@@ -6200,33 +6435,14 @@ function TeamPage({ profile }) {
     loadMembers();
   };
 
-  const handleResetPassword = async (m) => {
-    const newPassword = prompt(`Nuova password per ${m.name} (${m.email}):`);
-    if (!newPassword) return;
-    if (newPassword.length < 6) { alert('La password deve avere almeno 6 caratteri.'); return; }
-    const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', {
-      body: { action: 'reset_password', memberId: m.id, password: newPassword },
-    });
-    if (err) { alert(await extractFunctionErrorMessage(err, 'Operazione non riuscita.')); return; }
-    if (data?.error) { alert(data.error); return; }
-    alert('Password aggiornata: comunicala alla persona di persona o in chat privata, non via email.');
+  const onSaved = (row) => {
+    setMembers((ms) => ms.map((m) => (m.id === row.id ? row : m)));
+    if (row.id === profile?.id && onProfileChange) onProfileChange(row);
   };
+  const onRemoved = (id) => { setMembers((ms) => ms.filter((m) => m.id !== id)); setOpenId(null); };
 
-  const removeMember = async (id) => {
-    if (!confirm('Rimuovere questa persona dal team? Perderà l\'accesso al workspace.')) return;
-    const { error: err } = await cea.from('team_members').delete().eq('id', id);
-    if (err) { alert(err.message); return; }
-    loadMembers();
-  };
-
-  const changeRole = async (id, newRole) => {
-    const { error: err } = await cea.from('team_members').update({ role: newRole }).eq('id', id);
-    if (err) { alert(err.message); return; }
-    loadMembers();
-  };
-
-  const initials = (nm) => (nm || '').split(' ').slice(0, 2).map((p) => p[0]).join('').toUpperCase();
-  const inputStyle = { border: `1px solid ${C.paleGray}`, background: '#FAF8F4', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: FONT, boxSizing: 'border-box' };
+  const inputStyle = { border: '1px solid #E3D9CC', background: '#fff', borderRadius: 8, padding: '9px 12px', fontSize: 13, fontFamily: FONT, boxSizing: 'border-box' };
+  const openMember = members.find((m) => m.id === openId);
 
   return (
     <div>
@@ -6236,88 +6452,85 @@ function TeamPage({ profile }) {
       </div>
 
       {!isAdmin && (
-        <div style={{ background: '#FFF8E1', border: '1px solid #F0D98C', borderRadius: 14, padding: 18, marginBottom: 16 }}>
-          <p style={{ fontSize: 12.5, color: C.black, margin: 0 }}>Sei collegato come <strong>membro</strong>: solo l'admin può creare o rimuovere accessi al team.</p>
+        <div style={{ background: '#FFFFFF', border: '1px solid #E8E0D4', borderRadius: 14, padding: '14px 18px', marginBottom: 16 }}>
+          <p style={{ fontSize: 12.5, color: '#4A403C', margin: 0, fontWeight: 300 }}>Sei collegato come <strong style={{ fontWeight: 500 }}>membro</strong>: puoi consultare le schede del team, ma solo un admin può modificarle o creare nuovi accessi.</p>
         </div>
       )}
 
+      <section style={{ background: '#FFFFFF', border: '1px solid #E8E0D4', borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+        <h3 style={{ margin: '0 0 14px', fontWeight: 300, fontSize: 20, color: '#2B2321', display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
+          PERSONE CON ACCESSO<span style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178' }}>clicca una scheda per aprirla</span>
+        </h3>
+        {loading && <p style={{ fontSize: 12.5, color: '#8B8178' }}>Caricamento…</p>}
+        {!loading && members.length === 0 && <p style={{ fontSize: 12.5, color: '#8B8178' }}>Nessuna persona ancora.</p>}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 12 }}>
+          {members.map((m) => (
+            <div
+              key={m.id}
+              onClick={() => setOpenId(m.id)}
+              className="team-card"
+              style={{ border: '1px solid #E8E0D4', borderRadius: 14, padding: 16, background: '#fff', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 12 }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <MemberAvatar member={m} size={52} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 400, color: '#2B2321', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.name}</div>
+                  <div style={{ fontSize: 12, color: '#8B8178', fontWeight: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.job_title || (m.role === 'Admin' ? 'Amministratore' : 'Membro del team')}</div>
+                </div>
+              </div>
+              <div style={{ fontSize: 12.5, color: '#6F655F', fontWeight: 300, lineHeight: 1.5, minHeight: 38 }}>
+                <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.email}</div>
+                {m.phone && <div>{m.phone}</div>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, ...(m.role === 'Admin' ? { background: '#2B2321', color: '#fff' } : { background: '#EFE7DA', color: '#5A4F4A' }) }}>{m.role}</span>
+                <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, ...(m.status === 'Attivo' ? { background: 'color-mix(in srgb, #4F7A4B 14%, #fff)', color: '#2F5A2B' } : { background: '#EFE7DA', color: '#6F655F' }) }}>{m.status}</span>
+                {m.id === profile?.id && <span style={{ fontSize: 11, color: '#8B8178' }}>· tu</span>}
+                <span style={{ marginLeft: 'auto', fontSize: 12, color: '#8B8178' }}>Apri ›</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {isAdmin && (
-        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
-          <h3 style={{ margin: '0 0 12px', fontWeight: 300, fontSize: 18, color: C.black }}>Crea un nuovo accesso</h3>
+        <section style={{ background: '#FFFFFF', border: '1px solid #E8E0D4', borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+          <h3 style={{ margin: '0 0 12px', fontWeight: 300, fontSize: 20, color: '#2B2321' }}>CREA UN NUOVO ACCESSO</h3>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'stretch' }}>
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome" style={{ ...inputStyle, flex: '1 1 140px', maxWidth: 170 }} />
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="nome@studio.it"
-              style={{ ...inputStyle, flex: '1 1 180px', maxWidth: 220 }}
-            />
-            <input
-              type="text"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password (min. 6 caratt.)"
-              style={{ ...inputStyle, flex: '1 1 160px', maxWidth: 190 }}
-            />
-            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontFamily: FONT, color: '#2B2321' }}>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nome e cognome" style={{ ...inputStyle, flex: '1 1 160px', maxWidth: 200 }} />
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="nome@studio.it" style={{ ...inputStyle, flex: '1 1 180px', maxWidth: 230 }} />
+            <input type="text" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (min. 6 caratt.)" style={{ ...inputStyle, flex: '1 1 160px', maxWidth: 200 }} />
+            <button onClick={() => setPassword(generatePassword())} style={{ border: '1px solid #E3D9CC', background: '#fff', borderRadius: 999, padding: '9px 14px', fontSize: 12.5, fontWeight: 300, fontFamily: FONT, cursor: 'pointer', color: '#2B2321' }}>Genera</button>
+            <select value={role} onChange={(e) => setRole(e.target.value)} style={{ border: '1px solid #E3D9CC', background: '#fff', borderRadius: 10, padding: '9px 14px', fontSize: 13, fontFamily: FONT, color: '#2B2321' }}>
               <option value="Membro">Membro</option>
               <option value="Admin">Admin</option>
             </select>
             <button
               onClick={handleCreate}
               disabled={creating}
-              style={{ border: 'none', background: C.maroon, color: C.white, padding: '10px 20px', borderRadius: 999, fontSize: 13, fontWeight: 400, fontFamily: FONT, cursor: creating ? 'default' : 'pointer', opacity: creating ? 0.7 : 1 }}
+              style={{ border: 'none', background: C.maroon, color: '#fff', padding: '10px 20px', borderRadius: 999, fontSize: 13, fontWeight: 400, fontFamily: FONT, cursor: creating ? 'default' : 'pointer', opacity: creating ? 0.7 : 1 }}
             >
               {creating ? 'Un attimo…' : 'Crea accesso'}
             </button>
           </div>
           {error && <p style={{ fontSize: 12, color: C.maroon, margin: '10px 0 0' }}>{error}</p>}
-          <p style={{ fontSize: 11.5, color: '#8B8178', margin: '10px 0 0', maxWidth: 640 }}>
-            L'account viene attivato subito: non parte nessuna email di conferma. Comunica tu stesso email e password alla persona (di persona, in chat privata…) — potrà accedere subito da "Accedi" con queste credenziali, senza passare da "Crea un account".
+          <p style={{ fontSize: 11.5, color: '#8B8178', margin: '10px 0 0', maxWidth: 640, fontWeight: 300 }}>
+            L'account viene attivato subito: non parte nessuna email di conferma. Comunica tu email e password alla persona (di persona, in chat privata…). Foto, qualifica, telefono e note si completano poi dalla sua scheda.
           </p>
         </section>
       )}
 
-      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
-        <h3 style={{ margin: '0 0 12px', fontWeight: 300, fontSize: 18, color: C.black }}>Persone con accesso</h3>
-        {loading && <p style={{ fontSize: 12.5, color: '#8B8178' }}>Caricamento…</p>}
-        {!loading && members.length === 0 && <p style={{ fontSize: 12.5, color: '#8B8178' }}>Nessuna persona ancora.</p>}
-        {members.length > 0 && (
-          <div style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, overflow: 'hidden' }}>
-            {members.map((m, i) => (
-              <div key={m.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', borderBottom: i < members.length - 1 ? '1px solid #F0EAE0' : 'none', flexWrap: 'wrap' }}>
-                <div style={{ width: 38, height: 38, borderRadius: '50%', background: C.accentSoft, color: C.maroon, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, flexShrink: 0 }}>{initials(m.name)}</div>
-                <div style={{ flexGrow: 1, minWidth: 140 }}>
-                  <div style={{ fontWeight: 500, fontSize: 14, color: C.black }}>{m.name}</div>
-                  <div style={{ fontSize: 12.5, color: '#8B8178' }}>{m.email}</div>
-                </div>
-                {isAdmin ? (
-                  <select value={m.role} onChange={(e) => changeRole(m.id, e.target.value)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '7px 12px', fontSize: 12.5, fontFamily: FONT, color: '#2B2321' }}>
-                    <option>Admin</option>
-                    <option>Membro</option>
-                  </select>
-                ) : (
-                  <span style={{ fontSize: 12, color: '#8B8178' }}>{m.role}</span>
-                )}
-                <span style={{ fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 999, ...(m.status === 'Attivo' ? { background: 'color-mix(in srgb, #4F7A4B 14%, #fff)', color: '#2F5A2B' } : { background: '#EFE7DA', color: C.darkGray }) }}>
-                  {m.status}
-                </span>
-                {isAdmin && m.auth_user_id && (
-                  <span onClick={() => handleResetPassword(m)} style={{ fontSize: 12, color: C.maroon, cursor: 'pointer' }}>🔑 Reimposta password</span>
-                )}
-                {isAdmin && m.id !== profile.id && (
-                  <button onClick={() => removeMember(m.id)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 14 }}>🗑️</button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      <div style={{ background: `color-mix(in srgb, ${C.maroon} 7%, #fff)`, border: `1px solid color-mix(in srgb, ${C.maroon} 18%, ${C.paleGray})`, borderRadius: 12, padding: '14px 18px', fontSize: 12.5, color: '#5A4F4A' }}>
-        <strong style={{ color: C.black }}>Come funziona la condivisione.</strong> Tutti i membri con un accesso creato qui entrano nello stesso workspace e vedono gli stessi progetti, computi e listino con un vero account: i dati restano salvati per sempre e sono visibili a tutto il team.
-      </div>
+      {openMember && (
+        <TeamMemberModal
+          key={openMember.id}
+          member={openMember}
+          isAdmin={isAdmin}
+          isSelf={openMember.id === profile?.id}
+          onClose={() => setOpenId(null)}
+          onSaved={onSaved}
+          onRemoved={onRemoved}
+        />
+      )}
     </div>
   );
 }
@@ -6878,6 +7091,7 @@ export default function GestionaleEdilePreview() {
 
   // --- Dati condivisi del workspace (progetti, listini, fornitori): un unico documento salvato su Supabase ---
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [saveStatus, setSaveStatus] = useState('ok'); // 'ok' | 'saving' | 'error'
   const saveTimer = React.useRef(null);
 
   React.useEffect(() => {
@@ -6892,17 +7106,20 @@ export default function GestionaleEdilePreview() {
       if (saved.studioSettings) setStudioSettings({ ...DEFAULT_STUDIO_SETTINGS, ...saved.studioSettings });
       setDataLoaded(true);
     });
-  }, [profile]);
+  }, [profile?.id, profile?.status]);
 
   React.useEffect(() => {
     if (!dataLoaded || !profile || profile.status !== 'Attivo') return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
+    setSaveStatus('saving');
     saveTimer.current = setTimeout(() => {
       cea.from('app_state').update({
         data: { projects, listini, activeListinoId, fornitoriCatalog, studioSettings },
         updated_at: new Date().toISOString(),
         updated_by: authUser?.id,
-      }).eq('id', 1).then(({ error }) => { if (error) console.error('Salvataggio fallito:', error.message); });
+      }).eq('id', 1).then(({ error }) => {
+        if (error) { console.error('Salvataggio fallito:', error.message); setSaveStatus('error'); } else setSaveStatus('ok');
+      });
     }, 900);
     return () => clearTimeout(saveTimer.current);
   }, [projects, listini, activeListinoId, fornitoriCatalog, studioSettings, dataLoaded]);
@@ -6980,6 +7197,8 @@ export default function GestionaleEdilePreview() {
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
         * { box-sizing: border-box; }
         html, body, #root { max-width: 100%; overflow-x: clip; }
+        body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+        .team-card:hover { border-color: #CFC4B6 !important; }
         .print-only { display: none; }
         /* Margine vero della pagina stampata: niente (testo, tabelle, intestazione, piè) tocca più il bordo
            fisico del foglio. Le immagini personalizzate di intestazione/piè riempiono la larghezza DISPONIBILE
@@ -6994,7 +7213,7 @@ export default function GestionaleEdilePreview() {
           .print-only thead { display: table-header-group; break-inside: avoid; page-break-inside: avoid; }
           .print-only tfoot { display: table-footer-group; }
         }
-        .sidebar-item-btn:not(.active):hover { background: ${C.sidebarHover} !important; color: ${C.black} !important; }
+        .sidebar-item-btn:not(.active):hover { background: #E9E0D6 !important; color: #4A403C !important; }
         .btn-accent-pill:hover { background: #6E2424 !important; }
         .input-focus:focus { outline: none; border-color: ${C.maroon} !important; box-shadow: 0 0 0 3px rgba(134,45,45,0.25); }
 
@@ -7089,7 +7308,7 @@ export default function GestionaleEdilePreview() {
         {NAV_GROUPS.map((group, gi) => (
           <React.Fragment key={gi}>
             {group.label && (
-              <div style={{ fontSize: 10.5, letterSpacing: '.16em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, padding: '16px 14px 4px' }}>{group.label}</div>
+              <div style={{ fontSize: 10, letterSpacing: '.16em', textTransform: 'uppercase', color: '#9A8F86', fontWeight: 600, padding: '14px 14px 4px' }}>{group.label}</div>
             )}
             {group.items.map((item) => {
               const active = page === item.key;
@@ -7104,8 +7323,8 @@ export default function GestionaleEdilePreview() {
                   className={`sidebar-item-btn${active ? ' active' : ''}`}
                   onClick={() => { setPage(item.key); setMobileNavOpen(false); }}
                   style={{
-                    display: 'flex', alignItems: 'center', gap: 14, padding: '9px 14px', borderRadius: 10,
-                    fontFamily: FONT, fontSize: 17, fontWeight: 300, cursor: 'pointer', textDecoration: 'none',
+                    display: 'flex', alignItems: 'center', gap: 13, padding: '8px 14px', borderRadius: 10, lineHeight: 1.25,
+                    fontFamily: FONT, fontSize: 15, fontWeight: 400, cursor: 'pointer', textDecoration: 'none',
                     color: active ? C.white : '#4A403C',
                     background: active ? C.black : 'transparent',
                   }}
@@ -7113,7 +7332,7 @@ export default function GestionaleEdilePreview() {
                   {item.icon}
                   <span style={{ flex: count ? '0 1 auto' : 1 }}>{item.label}</span>
                   {!!count && (
-                    <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, minWidth: 20, height: 20, borderRadius: 10, background: active ? 'rgba(255,255,255,.22)' : C.maroon, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{count}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 600, minWidth: 20, height: 20, borderRadius: 10, background: active ? '#fff' : C.maroon, color: active ? '#2B2321' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px' }}>{count}</span>
                   )}
                 </a>
               );
@@ -7130,15 +7349,25 @@ export default function GestionaleEdilePreview() {
           </div>
           <span onClick={() => { setPage('impostazioni'); setMobileNavOpen(false); }} style={{ color: '#B8ADA0', cursor: 'pointer' }}>&rsaquo;</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 8px 0' }}>
-          <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#E3D6CC', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 600, color: C.maroon, flexShrink: 0 }}>
-            {((profile.name || profile.email || '?').trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || '?').toUpperCase()}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '10px 0 2px', padding: 12, border: '1px solid #E8E0D4', borderRadius: 14, background: '#fff' }}>
+          <span onClick={() => { setPage('team'); setMobileNavOpen(false); }} style={{ cursor: 'pointer', display: 'flex' }} title="Apri il team">
+            <MemberAvatar member={profile} size={38} />
+          </span>
+          <div style={{ flex: 1, minWidth: 0, lineHeight: 1.25 }}>
+            <b style={{ display: 'block', fontWeight: 400, fontSize: 13.5, color: '#2B2321', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.name || profile.email}</b>
+            <span style={{ display: 'block', fontSize: 11.5, color: '#8B8178', fontWeight: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{profile.job_title || (profile.role === 'Admin' ? 'Amministratore' : 'Membro del team')}</span>
           </div>
-          <div style={{ flexGrow: 1, lineHeight: 1.25, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#2B2321', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.name || profile.email}</div>
-            <div style={{ fontSize: 12, color: '#8B8178' }}>{profile.role === 'Admin' ? 'Amministratore' : 'Membro del team'}</div>
-          </div>
-          <button onClick={handleLogout} title="Esci" style={{ border: 'none', background: 'transparent', color: '#8B8178', letterSpacing: 2, cursor: 'pointer', fontSize: 16, padding: 4 }}>&middot;&middot;&middot;</button>
+          <button onClick={handleLogout} title="Esci" style={{ border: '1px solid #E3D9CC', background: '#fff', color: '#2B2321', borderRadius: 999, padding: '6px 12px', fontFamily: FONT, fontSize: 12, fontWeight: 300, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+            <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round"><path d="M9 3.5H5.5a1 1 0 00-1 1v15a1 1 0 001 1H9" /><path d="M15 8l5 4-5 4" /><line x1="20" y1="12" x2="9.5" y2="12" /></svg>
+            Esci
+          </button>
+        </div>
+        <div style={{ padding: '10px 14px 0', fontSize: 10.5, fontWeight: 300, color: '#8B8178' }}>
+          {saveStatus === 'error'
+            ? <span style={{ color: C.maroon }}>Salvataggio non riuscito · riprova tra poco</span>
+            : saveStatus === 'saving'
+              ? <>Salvataggio in corso…</>
+              : <>Dati sincronizzati &middot; <span style={{ color: '#3E6B52' }}>&#9679;</span> live</>}
         </div>
       </aside>
 
@@ -7213,7 +7442,7 @@ export default function GestionaleEdilePreview() {
           {page === 'confronto' && <ConfrontoPage projects={projects} />}
           {page === 'rilievo' && <RilievoPage projects={projects} setProjects={setProjects} listini={listini} initialProjectId={rilievoProjectId} />}
           {page === 'fornitori' &&<FornitoriPage projects={projects} setProjects={setProjects} catalog={fornitoriCatalog} setCatalog={setFornitoriCatalog} />}
-          {page === 'team' && <TeamPage profile={profile} />}
+          {page === 'team' && <TeamPage profile={profile} onProfileChange={setProfile} />}
           {page === 'impostazioni' && <ImpostazioniPage settings={studioSettings} onUpdate={(patch) => setStudioSettings((s) => ({ ...s, ...patch }))} />}
         </main>
       </div>
