@@ -10,10 +10,13 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 const FONT = "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif";
 
 // Design token Desearq Flow (bordeaux #862D2D, cream #F4EFE8, font Inter)
+const DEFAULT_ACCENT = '#862D2D';
 const C = {
-  maroon: '#862D2D',
-  accentHover: '#6E2424',
-  accentSoft: '#F1DCD3',
+  // Colore di accento personalizzabile in Impostazioni studio (variabili CSS impostate in GestionaleEdilePreview);
+  // il valore dopo la virgola è il bordeaux Desearq, usato finché le impostazioni non sono caricate.
+  maroon: 'var(--accent, #862D2D)',
+  accentHover: 'var(--accent-hover, #6E2424)',
+  accentSoft: 'var(--accent-soft, #F1DCD3)',
   black: '#211A16',
   sidebar: '#F4EFE8',
   sidebarHover: '#EAE1D2',
@@ -61,6 +64,7 @@ const NAV_GROUPS = [
   ]},
   { label: 'Listino', items: [
     { key: 'listino', label: 'Listino prezzi', icon: <NavIcon><path d="M4 4.5h7a2 2 0 0 1 2 2V20a2 2 0 0 0-2-1.5H4z" /><path d="M20 4.5h-7a2 2 0 0 0-2 2V20a2 2 0 0 1 2-1.5h7z" /></NavIcon> },
+    { key: 'fornitori', label: 'Fornitori', icon: <NavIcon><path d="M12 2.6l8.5 4.8v9.2L12 21.4l-8.5-4.8V7.4z M3.5 7.4L12 12.2l8.5-4.8 M12 12.2v9.2" /></NavIcon> },
   ]},
   { label: 'Progetti', items: [
     { key: 'progetti', label: 'Progetti', icon: <NavIcon><rect x="2.5" y="7.5" width="19" height="12.5" rx="1.8" /><path d="M8.3 7.5V6a2 2 0 0 1 2-2h3.4a2 2 0 0 1 2 2v1.5" /></NavIcon>, countKey: 'progetti' },
@@ -69,9 +73,6 @@ const NAV_GROUPS = [
   { label: 'Computi', items: [
     { key: 'computi', label: 'Computi', icon: <NavIcon><rect x="5" y="2.5" width="14" height="19" rx="2" /><path d="M8 7h8 M8 12h2 M8 16h2 M14 12h2 M14 16h2" /></NavIcon>, countKey: 'computi' },
     { key: 'confronto', label: 'Confronto revisioni', icon: <NavIcon><path d="M8 3v14 M3 12l5 5 5-5" /><path d="M16 21V7 M21 12l-5-5-5 5" /></NavIcon> },
-  ]},
-  { label: 'Forniture', items: [
-    { key: 'fornitori', label: 'Fornitori', icon: <NavIcon><path d="M12 2.6l8.5 4.8v9.2L12 21.4l-8.5-4.8V7.4z M3.5 7.4L12 12.2l8.5-4.8 M12 12.2v9.2" /></NavIcon> },
   ]},
   { label: 'Team', items: [
     { key: 'team', label: 'Team', icon: <NavIcon><circle cx="8.5" cy="8.3" r="3.2" /><path d="M2.5 19.5c.4-3.8 3-6.5 6-6.5s5.6 2.7 6 6.5" /><circle cx="17" cy="9" r="2.3" /><path d="M15.6 13c2.2.4 4 2.6 4.4 6" /></NavIcon> },
@@ -89,7 +90,14 @@ const nextStatus = (s) => STATUS_OPTIONS[Math.min(STATUS_OPTIONS.indexOf(s) + 1,
 const latestStatus = (project) => project.revisions[project.revisions.length - 1]?.status || STATUS_OPTIONS[0];
 
 const parseEuro = (v) => parseFloat(String(v).replace(/\./g, '').replace(',', '.')) || 0;
-const formatEuro = (n) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+// Numero in formato italiano con il punto delle migliaia SEMPRE presente: toLocaleString('it-IT') per
+// convenzione non separa i numeri di 4 cifre (dava "1688,52" invece di "1.688,52").
+const itNum = (n, decimals = 2) => {
+  const v = Number(n) || 0;
+  const [int, dec] = Math.abs(v).toFixed(decimals).split('.');
+  return `${v < 0 && Number(Math.abs(v).toFixed(decimals)) !== 0 ? '-' : ''}${int.replace(/\B(?=(\d{3})+(?!\d))/g, '.')}${decimals ? `,${dec}` : ''}`;
+};
+const formatEuro = (n) => `${itNum(n, 2)} €`;
 
 // Nome visualizzato di un prodotto fornitori: marca + modello (marca omessa se vuota).
 const prodottoLabel = (p) => [p.marca, p.modello].filter(Boolean).join(' ') || '(prodotto senza nome)';
@@ -361,7 +369,7 @@ function flattenListino(listino) {
     s.voci.forEach((v) => {
       const impresa = parseEuro(v.priceImpresa);
       const cliente = evalClientPrice(v.priceCliente, impresa);
-      out.push({ ...v, macro: m.name, categoria: c.name, sottocategoria: s.name, impresaValue: impresa, clienteValue: cliente });
+      out.push({ ...v, listinoId: listino.id, macro: m.name, categoria: c.name, sottocategoria: s.name, impresaValue: impresa, clienteValue: cliente });
     });
   })));
   return out;
@@ -501,7 +509,8 @@ const REVISIONS_TABLE = [
 ];
 
 const badgeStyles = {
-  orange: { background: '#F2E4C6', color: '#8A5A12' },
+  // "In attesa di approvazione": bordeaux pieno (era giallo), distinto da Approvato (bordeaux chiaro) e In cantiere (grigio)
+  orange: { background: C.maroon, color: '#FFFFFF' },
   teal: { background: `color-mix(in srgb, ${C.maroon} 18%, #fff)`, color: C.maroon },
   gray: { background: '#E8E0D6', color: '#5A4F4A' },
 };
@@ -760,7 +769,7 @@ function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListino
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16 }}>
-            <div style={{ fontSize: 'clamp(38px, 5.5vw, 70px)', fontWeight: 200, letterSpacing: 0, lineHeight: 1, whiteSpace: 'nowrap' }}>€ {Math.round(valoreAttivo).toLocaleString('it-IT')}</div>
+            <div style={{ fontSize: 'clamp(38px, 5.5vw, 70px)', fontWeight: 200, letterSpacing: 0, lineHeight: 1, whiteSpace: 'nowrap' }}>€ {itNum(Math.round(valoreAttivo), 0)}</div>
             <svg viewBox="0 0 160 50" style={{ width: 150, height: 48, flex: 'none' }}>
               <defs><linearGradient id="dashSpk" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#fff" stopOpacity=".25" /><stop offset="1" stopColor="#fff" stopOpacity="0" /></linearGradient></defs>
               <path d={`${sparkLine} L160 50 L0 50Z`} fill="url(#dashSpk)" />
@@ -780,7 +789,7 @@ function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListino
         <DashKpi label="FORNITORI COLLEGATI" value={fornitoriNomi.size} note={`su ${categorieForniture} categorie`} />
         <DashKpi label="REVISIONI IN ATTESA" value={revisioniInAttesa.length} valueColor={C.maroon} note={`${oltre5gg} oltre i 5 giorni`} compactLabel={false} highlight />
         <DashKpi label="MODIFICHE ULTIME 48H" value={ultime48h.length} note={`su ${progetti48h} progett${progetti48h === 1 ? 'o' : 'i'}`} noteTone={ultime48h.length > 0 ? 'up' : null} compactLabel={false} />
-        <DashKpi label="IN PARTENZA ENTRO 30GG" value={inPartenza30} valueColor="#862D2D" note="da preparare listino/team" compactLabel={false} />
+        <DashKpi label="IN PARTENZA ENTRO 30GG" value={inPartenza30} valueColor={C.maroon} note="da preparare listino/team" compactLabel={false} />
       </div>
 
       {/* COMPUTI DA APPROVARE */}
@@ -801,9 +810,9 @@ function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListino
                   <td style={DASH.td}>{revName(revision)}</td>
                   <td style={DASH.td}>{revision.modifiedBy || revision.createdBy || '—'}</td>
                   <td style={{ ...DASH.td, ...DASH.mono }}>{giorni === null ? '—' : `${giorni} giorn${giorni === 1 ? 'o' : 'i'}`}</td>
-                  <td style={{ ...DASH.td, ...DASH.mono }}>€ {Math.round(parseEuro(revision.total)).toLocaleString('it-IT')}</td>
+                  <td style={{ ...DASH.td, ...DASH.mono }}>€ {itNum(Math.round(parseEuro(revision.total)), 0)}</td>
                   <td style={DASH.td}>
-                    <span style={{ ...DASH.pill, background: critica ? 'color-mix(in srgb, #B3452B 16%, #fff)' : '#F2E4C6', color: critica ? '#8C3220' : '#8A5A12' }}>{critica ? 'Critica' : "Da tenere d'occhio"}</span>
+                    <span style={{ ...DASH.pill, background: critica ? 'color-mix(in srgb, #B3452B 16%, #fff)' : '#E8E0D6', color: critica ? '#8C3220' : '#5A4F4A' }}>{critica ? 'Critica' : "Da tenere d'occhio"}</span>
                   </td>
                 </tr>
               );
@@ -903,7 +912,7 @@ function Dashboard({ onNavigate, onOpenProject, projects, listini, activeListino
                   <td style={{ ...DASH.td, fontWeight: 300 }}>{project.name}</td>
                   <td style={{ ...DASH.td, fontWeight: 300 }}>{revName(revision)}</td>
                   <td style={{ ...DASH.td, fontWeight: 300 }}>{revision.status}</td>
-                  <td style={{ ...DASH.td, ...DASH.mono, ...(pending ? { color: C.maroon, fontWeight: 500 } : {}) }}>€ {Math.round(parseEuro(revision.total)).toLocaleString('it-IT')}</td>
+                  <td style={{ ...DASH.td, ...DASH.mono, ...(pending ? { color: C.maroon, fontWeight: 500 } : {}) }}>€ {itNum(Math.round(parseEuro(revision.total)), 0)}</td>
                   <td style={{ ...DASH.td, fontWeight: 300 }}>{fmtDayMonthYear(modified)}</td>
                 </tr>
               );
@@ -1299,6 +1308,85 @@ const INITIAL_MACROS = [
   ]},
 ];
 
+// Identificativo stabile di ogni voce di listino (non cambia se la voce viene spostata, rinominata o
+// ricodificata): serve a collegare le voci dei computi alla voce di listino da cui sono nate, per
+// aggiornarne i prezzi quando cambia il listino.
+const newVoceUid = () => `v${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+function ensureVoceUids(listini) {
+  let changed = false;
+  const next = (listini || []).map((l) => ({
+    ...l,
+    macros: (l.macros || []).map((m) => ({
+      ...m,
+      categorie: (m.categorie || []).map((c) => ({
+        ...c,
+        sottocategorie: (c.sottocategorie || []).map((s) => ({
+          ...s,
+          voci: (s.voci || []).map((v) => (v.uid ? v : (changed = true, { ...v, uid: newVoceUid() }))),
+        })),
+      })),
+    })),
+  }));
+  return changed ? next : listini;
+}
+const normText = (s) => String(s || '').trim().replace(/\s+/g, ' ').toLowerCase();
+
+// Quando cambiano i prezzi di una voce di listino, li aggiorna nelle voci dei computi ANCORA IN ATTESA DI
+// APPROVAZIONE nate da quella voce. Non tocca mai:
+//  - i computi approvati / in cantiere (restano con i prezzi con cui sono stati approvati);
+//  - nelle revisioni successive a un computo approvato, le voci che c'erano già nel computo approvato
+//    (stesso id voce): mantengono i prezzi approvati. Solo le voci aggiunte dopo seguono il listino.
+// Collegamento: voci create da ora in poi → listinoRef { listinoId, uid }; voci create prima (senza
+// collegamento) → stessa descrizione della voce di listino prima della modifica.
+function propagateListinoPrices(projects, changes) {
+  let touchedItems = 0;
+  const touchedProjects = new Set();
+  const next = projects.map((p) => {
+    const revisions = p.revisions || [];
+    const lockedIds = new Set(revisions.filter((r) => r.status && r.status !== STATUS_OPTIONS[0]).flatMap((r) => (r.items || []).map((it) => String(it.id))));
+    let pChanged = false;
+    const newRevs = revisions.map((r) => {
+      if ((r.status || STATUS_OPTIONS[0]) !== STATUS_OPTIONS[0]) return r;
+      let rChanged = false;
+      const items = (r.items || []).map((it) => {
+        if (it.type === 'subtotal' || lockedIds.has(String(it.id))) return it;
+        const ch = changes.find((c) => (it.listinoRef
+          ? it.listinoRef.uid === c.uid && String(it.listinoRef.listinoId) === String(c.listinoId)
+          : normText(it.desc) && normText(it.desc) === normText(c.oldDesc)));
+        if (!ch) return it;
+        const ui = formatEuro(ch.impresa).replace(' €', '');
+        const uc = formatEuro(evalClientPrice(ch.clienteFormula, ch.impresa)).replace(' €', '');
+        if (it.unitPriceImpresa === ui && it.unitPriceCliente === uc) return it;
+        rChanged = true; touchedItems += 1;
+        return { ...it, unitPriceImpresa: ui, unitPriceCliente: uc };
+      });
+      if (!rChanged) return r;
+      pChanged = true;
+      const real = items.filter((i) => i.type !== 'subtotal');
+      return { ...r, items, total: formatEuro(sumImpresa(real)), totalCliente: formatEuro(sumCliente(real)), dateModified: nowLabel(), modifiedBy: 'Aggiornamento prezzi listino' };
+    });
+    if (!pChanged) return p;
+    touchedProjects.add(p.id);
+    return { ...p, revisions: newRevs, value: newRevs[newRevs.length - 1]?.total || p.value };
+  });
+  return { next, touchedItems, touchedProjects: touchedProjects.size };
+}
+// Confronta due versioni dei listini e restituisce le voci con prezzo impresa o cliente cambiato.
+function diffListinoPrices(prev, next) {
+  const index = new Map();
+  (prev || []).forEach((l) => (l.macros || []).forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((s) => (s.voci || []).forEach((v) => {
+    if (v.uid) index.set(`${l.id}|${v.uid}`, v);
+  })))));
+  const changes = [];
+  (next || []).forEach((l) => (l.macros || []).forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((s) => (s.voci || []).forEach((v) => {
+    const old = v.uid && index.get(`${l.id}|${v.uid}`);
+    if (!old) return;
+    if (String(old.priceImpresa || '') === String(v.priceImpresa || '') && String(old.priceCliente || '') === String(v.priceCliente || '')) return;
+    changes.push({ listinoId: l.id, uid: v.uid, oldDesc: old.desc, impresa: parseEuro(v.priceImpresa), clienteFormula: v.priceCliente });
+  })))));
+  return changes;
+}
+
 function withCodes(macros) {
   return macros.map((m, i) => {
     const mCode = `M${String(i + 1).padStart(2, '0')}`;
@@ -1544,7 +1632,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
                       <td style={{ padding: '3px 4px' }}><input value={r.lung} onChange={(e) => updateRow(idx, 'lung', e.target.value)} style={colStyle(true)} /></td>
                       <td style={{ padding: '3px 4px' }}><input value={r.larg} onChange={(e) => updateRow(idx, 'larg', e.target.value)} disabled={unitaCalcolo === 'ml'} style={colStyle(unitaCalcolo !== 'ml')} /></td>
                       <td style={{ padding: '3px 4px' }}><input value={r.hPeso} onChange={(e) => updateRow(idx, 'hPeso', e.target.value)} disabled={unitaCalcolo !== 'm3'} style={colStyle(unitaCalcolo === 'm3')} /></td>
-                      <td style={{ padding: '3px 4px', textAlign: 'right', fontWeight: 700 }}>{computeMisurazioneRowValue(r, unitaCalcolo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      <td style={{ padding: '3px 4px', textAlign: 'right', fontWeight: 700 }}>{itNum(computeMisurazioneRowValue(r, unitaCalcolo), 2)}</td>
                       <td style={{ padding: '3px 4px' }}><button onClick={() => removeRow(idx)} style={iconBtn}>🗑</button></td>
                     </tr>
                   ))}
@@ -1553,8 +1641,8 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
             </div>
             <button onClick={addRow} style={{ ...rowBtnStyle, marginTop: 8 }}>+ Riga di misurazione</button>
             <p style={{ fontSize: 12, fontWeight: 700, color: C.black, margin: '10px 0 0' }}>
-              Quantità {mergeTarget ? 'da aggiungere' : 'totale'}: {computedQty.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {mergeIntoId ? '' : (unit === 'Altro' ? customUnit : unit)}
-              {mergeTarget && <> — nuovo totale voce: {(computedQty + parseEuro(mergeTarget.qty)).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</>}
+              Quantità {mergeTarget ? 'da aggiungere' : 'totale'}: {itNum(computedQty, 2)} {mergeIntoId ? '' : (unit === 'Altro' ? customUnit : unit)}
+              {mergeTarget && <> — nuovo totale voce: {itNum((computedQty + parseEuro(mergeTarget.qty)), 2)}</>}
             </p>
           </div>
         ) : (
@@ -1614,6 +1702,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
                 manualQty: manualQty || '0',
                 note: note || '',
                 noteCliente: noteCliente.trim(),
+                listinoRef: prefill?.listinoRef || null,
                 editId: initialItem?.id || null,
                 mergeIntoItemId: mergeIntoId || null,
               });
@@ -1638,6 +1727,31 @@ function EditableCatalog({ macros, setMacros }) {
 
   const isOpen = (key) => expanded[key] !== false; // default aperto
   const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
+
+  // Ricerca nel listino per codice e/o parole della descrizione (anche più parole, in qualsiasi ordine:
+  // devono comparire tutte). Durante la ricerca restano visibili solo i rami che contengono voci trovate,
+  // aperti in automatico, con le lettere cercate evidenziate.
+  const [query, setQuery] = useState('');
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const searching = terms.length > 0;
+  const voceMatches = (v) => {
+    const hay = `${v.code || ''} ${v.desc || ''} ${v.note || ''}`.toLowerCase();
+    return terms.every((tm) => hay.includes(tm));
+  };
+  const sottoHasMatch = (so) => so.voci.some(voceMatches);
+  const catHasMatch = (ca) => ca.sottocategorie.some(sottoHasMatch);
+  const macroHasMatch = (ma) => ma.categorie.some(catHasMatch);
+  const showOpen = (key) => searching || isOpen(key);
+  const matchCount = searching ? coded.reduce((n, ma) => n + ma.categorie.reduce((n2, ca) => n2 + ca.sottocategorie.reduce((n3, so) => n3 + so.voci.filter(voceMatches).length, 0), 0), 0) : 0;
+  const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const hl = (text) => {
+    const str = String(text || '');
+    if (!searching) return str;
+    const parts = str.split(new RegExp(`(${terms.map(escRe).join('|')})`, 'gi'));
+    return parts.map((p, i) => (terms.includes(p.toLowerCase())
+      ? <mark key={i} style={{ background: C.accentSoft, color: C.maroon, fontWeight: 600, padding: 0, borderRadius: 2 }}>{p}</mark>
+      : <React.Fragment key={i}>{p}</React.Fragment>));
+  };
 
   const totals = coded.reduce(
     (acc, m) => {
@@ -1684,10 +1798,11 @@ function EditableCatalog({ macros, setMacros }) {
     const next = structuredClone(macros);
     if (editingVoce) {
       const [mi, ci, si, vi] = editingVoce.path;
-      next[mi].categorie[ci].sottocategorie[si].voci[vi] = voce;
+      const prevVoce = next[mi].categorie[ci].sottocategorie[si].voci[vi];
+      next[mi].categorie[ci].sottocategorie[si].voci[vi] = { uid: prevVoce?.uid || newVoceUid(), ...voce };
     } else {
       const [mi, ci, si] = path;
-      next[mi].categorie[ci].sottocategorie[si].voci.push(voce);
+      next[mi].categorie[ci].sottocategorie[si].voci.push({ uid: newVoceUid(), ...voce });
     }
     setMacros(next);
   };
@@ -1748,16 +1863,38 @@ function EditableCatalog({ macros, setMacros }) {
         </div>
       </div>
 
+      {coded.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 320px', maxWidth: 560, border: '1px solid #E3D9CC', background: '#fff', borderRadius: 999, padding: '8px 14px' }}>
+            <svg viewBox="0 0 24 24" width={16} height={16} fill="none" stroke="#8B8178" strokeWidth={1.6} strokeLinecap="round"><circle cx="11" cy="11" r="7" /><path d="M20 20l-3.5-3.5" /></svg>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Escape') setQuery(''); }}
+              placeholder="Cerca nel listino per codice o parole (es. OE.DMI, demolizione pavimenti)…"
+              style={{ border: 'none', outline: 'none', background: 'transparent', flex: 1, minWidth: 0, fontSize: 13, fontWeight: 300, fontFamily: FONT, color: C.black }}
+            />
+            {query && <button onClick={() => setQuery('')} aria-label="Cancella ricerca" style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 14, padding: 0 }}>✕</button>}
+          </div>
+          {searching && (
+            <span style={{ fontSize: 12.5, color: matchCount ? C.maroon : '#8B8178', fontWeight: 500 }}>
+              {matchCount ? `${matchCount} vo${matchCount === 1 ? 'ce trovata' : 'ci trovate'}` : 'Nessuna voce trovata'}
+            </span>
+          )}
+        </div>
+      )}
+
       {coded.length === 0 && (
         <p style={{ fontSize: 13, color: C.gray, margin: '0 0 10px' }}>Questo listino è vuoto. Aggiungi una macrocategoria per iniziare.</p>
       )}
 
       {coded.map((m, mi) => {
         const mKey = `${mi}`;
+        if (searching && !macroHasMatch(m)) return null;
         return (
           <div key={mi} style={{ marginBottom: 10, border: '1px solid #2B2321', borderRadius: 10, overflow: 'hidden' }}>
             <div onClick={() => toggle(mKey)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '13px 16px', background: '#2B2321', cursor: 'pointer', flexWrap: 'wrap' }}>
-              <span style={{ color: '#B8ADA0', transition: 'transform .15s', transform: isOpen(mKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
+              <span style={{ color: '#B8ADA0', transition: 'transform .15s', transform: showOpen(mKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
               <span style={{ fontWeight: 500, fontSize: 14.5, color: '#FFFFFF', textTransform: 'uppercase', letterSpacing: '.02em' }}>{m.name}</span>
               <span style={{ ...codeTag, background: 'rgba(255,255,255,.14)', color: '#FFFFFF', border: 'none' }}>{m.code}</span>
               <span style={{ fontSize: 11, color: '#B8ADA0', fontWeight: 400 }}>{m.categorie.length} categorie · {m.categorie.reduce((n, c) => n + c.sottocategorie.reduce((n2, s) => n2 + s.voci.length, 0), 0)} voci</span>
@@ -1770,14 +1907,16 @@ function EditableCatalog({ macros, setMacros }) {
               </div>
             </div>
 
-            {isOpen(mKey) && m.categorie.map((c, ci) => {
+            {showOpen(mKey) && m.categorie.map((c, ci) => {
               const cKey = `${mi}-${ci}`;
+              if (searching && !catHasMatch(c)) return null;
               return (
-                <div key={ci} style={{ padding: '4px 16px 10px 16px', borderTop: `1px solid ${C.paleGray}` }}>
-                  <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 0 4px', cursor: 'pointer', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, color: '#8B8178', transform: isOpen(cKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
-                    <span style={{ fontSize: 12, letterSpacing: '.06em', textTransform: 'uppercase', color: '#8B8178', fontWeight: 600 }}>{c.name}</span>
+                <div key={ci} style={{ padding: '10px 16px 10px 16px', borderTop: `1px solid ${C.paleGray}` }}>
+                  <div onClick={() => toggle(cKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', cursor: 'pointer', flexWrap: 'wrap', background: '#EFE8DD', borderRadius: 8, borderLeft: `4px solid ${C.maroon}` }}>
+                    <span style={{ fontSize: 12, color: '#2B2321', transform: showOpen(cKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
+                    <span style={{ fontSize: 14, letterSpacing: '.04em', textTransform: 'uppercase', color: '#2B2321', fontWeight: 600 }}>{c.name}</span>
                     <span style={codeTag}>{c.code}</span>
+                    <span style={{ fontSize: 11, color: '#6F655F' }}>{(() => { const n = c.sottocategorie.reduce((a, so) => a + so.voci.length, 0); return `${n} voc${n === 1 ? 'e' : 'i'}`; })()}</span>
                     <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button onClick={() => moveItem('categoria', [mi, ci], 'up')} disabled={ci === 0} style={{ ...rowBtn, opacity: ci === 0 ? 0.4 : 1 }}>▲</button>
                       <button onClick={() => moveItem('categoria', [mi, ci], 'down')} disabled={ci === m.categorie.length - 1} style={{ ...rowBtn, opacity: ci === m.categorie.length - 1 ? 0.4 : 1 }}>▼</button>
@@ -1787,13 +1926,14 @@ function EditableCatalog({ macros, setMacros }) {
                     </div>
                   </div>
 
-                  {isOpen(cKey) && c.sottocategorie.map((s, si) => {
+                  {showOpen(cKey) && c.sottocategorie.map((s, si) => {
                     const sKey = `${mi}-${ci}-${si}`;
+                    if (searching && !sottoHasMatch(s)) return null;
                     return (
-                      <div key={si} style={{ marginLeft: 14 }}>
-                        <div onClick={() => toggle(sKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', cursor: 'pointer', flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 11, color: '#8B8178', transform: isOpen(sKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
-                          <span style={{ fontSize: 12.5, color: C.darkGray, fontWeight: 300 }}>{s.name}</span>
+                      <div key={si} style={{ marginLeft: 16 }}>
+                        <div onClick={() => toggle(sKey)} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 4px 7px', cursor: 'pointer', flexWrap: 'wrap', borderBottom: '1px solid #E8E0D4' }}>
+                          <span style={{ fontSize: 11, color: '#4A403C', transform: showOpen(sKey) ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▸</span>
+                          <span style={{ fontSize: 13, color: '#2B2321', fontWeight: 500 }}>{s.name}</span>
                           <span style={codeTag}>{s.code}</span>
                           <div onClick={(e) => e.stopPropagation()} style={{ marginLeft: 'auto', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                             <button onClick={() => moveItem('sotto', [mi, ci, si], 'up')} disabled={si === 0} style={{ ...rowBtn, opacity: si === 0 ? 0.4 : 1 }}>▲</button>
@@ -1808,19 +1948,20 @@ function EditableCatalog({ macros, setMacros }) {
                             <button onClick={() => remove('sotto', [mi, ci, si])} style={rowBtn}>🗑</button>
                           </div>
                         </div>
-                        {isOpen(sKey) && (
+                        {showOpen(sKey) && (
                           s.voci.length === 0 ? (
                             <p style={{ fontSize: 12.5, color: '#8B8178', padding: '4px 0 10px 24px' }}>Nessuna voce ancora in questa sottocategoria. Usa "+ Voce" per aggiungerne una.</p>
                           ) : (
                             <div className="table-scroll">
                               {s.voci.map((v, vi) => {
+                                if (searching && !voceMatches(v)) return null;
                                 const impresaVal = parseEuro(v.priceImpresa);
                                 const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
                                 return (
                                   <div key={vi} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 0 9px 24px', borderBottom: '1px solid #F0EAE0', fontSize: 13.5, flexWrap: 'wrap' }}>
-                                    <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: '#8B8178', width: 90, flexShrink: 0 }}>{v.code}</span>
+                                    <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: '#8B8178', width: 90, flexShrink: 0 }}>{hl(v.code)}</span>
                                     <span style={{ flex: '1 1 160px', minWidth: 0, fontWeight: 300, color: C.black }}>
-                                      {v.desc}
+                                      {hl(v.desc)}
                                       {v.note && <span style={{ display: 'block', margin: '3px 0 0', fontSize: 10.5, color: '#8B8178', fontStyle: 'italic' }}>📝 {v.note}</span>}
                                     </span>
                                     <span style={{ width: 54, flexShrink: 0, color: '#8B8178', fontSize: 12 }}>{v.unit}</span>
@@ -2044,7 +2185,7 @@ function ComputoSectionsView({ sections }) {
 // Colori di sfondo delle intestazioni di macrosezione (testo sempre bianco sopra): tutti scelti abbastanza
 // scuri/saturi da garantire un contrasto leggibile col testo bianco. In precedenza l'ultimo colore del ciclo
 // era C.sidebar (#F6F4EF, quasi bianco) — su testo bianco risultava illeggibile dalla quarta macrosezione in poi.
-const SECTION_COLORS = [C.maroon, C.darkGray, '#94706C', '#4A3F35'];
+const SECTION_COLORS = [DEFAULT_ACCENT, C.darkGray, '#94706C', '#4A3F35'];
 
 function DraggableCatalogTree({ listino, onAdd }) {
   const [expanded, setExpanded] = useState({});
@@ -2380,7 +2521,8 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   const hasCustomFont = ss.usaFontPersonalizzato && ss.fontPersonalizzato;
   const fontExt = (ss.fontPersonalizzatoNome || '').split('.').pop().toLowerCase();
   const fontFormat = { woff2: 'woff2', woff: 'woff', ttf: 'truetype', otf: 'opentype' }[fontExt] || 'woff2';
-  const effectiveFont = hasCustomFont ? `'StudioFontPersonalizzato', ${FONT}` : FONT;
+  const presetFont = (PDF_FONT_PRESETS[ss.pdfFontPreset] || PDF_FONT_PRESETS.inter).css;
+  const effectiveFont = hasCustomFont ? `'StudioFontPersonalizzato', ${presetFont}` : presetFont;
   const fontFaceCss = hasCustomFont
     // font-display:swap (non "block"): mostra subito il testo con il font di riserva e passa al font
     // personalizzato appena pronto. Con "block" il testo resta INVISIBILE finché il font non è pronto (fino
@@ -2747,7 +2889,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
   const addComputoItem = (voce, qty = '1') => {
     const impresaVal = voce.impresaValue !== undefined ? voce.impresaValue : parseEuro(voce.priceImpresa);
     const clienteVal = voce.clienteValue !== undefined ? voce.clienteValue : evalClientPrice(voce.priceCliente, impresaVal);
-    const item = { id: Date.now() + Math.random(), code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: String(qty), macro: voce.macro, section: voce.macro };
+    const item = { id: Date.now() + Math.random(), listinoRef: voce.uid ? { listinoId: voce.listinoId ?? activeListino?.id, uid: voce.uid } : null, code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: String(qty), macro: voce.macro, section: voce.macro };
     applyItemsChange((its) => [...its, item]);
   };
 
@@ -2761,7 +2903,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
       categoriaName: voce.categoria || 'Generale',
       sottoName: voce.sotto || 'Generale',
       initialItem: null,
-      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
+      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note, listinoRef: voce.uid ? { listinoId: voce.listinoId ?? activeListino?.id, uid: voce.uid } : null },
     });
   };
 
@@ -2803,7 +2945,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
       categoriaName: categoriaName || voce.categoria || 'Generale',
       sottoName: sottoName || voce.sotto || 'Generale',
       initialItem: null,
-      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note },
+      prefill: { desc: voce.desc, unit: voce.unit, priceImpresa: voce.priceImpresa, priceCliente: voce.priceCliente, note: voce.note, listinoRef: voce.uid ? { listinoId: voce.listinoId ?? activeListino?.id, uid: voce.uid } : null },
     });
   };
 
@@ -2982,7 +3124,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
         return its;
       }
       const newItem = {
-        id: Date.now() + Math.random(), code: '', autoCode: true, ...priceFields,
+        id: Date.now() + Math.random(), code: '', autoCode: true, ...priceFields, listinoRef: voceData.listinoRef || null,
         qty, macro: macroName, section: macroName, categoria: categoriaName || 'Generale', sottocategoria: sottoName,
         unitaCalcolo: voceData.unitaCalcolo, misurazioni: voceData.misurazioni,
       };
@@ -3810,7 +3952,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                                                         <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.lung || '—'}</td>
                                                         <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.larg || '—'}</td>
                                                         <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.hPeso || '—'}</td>
-                                                        <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{computeMisurazioneRowValue(r, it.unitaCalcolo).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{itNum(computeMisurazioneRowValue(r, it.unitaCalcolo), 2)}</td>
                                                       </tr>
                                                     ))}
                                                   </tbody>
@@ -4307,7 +4449,7 @@ function addComputoItemToProject(project, voce, qty = '1') {
   const latestRevision = revisions[revisions.length - 1];
   const impresaVal = voce.impresaValue !== undefined ? voce.impresaValue : parseEuro(voce.priceImpresa);
   const clienteVal = voce.clienteValue !== undefined ? voce.clienteValue : evalClientPrice(voce.priceCliente, impresaVal);
-  const item = { id: Date.now() + Math.random(), code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: String(qty), macro: voce.macro, section: voce.macro };
+  const item = { id: Date.now() + Math.random(), listinoRef: voce.uid ? { listinoId: voce.listinoId, uid: voce.uid } : null, code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: String(qty), macro: voce.macro, section: voce.macro };
   const nextItems = regenerateItemCodes([...(latestRevision.items || []), item]);
   const realNextItems = nextItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(realNextItems));
@@ -5177,10 +5319,10 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                       );
                     })}
                     {draft.length > 0 && (
-                      <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={C.maroon} strokeWidth={0.5} strokeDasharray="1.5,1" vectorEffect="non-scaling-stroke" />
+                      <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" style={{ stroke: C.maroon }} strokeWidth={0.5} strokeDasharray="1.5,1" vectorEffect="non-scaling-stroke" />
                     )}
                     {draft.map((p, i) => (
-                      <circle key={i} cx={p.x} cy={p.y} r={0.5} fill={C.maroon} stroke="white" strokeWidth={0.25} vectorEffect="non-scaling-stroke" />
+                      <circle key={i} cx={p.x} cy={p.y} r={0.5} style={{ fill: C.maroon }} stroke="white" strokeWidth={0.25} vectorEffect="non-scaling-stroke" />
                     ))}
                   </svg>
 
@@ -5559,7 +5701,37 @@ const DEFAULT_STUDIO_SETTINGS = {
   usaFontPersonalizzato: false,
   fontPersonalizzato: null, // data URL del file font (woff2/woff/ttf/otf), usato nel PDF al posto del font di sistema
   fontPersonalizzatoNome: '', // nome del file caricato, solo per mostrarlo in Impostazioni
+  coloreAccento: DEFAULT_ACCENT, // colore di accento di tutta l'app e dei PDF (pulsanti, evidenze, totali)
+  pdfFontPreset: 'inter', // font del PDF quando non si usa un font personalizzato: 'inter' | 'serif' | 'helvetica'
 };
+
+const PDF_FONT_PRESETS = {
+  inter: { label: 'Inter — moderno, pulito (predefinito)', css: FONT },
+  serif: { label: 'Serif classico — Georgia, stile carta intestata', css: "Georgia, 'Times New Roman', Times, serif" },
+  helvetica: { label: 'Sans neutro — Helvetica / Arial', css: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
+};
+const ACCENT_PRESETS = [
+  { hex: '#862D2D', name: 'Bordeaux Desearq' },
+  { hex: '#2B2321', name: 'Grafite' },
+  { hex: '#1F3A5F', name: 'Blu notte' },
+  { hex: '#1E5A5A', name: 'Ottanio' },
+  { hex: '#4F6B57', name: 'Verde salvia' },
+  { hex: '#A4502F', name: 'Terracotta' },
+  { hex: '#6B4E8A', name: 'Prugna' },
+];
+const isHexColor = (v) => /^#[0-9a-fA-F]{6}$/.test(String(v || ''));
+// Luminanza relativa (WCAG): sopra ~0.45 il testo bianco sul colore di accento diventa poco leggibile.
+const hexLuminance = (hex) => {
+  const ch = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+};
+function applyAccentColor(hex) {
+  const accent = isHexColor(hex) ? hex : DEFAULT_ACCENT;
+  const root = document.documentElement.style;
+  root.setProperty('--accent', accent);
+  root.setProperty('--accent-hover', `color-mix(in srgb, ${accent} 82%, #000)`);
+  root.setProperty('--accent-soft', `color-mix(in srgb, ${accent} 16%, #fff)`);
+}
 
 const INITIAL_FORNITORI = [
   {
@@ -6685,6 +6857,49 @@ function TeamPage({ profile, onProfileChange }) {
   );
 }
 
+// Colore di accento dello studio: vale per tutta l'app (per tutto il team, è salvato nel workspace) e per i PDF.
+function AccentColorCard({ settings, onUpdate, sCard, sH3, sTag, sFlabel, sInput, sBtn }) {
+  const current = isHexColor(settings.coloreAccento) ? settings.coloreAccento : DEFAULT_ACCENT;
+  const [hexDraft, setHexDraft] = useState(current);
+  React.useEffect(() => { setHexDraft(current); }, [current]);
+  const tooLight = hexLuminance(current) > 0.45;
+  return (
+    <div style={sCard}>
+      <h3 style={sH3}>Colore di accento</h3>
+      <p style={sTag}>Il colore dei pulsanti principali, delle evidenze e dei totali, in tutta l'app e nei PDF dei computi. Vale per tutto il team.</p>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14, flexWrap: 'wrap' }}>
+        <input type="color" value={current} onChange={(e) => onUpdate({ coloreAccento: e.target.value.toUpperCase() })} style={{ width: 44, height: 36, padding: 0, border: `1px solid ${C.paleGray}`, borderRadius: 8, background: 'none', cursor: 'pointer' }} />
+        <input
+          value={hexDraft}
+          onChange={(e) => { const v = e.target.value.trim(); setHexDraft(v); if (isHexColor(v)) onUpdate({ coloreAccento: v.toUpperCase() }); }}
+          placeholder="#862D2D"
+          style={{ ...sInput, width: 110, fontVariantNumeric: 'tabular-nums', textTransform: 'uppercase' }}
+        />
+        {current.toUpperCase() !== DEFAULT_ACCENT && <button onClick={() => onUpdate({ coloreAccento: DEFAULT_ACCENT })} style={sBtn}>Ripristina bordeaux</button>}
+      </div>
+      <span style={{ ...sFlabel, marginTop: 14 }}>Scelte rapide</span>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {ACCENT_PRESETS.map((p) => {
+          const on = p.hex.toUpperCase() === current.toUpperCase();
+          return (
+            <button key={p.hex} onClick={() => onUpdate({ coloreAccento: p.hex })} title={p.name} style={{ ...sBtn, display: 'inline-flex', alignItems: 'center', gap: 8, borderColor: on ? '#2B2321' : C.paleGray, fontWeight: on ? 500 : 400 }}>
+              <span style={{ width: 14, height: 14, borderRadius: '50%', background: p.hex, display: 'inline-block' }} />{p.name}
+            </button>
+          );
+        })}
+      </div>
+      <span style={{ ...sFlabel, marginTop: 14 }}>Anteprima</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <span style={{ background: current, color: '#fff', borderRadius: 999, padding: '8px 16px', fontSize: 12.5 }}>+ Nuova voce</span>
+        <span style={{ background: current, color: '#fff', borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 500 }}>In attesa di approvazione</span>
+        <span style={{ background: `color-mix(in srgb, ${current} 16%, #fff)`, color: current, borderRadius: 999, padding: '3px 10px', fontSize: 11, fontWeight: 500 }}>Approvato</span>
+        <span style={{ color: current, fontWeight: 700, fontSize: 14 }}>Totale generale IVA esclusa 113.443,49 €</span>
+      </div>
+      {tooLight && <p style={{ fontSize: 12, color: '#8C3220', margin: '10px 0 0' }}>Questo colore è molto chiaro: il testo bianco sui pulsanti potrebbe leggersi male. Meglio un tono più scuro.</p>}
+    </div>
+  );
+}
+
 // Pagina "Impostazioni studio": dati anagrafici usati per l'intestazione/piè di pagina automatici del PDF
 // del computo, più la possibilità di caricare un'intestazione e un piè di pagina "personalizzati" (immagini
 // pronte, es. carta intestata già impaginata) che sostituiscono del tutto quelli generati dai campi. Tutto
@@ -6778,6 +6993,8 @@ function ImpostazioniPage({ settings, onUpdate }) {
         </div>
       </div>
 
+      <AccentColorCard settings={settings} onUpdate={onUpdate} sCard={sCard} sH3={sH3} sTag={sTag} sFlabel={sFlabel} sInput={sInput} sBtn={sBtn} />
+
       <div style={sCard}>
         <h3 style={sH3}>Intestazione personalizzata</h3>
         <p style={sTag}>Carica un'immagine (es. la tua carta intestata già impaginata) da usare al posto dei dati anagrafici in cima a ogni pagina del PDF, dentro il margine della pagina.</p>
@@ -6839,8 +7056,18 @@ function ImpostazioniPage({ settings, onUpdate }) {
       </div>
 
       <div style={{ ...sCard, marginBottom: 0 }}>
-        <h3 style={sH3}>Font personalizzato</h3>
-        <p style={sTag}>Carica il font del tuo studio (.woff2, .woff, .ttf o .otf) da usare nel testo dei computi metrici stampati in PDF, al posto del font di sistema.</p>
+        <h3 style={sH3}>Font del PDF</h3>
+        <p style={sTag}>Scegli il carattere dei computi metrici stampati in PDF, oppure carica il font del tuo studio (.woff2, .woff, .ttf o .otf): se attivo, ha la precedenza sulla scelta qui sotto.</p>
+        <span style={{ ...sFlabel, marginTop: 14 }}>Carattere</span>
+        <select value={settings.pdfFontPreset || 'inter'} onChange={(e) => onUpdate({ pdfFontPreset: e.target.value })} style={{ ...sInput, maxWidth: 420 }} disabled={!!(settings.usaFontPersonalizzato && settings.fontPersonalizzato)}>
+          {Object.entries(PDF_FONT_PRESETS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+        </select>
+        <div style={{ ...sPreview, fontFamily: settings.usaFontPersonalizzato && settings.fontPersonalizzato ? `'StudioFontPersonalizzato', ${FONT}` : (PDF_FONT_PRESETS[settings.pdfFontPreset] || PDF_FONT_PRESETS.inter).css, fontSize: 13, color: C.black }}>
+          {settings.fontPersonalizzato && settings.usaFontPersonalizzato && <style>{`@font-face { font-family: 'StudioFontPersonalizzato'; src: url("${settings.fontPersonalizzato}"); }`}</style>}
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>Computo metrico — versione cliente</div>
+          Demolizione di pavimenti interni, compreso il trasporto a discarica · 136,84 m² · <span style={{ color: C.maroon, fontWeight: 600 }}>11.289,30 €</span>
+        </div>
+        <span style={{ ...sFlabel, marginTop: 16 }}>Font personalizzato</span>
         <label style={sChk}>
           <input type="checkbox" checked={settings.usaFontPersonalizzato} disabled={!settings.fontPersonalizzato} onChange={(e) => onUpdate({ usaFontPersonalizzato: e.target.checked })} />
           Usa il font personalizzato nel PDF invece del font di sistema
@@ -7195,12 +7422,14 @@ export default function GestionaleEdilePreview() {
 
   const [page, setPage] = useState('dashboard');
   const [projects, setProjects] = useState(PROJECTS);
+  const [priceNotice, setPriceNotice] = useState(null); // avviso temporaneo dopo l'aggiornamento prezzi nei computi
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [openRevisionId, setOpenRevisionId] = useState(null);
   const [listini, setListini] = useState([{ id: 1, name: 'Listino standard 2026', macros: INITIAL_MACROS }]);
   const [activeListinoId, setActiveListinoId] = useState(1);
   const [fornitoriCatalog, setFornitoriCatalog] = useState(INITIAL_FORNITORI);
   const [studioSettings, setStudioSettings] = useState(DEFAULT_STUDIO_SETTINGS);
+  React.useEffect(() => { applyAccentColor(studioSettings.coloreAccento); }, [studioSettings.coloreAccento]);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   // --- Autenticazione reale (Supabase Auth) ---
@@ -7250,7 +7479,7 @@ export default function GestionaleEdilePreview() {
       if (error) { console.error(error); setDataLoaded(true); return; }
       const saved = data?.data || {};
       if (saved.projects) setProjects(saved.projects);
-      if (saved.listini) setListini(saved.listini);
+      if (saved.listini) setListini(ensureVoceUids(saved.listini));
       if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
       if (saved.fornitoriCatalog) setFornitoriCatalog(migrateFornitoriCatalog(saved.fornitoriCatalog));
       if (saved.studioSettings) setStudioSettings({ ...DEFAULT_STUDIO_SETTINGS, ...saved.studioSettings });
@@ -7273,6 +7502,21 @@ export default function GestionaleEdilePreview() {
     }, 900);
     return () => clearTimeout(saveTimer.current);
   }, [projects, listini, activeListinoId, fornitoriCatalog, studioSettings, dataLoaded]);
+
+  // Ogni modifica ai listini passa da qui: se cambiano i prezzi di qualche voce, li si riporta nei computi
+  // in attesa di approvazione (vedi propagateListinoPrices) e si avvisa quante voci sono state aggiornate.
+  const updateListini = (nextListini) => {
+    const resolved = ensureVoceUids(typeof nextListini === 'function' ? nextListini(listini) : nextListini);
+    const changes = diffListinoPrices(listini, resolved);
+    setListini(resolved);
+    if (changes.length === 0) return;
+    const { next, touchedItems, touchedProjects } = propagateListinoPrices(projects, changes);
+    if (touchedItems > 0) {
+      setProjects(next);
+      setPriceNotice(`Prezzo aggiornato anche in ${touchedItems} vo${touchedItems === 1 ? 'ce' : 'ci'} di ${touchedProjects} computo${touchedProjects === 1 ? '' : 'i'} in attesa di approvazione. I computi approvati restano invariati.`);
+      setTimeout(() => setPriceNotice(null), 7000);
+    }
+  };
 
   const openProject = (id) => { setSelectedProjectId(id); setOpenRevisionId(null); setPage('progetto-dettaglio'); };
   const openRevisionInProject = (projectId, revisionId) => { setSelectedProjectId(projectId); setOpenRevisionId(revisionId); setPage('progetto-dettaglio'); };
@@ -7449,6 +7693,11 @@ export default function GestionaleEdilePreview() {
       )}
       <div className="no-print app-shell" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: '#F4EFE8' }}>
       <div className={`sidebar-backdrop${mobileNavOpen ? ' open' : ''}`} onClick={() => setMobileNavOpen(false)} />
+      {priceNotice && (
+        <div role="status" onClick={() => setPriceNotice(null)} style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 300, maxWidth: 380, background: '#2B2321', color: '#fff', borderRadius: 12, padding: '12px 16px', fontSize: 13, fontWeight: 300, lineHeight: 1.45, boxShadow: '0 10px 30px rgba(0,0,0,.18)', cursor: 'pointer' }}>
+          {priceNotice}
+        </div>
+      )}
       <aside className={`sidebar-aside${mobileNavOpen ? ' open' : ''}`} style={{ width: 270, flexShrink: 0, background: '#FBFAF7', color: C.darkGray, borderRight: `1px solid ${C.paleGray}`, display: 'flex', flexDirection: 'column', padding: '28px 16px 22px', boxSizing: 'border-box', gap: 2 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '0 12px 18px' }}>
           <img src="/quant-logo-full.png" alt="Quant" width={169} height={228} style={{ maxWidth: '100%', height: 63, width: 'auto', display: 'block', objectFit: 'contain', aspectRatio: '169 / 228' }} />
@@ -7573,7 +7822,7 @@ export default function GestionaleEdilePreview() {
             quindi lo sticky funziona di nuovo; le singole tabelle larghe restano scorrevili con la classe .table-scroll. */}
         <main className="app-main" style={{ padding: '22px 32px 48px', flex: 1, overflowX: 'clip', minWidth: 0, width: '100%', background: '#FAF9F6' }}>
           {page === 'dashboard' && <Dashboard onNavigate={setPage} onOpenProject={openProject} projects={projects} listini={listini} activeListinoId={activeListinoId} fornitoriCatalog={fornitoriCatalog} profile={profile} />}
-          {page === 'listino' && <ListinoPage listini={listini} setListini={setListini} activeId={activeListinoId} setActiveId={setActiveListinoId} />}
+          {page === 'listino' && <ListinoPage listini={listini} setListini={updateListini} activeId={activeListinoId} setActiveId={setActiveListinoId} />}
           {page === 'progetti' && <ProgettiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} />}
           {page === 'progetto-dettaglio' && selectedProject && (
             <ProjectDetailPage
