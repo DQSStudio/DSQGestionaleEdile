@@ -1152,7 +1152,7 @@ function FornitoreSharingModal({ listini, setListini, activeId, onClose }) {
   const decided = (submissions || []).filter((s) => s.status !== 'pending').slice(0, 20);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,23,23,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }} onClick={onClose}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(23,23,23,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, width: 680, maxWidth: '100%', maxHeight: '88vh', overflowY: 'auto', padding: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
           <h2 style={{ fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Fornitori</h2>
@@ -1352,7 +1352,7 @@ function SidebarSearch({ value, onChange, placeholder, count }) {
   );
 }
 
-// Quando cambiano i prezzi di una voce di listino, li aggiorna nelle voci dei computi ANCORA IN ATTESA DI
+// Quando cambiano i prezzi o la descrizione di una voce di listino, li aggiorna nelle voci dei computi ANCORA IN ATTESA DI
 // APPROVAZIONE nate da quella voce. Non tocca mai:
 //  - i computi approvati / in cantiere (restano con i prezzi con cui sono stati approvati);
 //  - nelle revisioni successive a un computo approvato, le voci che c'erano già nel computo approvato
@@ -1375,11 +1375,19 @@ function propagateListinoPrices(projects, changes) {
           ? it.listinoRef.uid === c.uid && String(it.listinoRef.listinoId) === String(c.listinoId)
           : normText(it.desc) && normText(it.desc) === normText(c.oldDesc)));
         if (!ch) return it;
-        const ui = formatEuro(ch.impresa).replace(' €', '');
-        const uc = formatEuro(evalClientPrice(ch.clienteFormula, ch.impresa)).replace(' €', '');
-        if (it.unitPriceImpresa === ui && it.unitPriceCliente === uc) return it;
+        const upd = {};
+        if (ch.priceChanged) {
+          const ui = formatEuro(ch.impresa).replace(' €', '');
+          const uc = formatEuro(evalClientPrice(ch.clienteFormula, ch.impresa)).replace(' €', '');
+          if (it.unitPriceImpresa !== ui) upd.unitPriceImpresa = ui;
+          if (it.unitPriceCliente !== uc) upd.unitPriceCliente = uc;
+        }
+        if (ch.descChanged && it.desc !== ch.newDesc) upd.desc = ch.newDesc;
+        // una voce creata prima del collegamento, riconosciuta dalla descrizione, da ora resta collegata
+        if (!it.listinoRef) upd.listinoRef = { listinoId: ch.listinoId, uid: ch.uid };
+        if (!upd.unitPriceImpresa && !upd.unitPriceCliente && upd.desc === undefined) return it;
         rChanged = true; touchedItems += 1;
-        return { ...it, unitPriceImpresa: ui, unitPriceCliente: uc };
+        return { ...it, ...upd };
       });
       if (!rChanged) return r;
       pChanged = true;
@@ -1402,8 +1410,10 @@ function diffListinoPrices(prev, next) {
   (next || []).forEach((l) => (l.macros || []).forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((s) => (s.voci || []).forEach((v) => {
     const old = v.uid && index.get(`${l.id}|${v.uid}`);
     if (!old) return;
-    if (String(old.priceImpresa || '') === String(v.priceImpresa || '') && String(old.priceCliente || '') === String(v.priceCliente || '')) return;
-    changes.push({ listinoId: l.id, uid: v.uid, oldDesc: old.desc, impresa: parseEuro(v.priceImpresa), clienteFormula: v.priceCliente });
+    const priceChanged = String(old.priceImpresa || '') !== String(v.priceImpresa || '') || String(old.priceCliente || '') !== String(v.priceCliente || '');
+    const descChanged = normText(old.desc) !== normText(v.desc) && !!String(v.desc || '').trim();
+    if (!priceChanged && !descChanged) return;
+    changes.push({ listinoId: l.id, uid: v.uid, oldDesc: old.desc, newDesc: v.desc, priceChanged, descChanged, impresa: parseEuro(v.priceImpresa), clienteFormula: v.priceCliente });
   })))));
   return changes;
 }
@@ -1444,7 +1454,7 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
   const previewCliente = evalClientPrice(priceCliente, previewImpresa);
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 400, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>{isEdit ? 'Modifica voce di listino' : 'Nuova voce di listino'}</h2>
 
@@ -1555,7 +1565,32 @@ function defaultCalcForUnit(unit) {
 // (stessa riga di Costo: la quantità sommata si moltiplica per l'unico prezzo unitario della voce di destinazione).
 // "prefill" arriva quando la voce si crea a partire da una voce di Listino (drag&drop o pulsante +): porta già
 // descrizione, unità e prezzi del listino, così l'utente deve solo inserire le misurazioni reali di cantiere.
-function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, prefill, mergeCandidates, onClose, onSave }) {
+// Voci con quantità "collegata": prendono la quantità (le misurazioni) di un'altra voce dello stesso
+// computo, eventualmente moltiplicata (es. ×2 per due mani). qtyLink = { sourceId, factor }. Ogni volta
+// che cambiano le voci del computo la quantità collegata viene ricalcolata, anche a catena (A←B←C).
+function resolveLinkedQuantities(items) {
+  let current = items;
+  let changed = false;
+  for (let pass = 0; pass < 6; pass += 1) {
+    const byId = new Map(current.map((it) => [String(it.id), it]));
+    let passChanged = false;
+    current = current.map((it) => {
+      if (!it.qtyLink) return it;
+      const src = byId.get(String(it.qtyLink.sourceId));
+      if (!src || String(src.id) === String(it.id)) return it;
+      const q = Math.round(parseEuro(src.qty) * (Number(it.qtyLink.factor) || 1) * 100) / 100;
+      const qs = String(q).replace('.', ',');
+      if (qs === it.qty) return it;
+      passChanged = true;
+      return { ...it, qty: qs };
+    });
+    if (!passChanged) break;
+    changed = true;
+  }
+  return changed ? current : items;
+}
+
+function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, prefill, mergeCandidates, linkCandidates = [], onClose, onSave }) {
   const isEdit = !!initialItem;
   const [desc, setDesc] = useState(initialItem?.desc || prefill?.desc || '');
   const startsKnown = (initialItem || prefill) && UNIT_OPTIONS.slice(0, -1).includes((initialItem || prefill).unit);
@@ -1563,7 +1598,13 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
   const [customUnit, setCustomUnit] = useState((initialItem || prefill) && !startsKnown ? (initialItem || prefill).unit : '');
   const [priceImpresa, setPriceImpresa] = useState(initialItem?.unitPriceImpresa || prefill?.priceImpresa || '');
   const [priceCliente, setPriceCliente] = useState(initialItem?.unitPriceCliente || prefill?.priceCliente || '');
-  const [unitaCalcolo, setUnitaCalcolo] = useState(initialItem ? (initialItem.unitaCalcolo || '') : (prefill ? defaultCalcForUnit(prefill.unit) : 'mq'));
+  const [unitaCalcolo, setUnitaCalcolo] = useState(initialItem ? (initialItem.qtyLink ? 'link' : (initialItem.unitaCalcolo || '')) : (prefill ? defaultCalcForUnit(prefill.unit) : 'mq'));
+  const [linkSourceId, setLinkSourceId] = useState(initialItem?.qtyLink ? String(initialItem.qtyLink.sourceId) : '');
+  const [linkFactor, setLinkFactor] = useState(initialItem?.qtyLink ? String(initialItem.qtyLink.factor).replace('.', ',') : '1');
+  const [linkQuery, setLinkQuery] = useState('');
+  const isLinked = unitaCalcolo === 'link';
+  const linkSource = linkCandidates.find((c) => String(c.id) === linkSourceId) || null;
+  const linkFactorNum = parseEuro(linkFactor) || 0;
   const initialRows = initialItem ? (initialItem.misurazioni || []).flatMap((g) => g.rows || []) : [];
   const [rows, setRows] = useState(initialRows.length ? initialRows : [emptyMisurazioneRow()]);
   const [manualQty, setManualQty] = useState(initialItem && !initialItem.unitaCalcolo ? (initialItem.qty || '') : '');
@@ -1573,7 +1614,19 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
 
   const previewImpresa = parseEuro(priceImpresa);
   const previewCliente = evalClientPrice(priceCliente, previewImpresa);
-  const computedQty = unitaCalcolo ? computeGruppoTotal({ rows }, unitaCalcolo) : parseEuro(manualQty);
+  const computedQty = isLinked
+    ? Math.round((linkSource ? parseEuro(linkSource.qty) : 0) * linkFactorNum * 100) / 100
+    : (unitaCalcolo ? computeGruppoTotal({ rows }, unitaCalcolo) : parseEuro(manualQty));
+  // Copia le righe di misurazione di un'altra voce (una tantum: poi restano modificabili qui).
+  const copyRowsFrom = (src) => {
+    const srcRows = (src?.misurazioni || []).flatMap((g) => g.rows || []);
+    if (!srcRows.length) { alert('La voce scelta non ha righe di misurazione (la sua quantità è inserita a mano): usa piuttosto "Collegata a un\'altra voce".'); return; }
+    if (src.unitaCalcolo) setUnitaCalcolo(src.unitaCalcolo); else if (!unitaCalcolo || isLinked) setUnitaCalcolo('mq');
+    setRows((rs) => {
+      const keep = rs.filter((r) => r.lung || r.larg || r.hPeso || (r.parUg && r.parUg !== '1'));
+      return [...keep, ...srcRows.map((r) => ({ ...r }))];
+    });
+  };
   const mergeTarget = mergeIntoId ? mergeCandidates.find((c) => String(c.id) === mergeIntoId) : null;
 
   const updateRow = (idx, field, value) => {
@@ -1587,7 +1640,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
   const fieldStyle = { width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' };
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: 16 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 640, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 4px', color: C.black }}>{isEdit ? 'Modifica voce' : 'Nuova voce'}</h2>
         <p style={{ fontSize: 11, color: C.gray, margin: '0 0 16px' }}>{macroName} › {categoriaName || 'Generale'}</p>
@@ -1631,9 +1684,34 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
         <label style={labelStyle}>Modalità di calcolo della quantità</label>
         <select value={unitaCalcolo} onChange={(e) => setUnitaCalcolo(e.target.value)} style={fieldStyle}>
           {CALC_UNIT_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          <option value="link" disabled={linkCandidates.length === 0}>Collegata a un'altra voce del computo (stessa quantità/misure)</option>
         </select>
 
-        {unitaCalcolo ? (
+        {isLinked ? (
+          <div style={{ marginBottom: 12, border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '12px 14px', background: '#FAF8F4' }}>
+            <label style={labelStyle}>Voce da cui prendere la quantità</label>
+            <input value={linkQuery} onChange={(e) => setLinkQuery(e.target.value)} placeholder="Filtra per codice o descrizione…" style={{ ...fieldStyle, margin: '4px 0 6px' }} />
+            <select value={linkSourceId} onChange={(e) => setLinkSourceId(e.target.value)} size={Math.min(6, Math.max(2, linkCandidates.length))} style={{ ...fieldStyle, margin: '0 0 10px', height: 'auto' }}>
+              {linkCandidates.filter((c) => matchesTerms(searchTerms(linkQuery), c.code, c.desc)).map((c) => (
+                <option key={c.id} value={String(c.id)}>{c.code ? `${c.code} — ` : ''}{String(c.desc || '').slice(0, 70)} ({c.qty} {c.unit})</option>
+              ))}
+            </select>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <label style={labelStyle}>Moltiplicatore</label>
+              <input value={linkFactor} onChange={(e) => setLinkFactor(e.target.value)} style={{ width: 70, fontSize: 12, padding: '6px 8px', borderRadius: 6, border: `1px solid ${C.paleGray}`, textAlign: 'right' }} />
+              <span style={{ fontSize: 11, color: C.gray }}>es. 2 per due mani, 0,5 per metà</span>
+            </div>
+            <p style={{ fontSize: 12, fontWeight: 700, color: C.black, margin: '10px 0 0' }}>
+              {linkSource ? <>Quantità: {linkSource.qty} {linkSource.unit} × {linkFactor || '1'} = {itNum(computedQty, 2)}</> : 'Scegli la voce di origine.'}
+            </p>
+            <p style={{ fontSize: 11, color: C.gray, margin: '6px 0 0' }}>
+              Resta collegata: se cambiano le misure della voce di origine, questa quantità si aggiorna da sola.
+              {linkSource && (linkSource.misurazioni || []).length > 0 && (
+                <> Preferisci partire dalle sue misure e modificarle? <button type="button" onClick={() => copyRowsFrom(linkSource)} style={{ ...rowBtnStyle, fontSize: 11, padding: '2px 8px' }}>Copia le misurazioni invece</button></>
+              )}
+            </p>
+          </div>
+        ) : unitaCalcolo ? (
           <div style={{ marginBottom: 12 }}>
             <div className="table-scroll">
               <table style={{ width: '100%', minWidth: 480, borderCollapse: 'collapse', fontSize: 12 }}>
@@ -1668,7 +1746,17 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
                 </tbody>
               </table>
             </div>
-            <button onClick={addRow} style={{ ...rowBtnStyle, marginTop: 8 }}>+ Riga di misurazione</button>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 8 }}>
+              <button onClick={addRow} style={rowBtnStyle}>+ Riga di misurazione</button>
+              {linkCandidates.some((c) => (c.misurazioni || []).length > 0) && (
+                <select value="" onChange={(e) => { const src = linkCandidates.find((c) => String(c.id) === e.target.value); if (src) copyRowsFrom(src); }} style={{ fontSize: 11.5, padding: '5px 8px', borderRadius: 999, border: `1px solid ${C.paleGray}`, background: C.white, maxWidth: 320 }}>
+                  <option value="">⇩ Importa le misurazioni da un'altra voce…</option>
+                  {linkCandidates.filter((c) => (c.misurazioni || []).length > 0).map((c) => (
+                    <option key={c.id} value={String(c.id)}>{c.code ? `${c.code} — ` : ''}{String(c.desc || '').slice(0, 60)}</option>
+                  ))}
+                </select>
+              )}
+            </div>
             <p style={{ fontSize: 12, fontWeight: 700, color: C.black, margin: '10px 0 0' }}>
               Quantità {mergeTarget ? 'da aggiungere' : 'totale'}: {itNum(computedQty, 2)} {mergeIntoId ? '' : (unit === 'Altro' ? customUnit : unit)}
               {mergeTarget && <> — nuovo totale voce: {itNum((computedQty + parseEuro(mergeTarget.qty)), 2)}</>}
@@ -1723,12 +1811,14 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
           <button
             onClick={() => {
               if (!desc.trim() && !mergeIntoId) return;
+              if (isLinked && !linkSource) { alert('Scegli la voce da cui prendere la quantità.'); return; }
               const finalUnit = unit === 'Altro' ? (customUnit || '—') : unit;
               onSave({
                 desc, unit: finalUnit, priceImpresa: priceImpresa || '0,00', priceCliente: priceCliente || '',
-                unitaCalcolo: unitaCalcolo || null,
-                misurazioni: unitaCalcolo ? [{ rows }] : [],
-                manualQty: manualQty || '0',
+                unitaCalcolo: isLinked ? null : (unitaCalcolo || null),
+                misurazioni: unitaCalcolo && !isLinked ? [{ rows }] : [],
+                manualQty: isLinked ? String(computedQty).replace('.', ',') : (manualQty || '0'),
+                qtyLink: isLinked && linkSource ? { sourceId: linkSource.id, factor: linkFactorNum || 1 } : null,
                 note: note || '',
                 noteCliente: noteCliente.trim(),
                 listinoRef: prefill?.listinoRef || null,
@@ -2047,7 +2137,7 @@ function NewProjectModal({ onClose, onCreate }) {
   const [client, setClient] = useState('');
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>Crea nuovo progetto</h2>
 
@@ -2718,6 +2808,10 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                       <td style={{ padding: '5px 4px', color: '#5A5A5A' }}>{it.code}</td>
                       <td style={{ padding: '5px 4px' }}>
                         {it.desc}
+                        {it.qtyLink && (() => {
+                          const src = realItems.find((x) => String(x.id) === String(it.qtyLink.sourceId));
+                          return src ? <div style={{ fontSize: 8.5, color: '#8A8A8A', marginTop: 2 }}>Quantità: vedi voce {src.code}{Number(it.qtyLink.factor) !== 1 ? ` × ${String(it.qtyLink.factor).replace('.', ',')}` : ''}</div> : null;
+                        })()}
                         {it.noteCliente && <div style={{ fontSize: 8.5, color: '#5A5A5A', fontStyle: 'italic', marginTop: 2 }}>Nota: {it.noteCliente}</div>}
                       </td>
                       <td style={{ padding: '5px 4px', textAlign: 'right' }}>{it.qty}</td>
@@ -2928,7 +3022,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   // (voce, sottocategoria o macrocategoria) tenga i codici coerenti con la posizione attuale.
   const applyRevisionChange = (updater) => {
     const patch = updater(selectedRevision);
-    const nextItems = regenerateItemCodes(patch.items || items);
+    const nextItems = regenerateItemCodes(resolveLinkedQuantities(patch.items || items));
     const patchWithCodes = patch.items ? { ...patch, items: nextItems } : patch;
     const realNextItems = nextItems.filter((it) => it.type !== 'subtotal');
     const total = formatEuro(sumImpresa(realNextItems));
@@ -3211,7 +3305,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
         : voceData.manualQty || '0';
       if (voceData.editId) {
         return its.map((it) => (it.id === voceData.editId ? {
-          ...it, ...priceFields, unitaCalcolo: voceData.unitaCalcolo, misurazioni: voceData.misurazioni, qty,
+          ...it, ...priceFields, unitaCalcolo: voceData.unitaCalcolo, misurazioni: voceData.misurazioni, qty, qtyLink: voceData.qtyLink || null,
         } : it));
       }
       // Prima di creare davvero una nuova voce (non in modifica, non in unione con una già esistente):
@@ -3223,7 +3317,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
         return its;
       }
       const newItem = {
-        id: Date.now() + Math.random(), code: '', autoCode: true, ...priceFields, listinoRef: voceData.listinoRef || null,
+        id: Date.now() + Math.random(), code: '', autoCode: true, ...priceFields, listinoRef: voceData.listinoRef || null, qtyLink: voceData.qtyLink || null,
         qty, macro: macroName, section: macroName, categoria: categoriaName || 'Generale', sottocategoria: sottoName,
         unitaCalcolo: voceData.unitaCalcolo, misurazioni: voceData.misurazioni,
       };
@@ -3967,6 +4061,14 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                         <td style={{ padding: '8px 6px', fontWeight: 700, color: C.black }}>{it.code}</td>
                                         <td style={{ padding: '8px 6px', color: C.midGray }}>
                                           {it.desc}
+                                          {it.qtyLink && (() => {
+                                            const src = realItems.find((x) => String(x.id) === String(it.qtyLink.sourceId));
+                                            return (
+                                              <p style={{ margin: '3px 0 0', fontSize: 10.5, color: src ? C.midGray : '#B3452B' }}>
+                                                {src ? <>🔗 Quantità da {src.code || 'voce'} — {String(src.desc || '').slice(0, 40)}{Number(it.qtyLink.factor) !== 1 ? ` × ${String(it.qtyLink.factor).replace('.', ',')}` : ''}</> : '⚠️ La voce da cui prendeva la quantità è stata eliminata: quantità ferma all\'ultimo valore'}
+                                              </p>
+                                            );
+                                          })()}
                                           {it.noteCliente && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.maroon }}>💬 Per il cliente: {it.noteCliente}</p>}
                                           {it.note && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.gray, fontStyle: 'italic' }}>📝 {it.note}</p>}
                                           {itemBookmarks.length > 0 && (
@@ -3976,9 +4078,9 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                           )}
                                         </td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right' }}>
-                                          {it.autoCode ? (
+                                          {it.autoCode || it.qtyLink ? (
                                             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                                              <span style={{ fontWeight: 700, color: qtyIsZero ? '#B3452B' : 'inherit' }}>{it.qty}{qtyIsZero && ' ⚠️'}</span>
+                                              <span style={{ fontWeight: 700, color: qtyIsZero ? '#B3452B' : 'inherit' }}>{it.qtyLink ? '🔗 ' : ''}{it.qty}{qtyIsZero && ' ⚠️'}</span>
                                               <button onClick={() => setVoceComputoCtx({ macroName: section.name, categoriaName: cat.name, sottoName: it.sottocategoria || 'Generale', initialItem: it })} style={{ ...iconBtn, width: 20, height: 20, fontSize: 10 }}>✎</button>
                                             </span>
                                           ) : (
@@ -4204,6 +4306,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                     sottoName={voceComputoCtx.sottoName}
                     initialItem={voceComputoCtx.initialItem}
                     prefill={voceComputoCtx.prefill}
+                    linkCandidates={realItems.filter((x) => String(x.id) !== String(voceComputoCtx.initialItem?.id))}
                     mergeCandidates={(groupedSections.find((s) => s.name === voceComputoCtx.macroName)?.categorie.find((c) => c.name === (voceComputoCtx.categoriaName || 'Generale'))?.items || []).filter((it) => it.autoCode && it.id !== voceComputoCtx.initialItem?.id)}
                     onClose={() => setVoceComputoCtx(null)}
                     onSave={(voceData) => saveVoceComputo(voceComputoCtx.macroName, voceComputoCtx.categoriaName || 'Generale', voceComputoCtx.sottoName, voceData)}
@@ -4563,7 +4666,7 @@ function addComputoItemToProject(project, voce, qty = '1') {
   const impresaVal = voce.impresaValue !== undefined ? voce.impresaValue : parseEuro(voce.priceImpresa);
   const clienteVal = voce.clienteValue !== undefined ? voce.clienteValue : evalClientPrice(voce.priceCliente, impresaVal);
   const item = { id: Date.now() + Math.random(), listinoRef: voce.uid ? { listinoId: voce.listinoId, uid: voce.uid } : null, code: voce.code, desc: voce.desc, unit: voce.unit, unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''), qty: String(qty), macro: voce.macro, section: voce.macro };
-  const nextItems = regenerateItemCodes([...(latestRevision.items || []), item]);
+  const nextItems = regenerateItemCodes(resolveLinkedQuantities([...(latestRevision.items || []), item]));
   const realNextItems = nextItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(realNextItems));
   const totalCliente = formatEuro(sumCliente(realNextItems));
@@ -4698,7 +4801,7 @@ function PlanLinkModal({ mode, listino, computoItems, initialCode, initialComput
   const title = mode === 'punto' ? 'Collega un punto al listino' : mode === 'area' ? 'Collega l\'area al listino' : 'Collega la lunghezza al listino';
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 20, padding: 16 }} onClick={onCancel}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={onCancel}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 16px', color: C.black }}>{title}</h2>
 
@@ -5936,7 +6039,7 @@ function ImportPdfComputoModal({ onClose, onConfirm }) {
   const canConfirm = rows.length > 0 && rows.every((r) => r.name.trim()) && sommaCategorie > 0;
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10, padding: 16 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 560, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Importa computo da PDF</h2>
         <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>
@@ -6036,7 +6139,7 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
 
   if (eligible.length === 0) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
         <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 380, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
           <p style={{ fontSize: 13, color: C.gray, margin: '0 0 16px' }}>Nessun progetto ha ancora un computo creato. Apri un progetto e crea il primo computo prima di aggiungere forniture.</p>
           <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Chiudi</button>
@@ -6046,7 +6149,7 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', overflowY: 'auto' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Aggiungi al computo</h2>
         <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>{prodottoLabel(prodotto)}{variante.nome ? ` — ${variante.nome}` : ''}</p>
@@ -6175,7 +6278,7 @@ function ProdottoFornitoreModal({ mode, initial = {}, suggestions, onClose, onSa
     onClose();
   };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && !e.defaultPrevented) save(); }} style={{ background: C.white, borderRadius: 14, padding: 22, width: 420, maxWidth: '100%' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, margin: '0 0 4px', color: C.black }}>{title}</h2>
         <p style={{ fontSize: 11.5, color: C.gray, margin: '0 0 16px' }}>Mentre scrivi compaiono i valori già inseriti nel catalogo: sceglili oppure continua a scrivere per crearne uno nuovo.</p>
@@ -6258,7 +6361,7 @@ function FornitorePrezziModal({ initial = {}, isNew, suggestions, onClose, onSav
     onClose();
   };
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter' && e.target.tagName !== 'BUTTON' && !e.defaultPrevented) save(); }} style={{ background: C.white, borderRadius: 14, padding: 22, width: 440, maxWidth: '100%' }}>
         <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 400, margin: '0 0 4px', color: C.black }}>{isNew ? 'Nuovo fornitore' : 'Modifica fornitore'}</h2>
         <p style={{ fontSize: 11.5, color: C.gray, margin: '0 0 16px' }}>Mentre scrivi il nome compaiono i fornitori già inseriti nel catalogo: sceglilo oppure scrivine uno nuovo. Per i prezzi puoi scrivere lo sconto % sul listino oppure direttamente il prezzo.</p>
@@ -6755,7 +6858,7 @@ function TeamMemberModal({ member, isAdmin, isSelf, onClose, onSaved, onRemoved 
   };
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, padding: 16 }}>
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: '#FFFDFA', borderRadius: 16, width: 560, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto', padding: '22px 24px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
           <MemberAvatar member={{ ...member, name, photo }} size={72} />
@@ -7636,7 +7739,8 @@ export default function GestionaleEdilePreview() {
     const { next, touchedItems, touchedProjects } = propagateListinoPrices(projects, changes);
     if (touchedItems > 0) {
       setProjects(next);
-      setPriceNotice(`Prezzo aggiornato anche in ${touchedItems} vo${touchedItems === 1 ? 'ce' : 'ci'} di ${touchedProjects} computo${touchedProjects === 1 ? '' : 'i'} in attesa di approvazione. I computi approvati restano invariati.`);
+      const what = changes.some((c) => c.priceChanged) && changes.some((c) => c.descChanged) ? 'Prezzo e descrizione aggiornati' : changes.some((c) => c.descChanged) ? 'Descrizione aggiornata' : 'Prezzo aggiornato';
+      setPriceNotice(`${what} anche in ${touchedItems} vo${touchedItems === 1 ? 'ce' : 'ci'} di ${touchedProjects} computo${touchedProjects === 1 ? '' : 'i'} in attesa di approvazione. I computi approvati restano invariati.`);
       setTimeout(() => setPriceNotice(null), 7000);
     }
   };
