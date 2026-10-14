@@ -235,6 +235,58 @@ const getVatInfo = (revision) => {
   return { rate, label };
 };
 
+// L'IVA si imposta sezione per sezione (revision.sectionVat[nomeSezione] = { rate, label }), non più sul
+// totale generale: il totale generale somma l'IVA delle singole sezioni, divisa per aliquota/dicitura.
+// Una sezione senza impostazione propria usa l'aliquota che il computo aveva prima (vecchia IVA unica,
+// di default 22%), così i computi già esistenti non cambiano importi.
+const VAT_PRESETS = [
+  { rate: 22, label: null, text: 'Standard 22%' },
+  { rate: 10, label: null, text: 'Agevolata 10%' },
+  { rate: 4, label: null, text: 'Agevolata 4%' },
+  { rate: 0, label: 'Esente IVA', text: 'Esente IVA' },
+  { rate: 0, label: 'IVA non dovuta', text: 'IVA non dovuta' },
+  { rate: 16, label: 'IVA dovuta 50% al 22% e 50% al 10%', text: 'Mista 50%/50% (22%+10%)' },
+];
+function getSectionVat(revision, sectionName) {
+  const sv = revision?.sectionVat?.[sectionName];
+  if (sv && sv.rate !== undefined && sv.rate !== null && sv.rate !== '') {
+    const rate = Number(sv.rate) || 0;
+    return { rate, label: sv.label && String(sv.label).trim() ? sv.label : `IVA ${rate}%` };
+  }
+  const base = getVatInfo(revision);
+  return { rate: base.rate, label: sv?.label && String(sv.label).trim() ? sv.label : base.label };
+}
+function computeEconomics(revision) {
+  const discounts = revision?.sectionDiscounts || {};
+  const sections = buildComputoGroups(revision).map((g) => {
+    const real = g.items.filter((it) => it.type !== 'subtotal');
+    const grossImpresa = sumImpresa(real);
+    const grossCliente = sumCliente(real);
+    const discountPct = parseFloat(discounts[g.name]) || 0;
+    const netImpresa = grossImpresa * (1 - discountPct / 100);
+    const netCliente = grossCliente * (1 - discountPct / 100);
+    const vat = getSectionVat(revision, g.name);
+    const ivaImpresa = netImpresa * (vat.rate / 100);
+    const ivaCliente = netCliente * (vat.rate / 100);
+    return { name: g.name, grossImpresa, grossCliente, discountPct, netImpresa, netCliente, vat, ivaImpresa, ivaCliente, totImpresa: netImpresa + ivaImpresa, totCliente: netCliente + ivaCliente };
+  });
+  const breakdown = [];
+  sections.forEach((s) => {
+    if (!s.netImpresa && !s.netCliente) return;
+    let b = breakdown.find((x) => x.label === s.vat.label && x.rate === s.vat.rate);
+    if (!b) { b = { label: s.vat.label, rate: s.vat.rate, ivaImpresa: 0, ivaCliente: 0 }; breakdown.push(b); }
+    b.ivaImpresa += s.ivaImpresa;
+    b.ivaCliente += s.ivaCliente;
+  });
+  const sum = (k) => sections.reduce((n, s) => n + s[k], 0);
+  return {
+    sections, breakdown,
+    netImpresa: sum('netImpresa'), netCliente: sum('netCliente'),
+    ivaImpresa: sum('ivaImpresa'), ivaCliente: sum('ivaCliente'),
+    totImpresa: sum('totImpresa'), totCliente: sum('totCliente'),
+  };
+}
+
 // Aggiunge una voce (es. una fornitura) alla revisione scelta di un progetto.
 // Se la revisione scelta è l'ultima, aggiorna sul posto; altrimenti crea automaticamente
 // una nuova versione (fork) lasciando quella aperta intatta, come per ogni altra modifica.
@@ -1400,6 +1452,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
   const [manualQty, setManualQty] = useState(initialItem && !initialItem.unitaCalcolo ? (initialItem.qty || '') : '');
   const [mergeIntoId, setMergeIntoId] = useState('');
   const [note, setNote] = useState(initialItem?.note || prefill?.note || '');
+  const [noteCliente, setNoteCliente] = useState(initialItem?.noteCliente || '');
 
   const previewImpresa = parseEuro(priceImpresa);
   const previewCliente = evalClientPrice(priceCliente, previewImpresa);
@@ -1530,7 +1583,16 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
           </>
         )}
 
-        <label style={labelStyle}>Note (facoltative, solo uso interno)</label>
+        <label style={labelStyle}>Nota per il cliente <span style={{ fontWeight: 400, color: C.gray }}>(facoltativa — compare nel PDF e nell'Excel, anche nella versione cliente)</span></label>
+        <textarea
+          value={noteCliente}
+          onChange={(e) => setNoteCliente(e.target.value)}
+          placeholder="Es. materiale fornito dal committente, finitura da confermare in cantiere…"
+          rows={2}
+          style={{ ...fieldStyle, fontFamily: 'inherit', resize: 'vertical' }}
+        />
+
+        <label style={labelStyle}>Note interne <span style={{ fontWeight: 400, color: C.gray }}>(facoltative, solo uso interno — non vanno mai al cliente)</span></label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -1551,6 +1613,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
                 misurazioni: unitaCalcolo ? [{ rows }] : [],
                 manualQty: manualQty || '0',
                 note: note || '',
+                noteCliente: noteCliente.trim(),
                 editId: initialItem?.id || null,
                 mergeIntoItemId: mergeIntoId || null,
               });
@@ -2221,8 +2284,9 @@ function exportComputoExcel(project, revision, clientOnly) {
   rows.push(['Data modifica', revision.dateModified]);
   rows.push([]);
   rows.push(clientOnly
-    ? ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente']
-    : ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo impresa', 'Totale impresa', 'Prezzo cliente', 'Totale cliente']);
+    ? ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente', 'Note']
+    : ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo impresa', 'Totale impresa', 'Prezzo cliente', 'Totale cliente', 'Note']);
+  const econ = computeEconomics(revision);
 
   groups.forEach((g) => {
     let runImpresa = 0;
@@ -2235,8 +2299,8 @@ function exportComputoExcel(project, revision, clientOnly) {
         runImpresa += totImpresa;
         runCliente += totCliente;
         rows.push(clientOnly
-          ? [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceCliente, formatEuro(totCliente)]
-          : [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceImpresa, formatEuro(totImpresa), it.unitPriceCliente, formatEuro(totCliente)]);
+          ? [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceCliente, formatEuro(totCliente), it.noteCliente || '']
+          : [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceImpresa, formatEuro(totImpresa), it.unitPriceCliente, formatEuro(totCliente), it.noteCliente || '']);
       });
     });
     g.subtotalMarkers.forEach((it) => {
@@ -2259,22 +2323,33 @@ function exportComputoExcel(project, revision, clientOnly) {
       runImpresa = 0;
       runCliente = 0;
     });
+    // Totale della sezione: eventuale sconto di sezione, poi IVA della sezione
+    const s = econ.sections.find((x) => x.name === g.name);
+    if (s && (s.grossImpresa || s.grossCliente)) {
+      const who = clientOnly ? [['cliente', s.grossCliente, s.netCliente, s.ivaCliente, s.totCliente]] : [['impresa', s.grossImpresa, s.netImpresa, s.ivaImpresa, s.totImpresa], ['cliente', s.grossCliente, s.netCliente, s.ivaCliente, s.totCliente]];
+      who.forEach(([w, gross, net, iva, tot]) => {
+        const suffix = clientOnly ? '' : ` (${w})`;
+        if (s.discountPct) {
+          rows.push([g.name, '', '', `Subtotale ${g.name}${suffix}`, '', '', '', formatEuro(gross)]);
+          rows.push([g.name, '', '', `Sconto ${s.discountPct}%${suffix}`, '', '', '', `-${formatEuro(gross - net)}`]);
+        }
+        rows.push([g.name, '', '', `Totale ${g.name} IVA esclusa${suffix}`, '', '', '', formatEuro(net)]);
+        rows.push([g.name, '', '', `${s.vat.label}${suffix}`, '', '', '', formatEuro(iva)]);
+        rows.push([g.name, '', '', `Totale ${g.name} IVA inclusa${suffix}`, '', '', '', formatEuro(tot)]);
+      });
+    }
   });
 
-  const realItems = (revision.items || []).filter((it) => it.type !== 'subtotal');
-  const impresaTot = sumImpresa(realItems);
-  const clienteTot = sumCliente(realItems);
-  const { rate: vatRate, label: vatLabel } = getVatInfo(revision);
   rows.push([]);
   if (!clientOnly) {
-    rows.push(['Totale generale IVA esclusa (impresa)', '', '', '', '', '', formatEuro(impresaTot)]);
-    rows.push([`${vatLabel} (impresa)`, '', '', '', '', '', formatEuro(impresaTot * (vatRate / 100))]);
-    rows.push(['Totale generale IVA inclusa (impresa)', '', '', '', '', '', formatEuro(impresaTot * (1 + vatRate / 100))]);
+    rows.push(['Totale generale IVA esclusa (impresa)', '', '', '', '', '', formatEuro(econ.netImpresa)]);
+    econ.breakdown.forEach((b) => rows.push([`${b.label} (impresa)`, '', '', '', '', '', formatEuro(b.ivaImpresa)]));
+    rows.push(['Totale generale IVA inclusa (impresa)', '', '', '', '', '', formatEuro(econ.totImpresa)]);
     rows.push([]);
   }
-  rows.push(['Totale generale IVA esclusa (cliente)', '', '', '', '', '', formatEuro(clienteTot)]);
-  rows.push([`${vatLabel} (cliente)`, '', '', '', '', '', formatEuro(clienteTot * (vatRate / 100))]);
-  rows.push(['Totale generale IVA inclusa (cliente)', '', '', '', '', '', formatEuro(clienteTot * (1 + vatRate / 100))]);
+  rows.push(['Totale generale IVA esclusa (cliente)', '', '', '', '', '', formatEuro(econ.netCliente)]);
+  econ.breakdown.forEach((b) => rows.push([`${b.label} (cliente)`, '', '', '', '', '', formatEuro(b.ivaCliente)]));
+  rows.push(['Totale generale IVA inclusa (cliente)', '', '', '', '', '', formatEuro(econ.totCliente)]);
 
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -2286,10 +2361,8 @@ function exportComputoExcel(project, revision, clientOnly) {
 function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
   const groups = buildComputoGroups(revision);
   const realItems = (revision.items || []).filter((it) => it.type !== 'subtotal');
-  const impresaTot = sumImpresa(realItems);
-  const clienteTot = sumCliente(realItems);
   const header = project.header || {};
-  const { rate: vatRate, label: vatLabel } = getVatInfo(revision);
+  const econ = computeEconomics(revision);
   const ss = studioSettings || DEFAULT_STUDIO_SETTINGS;
   const hasCustomHeader = ss.usaIntestazionePersonalizzata && ss.intestazioneImg;
   const hasCustomFooter = ss.usaPiePersonalizzato && ss.pieImg;
@@ -2438,7 +2511,10 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                     return (
                     <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid', borderBottom: '1px solid #F0EEE8' }}>
                       <td style={{ padding: '5px 4px', color: '#5A5A5A' }}>{it.code}</td>
-                      <td style={{ padding: '5px 4px' }}>{it.desc}</td>
+                      <td style={{ padding: '5px 4px' }}>
+                        {it.desc}
+                        {it.noteCliente && <div style={{ fontSize: 8.5, color: '#5A5A5A', fontStyle: 'italic', marginTop: 2 }}>Nota: {it.noteCliente}</div>}
+                      </td>
                       <td style={{ padding: '5px 4px', textAlign: 'right' }}>{it.qty}</td>
                       <td style={{ padding: '5px 4px', color: '#8A8A8A' }}>{it.unit}</td>
                       {!clientOnly && <td style={{ padding: '5px 4px', textAlign: 'right', color: '#5A5A5A' }}>{it.unitPriceImpresa} €</td>}
@@ -2479,21 +2555,58 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
               })}
             </tbody>
           </table>
+          {(() => {
+            const s = econ.sections.find((x) => x.name === g.name);
+            if (!s || (!s.grossImpresa && !s.grossCliente)) return null;
+            const line = { fontSize: 9.5, display: 'flex', justifyContent: 'space-between', gap: 12, color: '#5A5A5A', margin: '2px 0' };
+            const block = (who, gross, net, iva, tot, color) => (
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {s.discountPct > 0 && (
+                  <>
+                    <p style={line}><span>Subtotale{who}</span><span>{formatEuro(gross)}</span></p>
+                    <p style={line}><span>Sconto {s.discountPct}%</span><span>−{formatEuro(gross - net)}</span></p>
+                  </>
+                )}
+                <p style={line}><span>Totale IVA esclusa{who}</span><span>{formatEuro(net)}</span></p>
+                <p style={line}><span>{s.vat.label}</span><span>{formatEuro(iva)}</span></p>
+                <p style={{ ...line, fontWeight: 700, color, borderTop: '1px solid #E5E2DA', paddingTop: 3, marginTop: 3 }}><span>Totale {g.name} IVA inclusa{who}</span><span>{formatEuro(tot)}</span></p>
+              </div>
+            );
+            return (
+              <div style={{ display: 'flex', gap: 24, justifyContent: 'flex-end', marginTop: 8, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                <div style={{ display: 'flex', gap: 24, width: clientOnly ? 300 : 620, maxWidth: '100%' }}>
+                  {!clientOnly && block(' (impresa)', s.grossImpresa, s.netImpresa, s.ivaImpresa, s.totImpresa, '#1A1A1A')}
+                  {block(clientOnly ? '' : ' (cliente)', s.grossCliente, s.netCliente, s.ivaCliente, s.totCliente, C.maroon)}
+                </div>
+              </div>
+            );
+          })()}
         </div>
         );
       })}
       <div style={{ marginTop: 30, maxWidth: 320, marginLeft: 'auto', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         {!clientOnly && (
           <>
-            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (impresa)</span><span>{formatEuro(impresaTot)}</span></p>
-            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{vatLabel}</span><span>{formatEuro(impresaTot * (vatRate / 100))}</span></p>
-            <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', fontWeight: 700, margin: '6px 0 0', paddingTop: 6, borderTop: '1px solid #E5E2DA' }}><span>Totale generale IVA inclusa (impresa)</span><span>{formatEuro(impresaTot * (1 + vatRate / 100))}</span></p>
+            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (impresa)</span><span>{formatEuro(econ.netImpresa)}</span></p>
+            {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaImpresa)}</span></p>)}
+            <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', fontWeight: 700, margin: '6px 0 0', paddingTop: 6, borderTop: '1px solid #E5E2DA' }}><span>Totale generale IVA inclusa (impresa)</span><span>{formatEuro(econ.totImpresa)}</span></p>
             <div style={{ height: 16 }} />
           </>
         )}
-        <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (cliente)</span><span>{formatEuro(clienteTot)}</span></p>
-        <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{vatLabel}</span><span>{formatEuro(clienteTot * (vatRate / 100))}</span></p>
-        <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '6px 0 0', paddingTop: 6, borderTop: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA inclusa (cliente)</span><span>{formatEuro(clienteTot * (1 + vatRate / 100))}</span></p>
+        {clientOnly ? (
+          <>
+            {/* Versione cliente: in evidenza il totale generale IVA esclusa; IVA e totale IVA inclusa restano righe normali. */}
+            <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '0 0 8px', paddingBottom: 6, borderBottom: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA esclusa</span><span>{formatEuro(econ.netCliente)}</span></p>
+            {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaCliente)}</span></p>)}
+            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA inclusa</span><span>{formatEuro(econ.totCliente)}</span></p>
+          </>
+        ) : (
+          <>
+            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (cliente)</span><span>{formatEuro(econ.netCliente)}</span></p>
+            {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaCliente)}</span></p>)}
+            <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '6px 0 0', paddingTop: 6, borderTop: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA inclusa (cliente)</span><span>{formatEuro(econ.totCliente)}</span></p>
+          </>
+        )}
       </div>
 
           </td></tr>
@@ -2546,7 +2659,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
   const activeListino = listini.find((l) => l.id === listinoId) || listini[0];
 
   const realItems = items.filter((it) => it.type !== 'subtotal');
-  const { rate: vatRate, label: vatLabel } = getVatInfo(selectedRevision);
+  const sectionVatSaved = selectedRevision?.sectionVat || {};
 
   // Raggruppamento a tre livelli (macrocategoria > categoria > sottocategoria), calcolato da
   // buildComputoGroups (condiviso anche con la stampa PDF e l'export Excel, così restano sempre
@@ -2581,16 +2694,21 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
     importoLavoriCliente += s.netCliente;
   });
 
-  const iva = importoLavori * (vatRate / 100);
-  const totale = importoLavori + iva;
-  const ivaCliente = importoLavoriCliente * (vatRate / 100);
-  const totaleCliente = importoLavoriCliente + ivaCliente;
+  const economics = computeEconomics(selectedRevision);
+  groupedSections.forEach((s) => {
+    const e = economics.sections.find((x) => x.name === s.name);
+    if (e) Object.assign(s, { vat: e.vat, ivaImpresa: e.ivaImpresa, ivaCliente: e.ivaCliente, totImpresa: e.totImpresa, totCliente: e.totCliente });
+  });
+  const totale = economics.totImpresa;
+  const totaleCliente = economics.totCliente;
 
-  const updateVat = (field, value) => {
-    applyRevisionChange(() => ({ [field]: value }));
-  };
-  const applyVatPreset = (rate, label) => {
-    applyRevisionChange(() => ({ vatRate: rate, vatLabel: label }));
+  // IVA di una singola sezione: stessa logica della vecchia "Configurazione IVA" generale (aliquota,
+  // dicitura personalizzata, scelte rapide), ma salvata per sezione in revision.sectionVat.
+  const updateSectionVat = (sectionName, patch) => {
+    applyRevisionChange((rev) => {
+      const current = (rev.sectionVat || {})[sectionName] || { rate: getSectionVat(rev, sectionName).rate, label: null };
+      return { sectionVat: { ...(rev.sectionVat || {}), [sectionName]: { ...current, ...patch } } };
+    });
   };
 
   const updateSectionDiscount = (sectionName, value) => {
@@ -2763,9 +2881,17 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
   const renameSection = (oldName) => {
     const newName = prompt('Rinomina macrosezione:', oldName);
     if (!newName || newName === oldName) return;
+    const moveKey = (obj) => {
+      if (!obj || !(oldName in obj)) return obj;
+      const { [oldName]: v, ...rest } = obj;
+      return { ...rest, [newName]: v };
+    };
     applyRevisionChange((rev) => ({
       items: (rev.items || []).map((it) => ((it.section || it.macro) === oldName ? { ...it, section: newName } : it)),
       extraSections: (rev.extraSections || []).map((n) => (n === oldName ? newName : n)),
+      sectionDiscounts: moveKey(rev.sectionDiscounts),
+      sectionVat: moveKey(rev.sectionVat),
+      macroOrder: (rev.macroOrder || []).map((n) => (n === oldName ? newName : n)),
     }));
   };
 
@@ -2824,7 +2950,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
     const impresaVal = parseEuro(voceData.priceImpresa);
     const clienteVal = evalClientPrice(voceData.priceCliente, impresaVal);
     const priceFields = {
-      desc: voceData.desc, unit: voceData.unit, note: voceData.note || '',
+      desc: voceData.desc, unit: voceData.unit, note: voceData.note || '', noteCliente: voceData.noteCliente || '',
       unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''),
       unitPriceCliente: formatEuro(clienteVal).replace(' €', ''),
     };
@@ -2871,7 +2997,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
     let vatRate = null;
     let vatLabel = null;
     if (applyVat) {
-      const defaultRate = selectedRevision?.vatRate !== undefined && selectedRevision?.vatRate !== null ? selectedRevision.vatRate : 22;
+      const defaultRate = getSectionVat(selectedRevision, sectionName).rate;
       const rateInput = prompt('Aliquota IVA per questa sommatoria (%):', String(defaultRate));
       if (rateInput !== null) {
         vatRate = Number(rateInput) || 0;
@@ -3596,6 +3722,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                                         <td style={{ padding: '8px 6px', fontWeight: 700, color: C.black }}>{it.code}</td>
                                         <td style={{ padding: '8px 6px', color: C.midGray }}>
                                           {it.desc}
+                                          {it.noteCliente && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.maroon }}>💬 Per il cliente: {it.noteCliente}</p>}
                                           {it.note && <p style={{ margin: '3px 0 0', fontSize: 10.5, color: C.gray, fontStyle: 'italic' }}>📝 {it.note}</p>}
                                           {itemBookmarks.length > 0 && (
                                             <p style={{ margin: '3px 0 0', fontSize: 10, color: C.maroon }}>
@@ -3765,6 +3892,51 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                               </span>
                             )}
                           </div>
+                          {(() => {
+                            const saved = sectionVatSaved[section.name];
+                            const rateValue = saved && saved.rate !== undefined && saved.rate !== null ? saved.rate : (section.vat?.rate ?? 22);
+                            const labelValue = saved?.label || '';
+                            const isPreset = (p) => Number(section.vat?.rate) === p.rate && (p.label ? labelValue === p.label : !labelValue);
+                            return (
+                              <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${C.paleGray}` }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, flexWrap: 'wrap' }}>
+                                  <label style={{ color: C.gray }}>IVA su questa sezione:</label>
+                                  <input
+                                    type="number"
+                                    value={rateValue}
+                                    onChange={(e) => updateSectionVat(section.name, { rate: e.target.value === '' ? '' : Number(e.target.value) })}
+                                    style={{ width: 60, fontSize: 11, padding: '4px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}
+                                  />
+                                  <span style={{ color: C.gray }}>%</span>
+                                  <input
+                                    value={labelValue}
+                                    onChange={(e) => updateSectionVat(section.name, { label: e.target.value })}
+                                    placeholder='Dicitura facoltativa, es. "Esente IVA"'
+                                    style={{ flex: '1 1 200px', minWidth: 160, fontSize: 11, padding: '4px 8px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}
+                                  />
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 6 }}>
+                                  {VAT_PRESETS.map((p) => (
+                                    <button
+                                      key={p.text}
+                                      onClick={() => updateSectionVat(section.name, { rate: p.rate, label: p.label })}
+                                      style={{ ...rowBtnStyle, fontSize: 10.5, padding: '3px 9px', ...(isPreset(p) ? { background: '#2B2321', color: '#fff', borderColor: '#2B2321' } : {}) }}
+                                    >
+                                      {p.text}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', fontSize: 11.5, marginTop: 8 }}>
+                                  <span style={{ color: C.black }}>
+                                    Impresa — IVA escl. {formatEuro(section.netImpresa)} · {section.vat?.label} {formatEuro(section.ivaImpresa || 0)} · <strong>IVA incl. {formatEuro(section.totImpresa || 0)}</strong>
+                                  </span>
+                                  <span style={{ color: C.maroon }}>
+                                    Cliente — IVA escl. {formatEuro(section.netCliente)} · {section.vat?.label} {formatEuro(section.ivaCliente || 0)} · <strong>IVA incl. {formatEuro(section.totCliente || 0)}</strong>
+                                  </span>
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     );
@@ -3784,41 +3956,9 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                 )}
               </div>
 
-              <div style={{ ...card, marginBottom: 18, maxWidth: 660 }}>
-                <p style={{ fontWeight: 700, fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Configurazione IVA</p>
-                <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                  <div>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Aliquota IVA (%)</label>
-                    <input
-                      type="number"
-                      value={selectedRevision.vatRate !== undefined && selectedRevision.vatRate !== null ? selectedRevision.vatRate : 22}
-                      onChange={(e) => updateVat('vatRate', e.target.value === '' ? '' : Number(e.target.value))}
-                      style={{ width: 90, fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4, display: 'block' }}
-                    />
-                  </div>
-                  <div style={{ flex: 1, minWidth: 220 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Dicitura personalizzata (facoltativa)</label>
-                    <input
-                      value={selectedRevision.vatLabel || ''}
-                      onChange={(e) => updateVat('vatLabel', e.target.value)}
-                      placeholder='Es. "Esente IVA", "IVA non dovuta", "IVA dovuta 50% al 22% e 50% al 10%"'
-                      style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, marginTop: 4 }}
-                    />
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <button onClick={() => applyVatPreset(22, null)} style={rowBtnStyle}>Standard 22%</button>
-                  <button onClick={() => applyVatPreset(10, null)} style={rowBtnStyle}>Agevolata 10%</button>
-                  <button onClick={() => applyVatPreset(4, null)} style={rowBtnStyle}>Agevolata 4%</button>
-                  <button onClick={() => applyVatPreset(0, 'Esente IVA')} style={rowBtnStyle}>Esente IVA</button>
-                  <button onClick={() => applyVatPreset(0, 'IVA non dovuta')} style={rowBtnStyle}>IVA non dovuta</button>
-                  <button onClick={() => applyVatPreset(16, 'IVA dovuta 50% al 22% e 50% al 10%')} style={rowBtnStyle}>Mista 50%/50% (22%+10%)</button>
-                </div>
-                <p style={{ fontSize: 11, color: C.gray, margin: 0 }}>
-                  Per aliquote miste (es. 50% delle opere al 22% e 50% al 10%), imposta l'aliquota media effettiva (in questo caso 16%) nel campo numerico, e descrivi la ripartizione nella dicitura personalizzata: verrà mostrata al posto di "IVA {vatRate}%" nei quadri economici e nei documenti esportati.
-                </p>
-              </div>
-
+              <p style={{ fontSize: 11.5, color: C.gray, margin: '0 0 10px', maxWidth: 660 }}>
+                L'IVA si imposta in fondo a ogni sezione: il totale generale qui sotto somma l'IVA delle singole sezioni, divisa per aliquota.
+              </p>
               <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap' }}>
                 <div style={{ ...card, maxWidth: 320, flex: 1 }}>
                   <p style={{ fontWeight: 700, fontSize: 18, margin: '0 0 12px', color: C.black, fontFamily: FONT }}>Quadro economico — Impresa</p>
@@ -3826,9 +3966,14 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                     <span style={{ color: C.gray }}>Totale IVA esclusa</span>
                     <span style={{ fontWeight: 700, color: C.black }}>{formatEuro(importoLavori)}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.paleGray}` }}>
-                    <span style={{ color: C.gray }}>{vatLabel}</span>
-                    <span style={{ color: C.black }}>{formatEuro(iva)}</span>
+                  <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.paleGray}` }}>
+                    {economics.breakdown.length === 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: C.gray }}>IVA</span><span style={{ color: C.black }}>{formatEuro(0)}</span></div>}
+                    {economics.breakdown.map((b, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: i ? 6 : 0 }}>
+                        <span style={{ color: C.gray }}>{b.label}</span>
+                        <span style={{ color: C.black }}>{formatEuro(b.ivaImpresa)}</span>
+                      </div>
+                    ))}
                   </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 700 }}>
                     <span style={{ color: C.black }}>Totale IVA inclusa</span>
@@ -3842,9 +3987,14 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, fornitor
                     <span style={{ color: C.gray }}>Totale IVA esclusa</span>
                     <span style={{ fontWeight: 700, color: C.black }}>{formatEuro(importoLavoriCliente)}</span>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.paleGray}` }}>
-                    <span style={{ color: C.gray }}>{vatLabel}</span>
-                    <span style={{ color: C.black }}>{formatEuro(ivaCliente)}</span>
+                  <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.paleGray}` }}>
+                    {economics.breakdown.length === 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: C.gray }}>IVA</span><span style={{ color: C.black }}>{formatEuro(0)}</span></div>}
+                    {economics.breakdown.map((b, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: i ? 6 : 0 }}>
+                        <span style={{ color: C.gray }}>{b.label}</span>
+                        <span style={{ color: C.black }}>{formatEuro(b.ivaCliente)}</span>
+                      </div>
+                    ))}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 16, fontWeight: 700 }}>
                     <span style={{ color: C.maroon }}>Totale IVA inclusa</span>
