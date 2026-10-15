@@ -2906,7 +2906,10 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
       {groups.map((g, gi) => {
         let runI = 0;
         let runC = 0;
-        const thStyle = { textAlign: 'left', borderBottom: '1.5px solid #1A1A1A', padding: '4px 4px', fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#8A8A8A', fontWeight: 600 };
+        const thStyle = { textAlign: 'left', borderBottom: '1.5px solid #1A1A1A', padding: '4px 4px', fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#8A8A8A', fontWeight: 600, verticalAlign: 'bottom' };
+        // Celle numeriche: allineate a destra, mai a capo, cifre a larghezza fissa (tabular-nums) così i
+        // valori si incolonnano esattamente uno sotto l'altro.
+        const numCell = { padding: '5px 4px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
         return (
         <div key={gi} style={{ marginTop: 24 }}>
           <h3 style={{
@@ -2914,7 +2917,19 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
             borderLeft: `3px solid ${C.maroon}`, textTransform: 'uppercase', letterSpacing: 0.6,
             color: '#1A1A1A', pageBreakAfter: 'avoid', breakAfter: 'avoid',
           }}>{g.name}</h3>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10, tableLayout: 'fixed' }}>
+            {/* Larghezze di colonna fisse e identiche in tutte le sezioni (table-layout: fixed): così prezzi e
+                totali restano incolonnati da una tabella all'altra e non vanno a capo (es. "€" sulla riga sotto). */}
+            <colgroup>
+              <col style={{ width: 64 }} />
+              <col />
+              <col style={{ width: 46 }} />
+              <col style={{ width: 50 }} />
+              {!clientOnly && <col style={{ width: 70 }} />}
+              {!clientOnly && <col style={{ width: 80 }} />}
+              <col style={{ width: 70 }} />
+              <col style={{ width: 80 }} />
+            </colgroup>
             <thead>
               <tr>
                 <th style={thStyle}>Codice</th>
@@ -2938,7 +2953,7 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                     runC += parseEuro(it.unitPriceCliente) * parseEuro(it.qty);
                     return (
                     <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid', borderBottom: '1px solid #F0EEE8' }}>
-                      <td style={{ padding: '5px 4px', color: '#5A5A5A' }}>{it.code}</td>
+                      <td style={{ padding: '5px 4px', color: '#5A5A5A', fontSize: 8.5, overflowWrap: 'anywhere' }}>{it.code}</td>
                       <td style={{ padding: '5px 4px' }}>
                         {it.desc}
                         {it.qtyLink && (() => {
@@ -2947,12 +2962,12 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                         })()}
                         {it.noteCliente && <div style={{ fontSize: 8.5, color: '#5A5A5A', fontStyle: 'italic', marginTop: 2 }}>Nota: {it.noteCliente}</div>}
                       </td>
-                      <td style={{ padding: '5px 4px', textAlign: 'right' }}>{it.qty}</td>
-                      <td style={{ padding: '5px 4px', color: '#8A8A8A' }}>{it.unit}</td>
-                      {!clientOnly && <td style={{ padding: '5px 4px', textAlign: 'right', color: '#5A5A5A' }}>{it.unitPriceImpresa} €</td>}
-                      {!clientOnly && <td style={{ padding: '5px 4px', textAlign: 'right', fontWeight: 600 }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
-                      <td style={{ padding: '5px 4px', textAlign: 'right', color: C.maroon }}>{it.unitPriceCliente} €</td>
-                      <td style={{ padding: '5px 4px', textAlign: 'right', fontWeight: 600, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
+                      <td style={{ ...numCell }}>{itNum(parseEuro(it.qty), parseEuro(it.qty) % 1 ? 2 : 0)}</td>
+                      <td style={{ padding: '5px 4px', color: '#8A8A8A', whiteSpace: 'nowrap' }}>{it.unit}</td>
+                      {!clientOnly && <td style={{ ...numCell, color: '#5A5A5A' }}>{formatEuro(parseEuro(it.unitPriceImpresa))}</td>}
+                      {!clientOnly && <td style={{ ...numCell, fontWeight: 600 }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
+                      <td style={{ ...numCell, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente))}</td>
+                      <td style={{ ...numCell, fontWeight: 600, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
                     </tr>
                     );
                   })}
