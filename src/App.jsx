@@ -2749,136 +2749,287 @@ function buildCronoSuggestions(revision) {
   return suggestions;
 }
 
-function exportComputoExcel(project, revision, clientOnly) {
+// Esportazione Excel del computo, impaginata come un documento: intestazione, tabella con bordi, righe di
+// sezione e di categoria evidenziate, totali per sezione e totale generale, note iniziale/finale, impostazioni
+// di stampa A4 (adatta alla larghezza, intestazione di colonna ripetuta su ogni pagina, numero di pagina).
+// mode: false = completo (impresa + cliente), true = solo cliente, 'muto' = senza prezzi (da far compilare
+// a un'impresa: prezzo unitario vuoto e importi già come formule Quantità × Prezzo, con somme per sezione).
+// ExcelJS si carica solo al momento dell'esportazione, così non appesantisce l'avvio dell'app.
+async function exportComputoExcel(project, revision, mode) {
+  const ExcelJS = (await import('exceljs')).default;
+  const muto = mode === 'muto';
+  const clientOnly = !!mode;
   const groups = buildComputoGroups(revision);
-  const rows = [];
-  rows.push([clientOnly ? 'Computo metrico (versione cliente)' : 'Computo metrico']);
-  rows.push(['Progetto', project.name]);
-  rows.push(['Cliente', project.client]);
-  rows.push(['Versione', revision.customName || revision.label]);
-  rows.push(['Data modifica', revision.dateModified]);
-  if ((revision.noteInizio || '').trim()) { rows.push([]); rows.push(['Note', revision.noteInizio.trim()]); }
-  rows.push([]);
-  rows.push(clientOnly
-    ? ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente', 'Note']
-    : ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo impresa', 'Totale impresa', 'Prezzo cliente', 'Totale cliente', 'Note']);
   const econ = computeEconomics(revision);
+  const realItems = (revision.items || []).filter((it) => it.type !== 'subtotal');
+
+  const INK = 'FF2B2321';
+  const ACC = 'FF862D2D';
+  const GRAY = 'FF8B8178';
+  const LINE = 'FFDCD5C9';
+  const EURO = '#,##0.00 "€"';
+  const QTY = '#,##0.00';
+  const fill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+  const thin = { style: 'thin', color: { argb: LINE } };
+  const box = { top: thin, left: thin, bottom: thin, right: thin };
+
+  // Colonne: le coppie prezzo/totale dipendono dalla versione
+  const pairs = muto
+    ? [{ key: 'm', price: 'Prezzo unitario', total: 'Importo', color: INK }]
+    : clientOnly
+      ? [{ key: 'c', price: 'Prezzo cliente', total: 'Totale cliente', color: ACC }]
+      : [{ key: 'i', price: 'Prezzo impresa', total: 'Totale impresa', color: INK }, { key: 'c', price: 'Prezzo cliente', total: 'Totale cliente', color: ACC }];
+  const columns = [
+    { header: 'Codice', width: 13 },
+    { header: 'Descrizione', width: 62 },
+    { header: 'Q.tà', width: 10 },
+    { header: 'U.M.', width: 10 },
+  ];
+  pairs.forEach((p) => { p.priceCol = columns.length + 1; columns.push({ header: p.price, width: 14 }); p.totCol = columns.length + 1; columns.push({ header: p.total, width: 16 }); });
+  const noteCol = columns.length + 1;
+  columns.push({ header: 'Note', width: 30 });
+  const lastCol = columns.length;
+  const colLetter = (n) => String.fromCharCode(64 + n);
+
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Quant';
+  const ws = wb.addWorksheet('Computo', {
+    views: [{ showGridLines: false }],
+    pageSetup: { paperSize: 9, orientation: clientOnly ? 'portrait' : 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.6, header: 0.2, footer: 0.25 }, horizontalCentered: true },
+  });
+  ws.columns = columns.map((c) => ({ width: c.width }));
+  ws.headerFooter.oddFooter = `&L&8${String(project.name || '').replace(/&/g, '&&')}&R&8Pagina &P di &N`;
+
+  // Altezza riga stimata dal testo (Excel non ricalcola da solo l'altezza delle righe a capo all'apertura)
+  const linesFor = (text, width) => String(text || '').split('\n').reduce((n, part) => n + Math.max(1, Math.ceil(part.length / (width * 1.2))), 0);
+  const fitHeight = (row, cells) => {
+    const lines = Math.max(1, ...cells.map(([text, width]) => linesFor(text, width)));
+    row.height = Math.max(16, lines * 12.5 + 5);
+  };
+  const mergedText = (text, opts = {}) => {
+    const row = ws.addRow([]);
+    ws.mergeCells(row.number, 1, row.number, lastCol);
+    const cell = row.getCell(1);
+    cell.value = text;
+    cell.alignment = { wrapText: true, vertical: 'top' };
+    cell.font = { size: 10, color: { argb: INK }, ...(opts.font || {}) };
+    if (opts.fill) cell.fill = fill(opts.fill);
+    if (opts.border) cell.border = opts.border;
+    const totalWidth = columns.reduce((n, c) => n + c.width, 0);
+    row.height = opts.height || Math.max(16, linesFor(text, totalWidth) * 13 + 6);
+    return row;
+  };
+
+  // --- Intestazione del documento ---
+  const title = muto ? 'Computo metrico — senza prezzi' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico';
+  mergedText(title, { font: { size: 16, bold: true, color: { argb: INK } }, height: 26 });
+  const meta = [['Progetto', project.name]];
+  if (!muto && project.client) meta.push(['Cliente', project.client]);
+  if (project.header?.ubicazione) meta.push(['Ubicazione', project.header.ubicazione]);
+  meta.push(['Versione', revision.customName || revision.label]);
+  meta.push(['Data', revision.dateModified]);
+  meta.forEach(([k, v]) => {
+    const row = ws.addRow([k, v || '']);
+    ws.mergeCells(row.number, 2, row.number, lastCol);
+    row.getCell(1).font = { size: 9, color: { argb: GRAY } };
+    row.getCell(2).font = { size: 10, color: { argb: INK } };
+  });
+  ws.addRow([]);
+  if ((revision.noteInizio || '').trim()) {
+    mergedText(revision.noteInizio.trim(), { fill: 'FFFAF8F4', border: { left: { style: 'thick', color: { argb: ACC } } } });
+    ws.addRow([]);
+  }
+
+  // --- Intestazione di colonna (ripetuta in stampa su ogni pagina) ---
+  const head = ws.addRow(columns.map((c) => c.header.toUpperCase()));
+  head.height = 24;
+  head.eachCell((cell, n) => {
+    cell.font = { bold: true, size: 9, color: { argb: 'FFFFFFFF' } };
+    cell.fill = fill(INK);
+    cell.border = box;
+    cell.alignment = { vertical: 'middle', horizontal: n >= 3 && n !== 4 && n !== noteCol ? 'right' : 'left', wrapText: true };
+  });
+  ws.pageSetup.printTitlesRow = `${head.number}:${head.number}`;
+  ws.views = [{ state: 'frozen', ySplit: head.number, showGridLines: false }];
+
+  const totalsRow = (label, values, opts = {}) => {
+    // values: { [colIndex]: numero | { formula, result } }
+    const row = ws.addRow([]);
+    ws.mergeCells(row.number, 1, row.number, 4);
+    const lab = row.getCell(1);
+    lab.value = label;
+    lab.alignment = { horizontal: 'right', vertical: 'middle' };
+    lab.font = { size: 10, bold: !!opts.bold, color: { argb: opts.color || INK } };
+    for (let c = 1; c <= lastCol; c++) {
+      const cell = row.getCell(c);
+      if (opts.fill) cell.fill = fill(opts.fill);
+      if (opts.topLine) cell.border = { top: { style: opts.topLine, color: { argb: opts.color || INK } } };
+    }
+    Object.entries(values).forEach(([col, v]) => {
+      const cell = row.getCell(Number(col));
+      cell.value = v;
+      cell.numFmt = EURO;
+      cell.font = { size: 10, bold: !!opts.bold, color: { argb: opts.color || INK } };
+      cell.alignment = { horizontal: 'right', vertical: 'middle' };
+    });
+    row.height = opts.height || 17;
+    return row;
+  };
+
+  const sectionTotalCells = []; // muto: celle con il totale di ciascuna sezione
 
   groups.forEach((g) => {
-    let runImpresa = 0;
-    let runCliente = 0;
+    const items = g.categorie.reduce((n, c) => n + c.items.length, 0);
+    if (!items && !g.subtotalMarkers.length) return;
+    ws.addRow([]).height = 8;
+    const sec = mergedText(String(g.name || '').toUpperCase(), { font: { bold: true, size: 11, color: { argb: ACC } }, fill: 'FFF4EAEA', height: 20 });
+    sec.getCell(1).alignment = { vertical: 'middle' };
+    sec.getCell(1).border = { top: { style: 'medium', color: { argb: ACC } } };
+
+    const itemRowNums = [];
+    let runI = 0;
+    let runC = 0;
     g.categorie.forEach((cat) => {
+      if (!cat.items.length) return;
+      const cr = mergedText(cat.name, { font: { bold: true, size: 10, color: { argb: INK } }, fill: 'FFF6F3EE', height: 18 });
+      cr.getCell(1).alignment = { vertical: 'middle' };
       cat.items.forEach((it) => {
         const qty = parseEuro(it.qty);
-        const totImpresa = parseEuro(it.unitPriceImpresa) * qty;
-        const totCliente = parseEuro(it.unitPriceCliente) * qty;
-        runImpresa += totImpresa;
-        runCliente += totCliente;
-        rows.push(clientOnly
-          ? [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceCliente, formatEuro(totCliente), it.noteCliente || '']
-          : [g.name, cat.name, it.code, it.desc, it.qty, it.unit, it.unitPriceImpresa, formatEuro(totImpresa), it.unitPriceCliente, formatEuro(totCliente), it.noteCliente || '']);
-      });
-    });
-    g.subtotalMarkers.forEach((it) => {
-      const hasVat = it.vatRate !== null && it.vatRate !== undefined;
-      const hasDiscount = !!it.discountPct;
-      const grossAmt = clientOnly ? runCliente : runImpresa;
-      const netAmt = hasDiscount ? grossAmt * (1 - it.discountPct / 100) : grossAmt;
-      if (hasDiscount) {
-        rows.push([g.name, '', '', `${it.title} — lordo`, '', '', '', formatEuro(grossAmt)]);
-        rows.push([g.name, '', '', `${it.title} — Sconto ${it.discountPct}%`, '', '', '', `-${formatEuro(grossAmt - netAmt)}`]);
-        rows.push([g.name, '', '', `${it.title} — netto`, '', '', '', formatEuro(netAmt)]);
-      }
-      if (hasVat) {
-        rows.push([g.name, '', '', `${it.title} — IVA esclusa`, '', '', '', formatEuro(netAmt)]);
-        rows.push([g.name, '', '', `${it.title} — ${it.vatLabel}`, '', '', '', formatEuro(netAmt * (it.vatRate / 100))]);
-        rows.push([g.name, '', '', `${it.title} — IVA inclusa`, '', '', '', formatEuro(netAmt * (1 + it.vatRate / 100))]);
-      } else if (!hasDiscount) {
-        rows.push([g.name, '', '', `— ${it.title} —`]);
-      }
-      runImpresa = 0;
-      runCliente = 0;
-    });
-    // Totale della sezione: eventuale sconto di sezione, poi IVA della sezione
-    const s = econ.sections.find((x) => x.name === g.name);
-    if (s && (s.grossImpresa || s.grossCliente)) {
-      const who = clientOnly ? [['cliente', s.grossCliente, s.netCliente, s.ivaCliente, s.totCliente]] : [['impresa', s.grossImpresa, s.netImpresa, s.ivaImpresa, s.totImpresa], ['cliente', s.grossCliente, s.netCliente, s.ivaCliente, s.totCliente]];
-      who.forEach(([w, gross, net, iva, tot]) => {
-        const suffix = clientOnly ? '' : ` (${w})`;
-        if (s.discountPct) {
-          rows.push([g.name, '', '', `Subtotale ${g.name}${suffix}`, '', '', '', formatEuro(gross)]);
-          rows.push([g.name, '', '', `Sconto ${s.discountPct}%${suffix}`, '', '', '', `-${formatEuro(gross - net)}`]);
+        const pI = parseEuro(it.unitPriceImpresa);
+        const pC = parseEuro(it.unitPriceCliente);
+        runI += pI * qty;
+        runC += pC * qty;
+        const notes = [];
+        if (it.qtyLink) {
+          const src = realItems.find((x) => String(x.id) === String(it.qtyLink.sourceId));
+          if (src) notes.push(`Quantità: vedi voce ${src.code}${Number(it.qtyLink.factor) !== 1 ? ` × ${String(it.qtyLink.factor).replace('.', ',')}` : ''}`);
         }
-        rows.push([g.name, '', '', `Totale ${g.name} IVA esclusa${suffix}`, '', '', '', formatEuro(net)]);
-        rows.push([g.name, '', '', `${s.vat.label}${suffix}`, '', '', '', formatEuro(iva)]);
-        rows.push([g.name, '', '', `Totale ${g.name} IVA inclusa${suffix}`, '', '', '', formatEuro(tot)]);
-      });
-    }
-  });
-
-  rows.push([]);
-  if (!clientOnly) {
-    rows.push(['Totale generale IVA esclusa (impresa)', '', '', '', '', '', formatEuro(econ.netImpresa)]);
-    econ.breakdown.forEach((b) => rows.push([`${b.label} (impresa)`, '', '', '', '', '', formatEuro(b.ivaImpresa)]));
-    rows.push(['Totale generale IVA inclusa (impresa)', '', '', '', '', '', formatEuro(econ.totImpresa)]);
-    rows.push([]);
-  }
-  rows.push(['Totale generale IVA esclusa (cliente)', '', '', '', '', '', formatEuro(econ.netCliente)]);
-  econ.breakdown.forEach((b) => rows.push([`${b.label} (cliente)`, '', '', '', '', '', formatEuro(b.ivaCliente)]));
-  rows.push(['Totale generale IVA inclusa (cliente)', '', '', '', '', '', formatEuro(econ.totCliente)]);
-
-  if ((revision.noteFine || '').trim()) { rows.push([]); rows.push(['Note finali', revision.noteFine.trim()]); }
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Computo');
-  const filename = `${project.name.replace(/[^a-z0-9]+/gi, '_')}_${(revision.customName || revision.label).replace(/[^a-z0-9]+/gi, '_')}${clientOnly ? '_cliente' : ''}.xlsx`;
-  XLSX.writeFile(wb, filename);
-}
-
-// Computo "muto" (senza prezzi) da dare a un'impresa per farsi quotare i lavori: stesse voci, quantità e note,
-// ma con le colonne Prezzo unitario e Importo vuote. Gli importi sono già formule (Quantità × Prezzo), con un
-// totale per sezione e un totale generale: l'impresa deve solo compilare i prezzi unitari.
-function exportComputoExcelSenzaPrezzi(project, revision) {
-  const groups = buildComputoGroups(revision);
-  const rows = [];
-  const formulas = []; // [rigaExcel (1-based), colonna, formula]
-  rows.push(['Computo metrico (senza prezzi)']);
-  rows.push(['Progetto', project.name]);
-  rows.push(['Versione', revision.customName || revision.label]);
-  rows.push(['Data', revision.dateModified]);
-  if ((revision.noteInizio || '').trim()) { rows.push([]); rows.push(['Note', revision.noteInizio.trim()]); }
-  rows.push([]);
-  rows.push(['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo unitario (€)', 'Importo (€)', 'Note']);
-  const sectionTotalRows = [];
-  groups.forEach((g) => {
-    const itemRows = [];
-    g.categorie.forEach((cat) => {
-      cat.items.forEach((it) => {
-        rows.push([g.name, cat.name, it.code, it.desc, parseEuro(it.qty), it.unit, '', '', it.noteCliente || '']);
-        const r = rows.length;
-        itemRows.push(r);
-        formulas.push([r, 'H', `IF(G${r}="","",E${r}*G${r})`]);
+        if (it.noteCliente) notes.push(it.noteCliente);
+        const row = ws.addRow([it.code || '', it.desc || '', qty, it.unit || '']);
+        itemRowNums.push(row.number);
+        pairs.forEach((p) => {
+          const priceCell = row.getCell(p.priceCol);
+          const totCell = row.getCell(p.totCol);
+          if (p.key === 'm') {
+            priceCell.value = null;
+            priceCell.fill = fill('FFFFFBEA');
+            const r = row.number;
+            totCell.value = { formula: `IF(${colLetter(p.priceCol)}${r}="","",C${r}*${colLetter(p.priceCol)}${r})`, result: '' };
+          } else {
+            const price = p.key === 'i' ? pI : pC;
+            priceCell.value = price;
+            totCell.value = price * qty;
+          }
+          priceCell.numFmt = EURO;
+          totCell.numFmt = EURO;
+          priceCell.font = { size: 10, color: { argb: p.color } };
+          totCell.font = { size: 10, bold: true, color: { argb: p.color } };
+        });
+        row.getCell(noteCol).value = notes.join('\n');
+        row.eachCell({ includeEmpty: true }, (cell, n) => {
+          if (n > lastCol) return;
+          cell.border = box;
+          const right = n === 3 || (n > 4 && n !== noteCol);
+          cell.alignment = { vertical: 'top', wrapText: n === 2 || n === noteCol, horizontal: right ? 'right' : 'left' };
+          if (!cell.font) cell.font = { size: 10, color: { argb: INK } };
+        });
+        row.getCell(1).font = { size: 9, color: { argb: GRAY } };
+        row.getCell(2).font = { size: 10, color: { argb: INK } };
+        row.getCell(3).numFmt = QTY;
+        row.getCell(3).font = { size: 10, color: { argb: INK } };
+        row.getCell(4).font = { size: 10, color: { argb: GRAY } };
+        row.getCell(noteCol).font = { size: 9, italic: true, color: { argb: GRAY } };
+        fitHeight(row, [[it.desc, columns[1].width], [notes.join('\n'), columns[noteCol - 1].width]]);
       });
     });
-    if (itemRows.length) {
-      rows.push([g.name, '', '', `Totale ${g.name} IVA esclusa`, '', '', '', '']);
-      const r = rows.length;
-      sectionTotalRows.push(r);
-      formulas.push([r, 'H', `SUM(H${itemRows[0]}:H${itemRows[itemRows.length - 1]})`]);
+
+    // Sommatorie inserite a mano nel computo (con eventuale sconto/IVA propri)
+    g.subtotalMarkers.forEach((it) => {
+      if (muto) { totalsRow(it.title, {}, { bold: true, fill: 'FFFAF8F4' }); return; }
+      const vals = {};
+      const lines = [];
+      pairs.forEach((p) => {
+        const gross = p.key === 'i' ? runI : runC;
+        const net = it.discountPct ? gross * (1 - it.discountPct / 100) : gross;
+        vals[p.totCol] = net;
+        lines.push([p, gross, net]);
+      });
+      totalsRow(it.discountPct ? `${it.title} (netto, sconto ${it.discountPct}%)` : it.title, vals, { bold: true, fill: 'FFFAF8F4' });
+      if (it.vatRate !== null && it.vatRate !== undefined) {
+        const iva = {};
+        const tot = {};
+        lines.forEach(([p, , net]) => { iva[p.totCol] = net * (it.vatRate / 100); tot[p.totCol] = net * (1 + it.vatRate / 100); });
+        totalsRow(`${it.title} — ${it.vatLabel}`, iva, {});
+        totalsRow(`${it.title} — IVA inclusa`, tot, { bold: true });
+      }
+      runI = 0;
+      runC = 0;
+    });
+
+    // Totali di sezione
+    if (muto) {
+      if (itemRowNums.length) {
+        const p = pairs[0];
+        const L = colLetter(p.totCol);
+        const r = totalsRow(`Totale ${g.name} IVA esclusa`, { [p.totCol]: { formula: `SUM(${L}${itemRowNums[0]}:${L}${itemRowNums[itemRowNums.length - 1]})`, result: 0 } }, { bold: true, topLine: 'thin', fill: 'FFFAF8F4' });
+        sectionTotalCells.push(`${L}${r.number}`);
+      }
+      return;
     }
-    rows.push([]);
+    const s = econ.sections.find((x) => x.name === g.name);
+    if (!s || (!s.grossImpresa && !s.grossCliente)) return;
+    const pick = (kI, kC) => Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? s[kI] : s[kC]]));
+    if (s.discountPct > 0) {
+      totalsRow(`Subtotale ${g.name}`, pick('grossImpresa', 'grossCliente'), { topLine: 'thin' });
+      totalsRow(`Sconto ${s.discountPct}%`, Object.fromEntries(pairs.map((p) => [p.totCol, -(p.key === 'i' ? s.grossImpresa - s.netImpresa : s.grossCliente - s.netCliente)])), {});
+    }
+    totalsRow(`Totale ${g.name} IVA esclusa`, pick('netImpresa', 'netCliente'), { bold: true, topLine: s.discountPct > 0 ? undefined : 'thin', fill: 'FFFAF8F4' });
+    totalsRow(s.vat.label, pick('ivaImpresa', 'ivaCliente'), {});
+    totalsRow(`Totale ${g.name} IVA inclusa`, pick('totImpresa', 'totCliente'), { bold: true });
   });
-  rows.push(['', '', '', 'Totale generale IVA esclusa', '', '', '', '']);
-  if (sectionTotalRows.length) formulas.push([rows.length, 'H', sectionTotalRows.map((r) => `H${r}`).join('+')]);
-  if ((revision.noteFine || '').trim()) { rows.push([]); rows.push(['Note finali', revision.noteFine.trim()]); }
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  formulas.forEach(([r, col, f]) => { ws[`${col}${r}`] = { t: 'n', f, z: '#,##0.00' }; });
-  ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 70 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 16 }, { wch: 30 }];
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Computo');
-  const filename = `${project.name.replace(/[^a-z0-9]+/gi, '_')}_${(revision.customName || revision.label).replace(/[^a-z0-9]+/gi, '_')}_senza_prezzi.xlsx`;
-  XLSX.writeFile(wb, filename);
+
+  // --- Totale generale ---
+  ws.addRow([]).height = 10;
+  if (muto) {
+    const p = pairs[0];
+    totalsRow('Totale generale IVA esclusa', sectionTotalCells.length ? { [p.totCol]: { formula: sectionTotalCells.join('+'), result: 0 } } : {}, { bold: true, topLine: 'medium', fill: 'FFF4EAEA', height: 22 });
+  } else {
+    const pick = (kI, kC) => Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? econ[kI] : econ[kC]]));
+    totalsRow('Totale generale IVA esclusa', pick('netImpresa', 'netCliente'), { bold: true, topLine: 'medium', fill: clientOnly ? 'FFF4EAEA' : 'FFFAF8F4', color: clientOnly ? ACC : INK, height: 22 });
+    econ.breakdown.forEach((b) => totalsRow(b.label, Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? b.ivaImpresa : b.ivaCliente])), {}));
+    totalsRow('Totale generale IVA inclusa', pick('totImpresa', 'totCliente'), { bold: !clientOnly, topLine: 'thin', height: 20 });
+  }
+
+  if ((revision.noteFine || '').trim()) {
+    ws.addRow([]);
+    mergedText('NOTE', { font: { bold: true, size: 9, color: { argb: GRAY } }, height: 16 });
+    mergedText(revision.noteFine.trim(), {});
+  }
+
+  // Font uniforme (Arial) e un piccolo rientro nelle celle, così il testo non tocca i bordi
+  ws.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: true }, (cell) => {
+      cell.font = { ...(cell.font || {}), name: 'Arial' };
+      const al = cell.alignment || {};
+      if (row.number >= head.number && al.horizontal !== 'center') cell.alignment = { ...al, indent: 1 };
+    });
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const suffix = muto ? '_senza_prezzi' : clientOnly ? '_cliente' : '';
+  const filename = `${String(project.name || 'computo').replace(/[^a-z0-9]+/gi, '_')}_${String(revision.customName || revision.label || '').replace(/[^a-z0-9]+/gi, '_')}${suffix}.xlsx`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+const exportComputoExcelSenzaPrezzi = (project, revision) => exportComputoExcel(project, revision, 'muto');
 
 function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studioSettings }) {
   // clientOnly può valere false (completo impresa+cliente), true (solo cliente) o 'muto' (senza prezzi: voci e
@@ -3747,6 +3898,47 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     onUpdateProject({ ...project, clientSheet: null });
   };
 
+  // --- Offerte imprese: link per far quotare il computo a un'impresa e offerte ricevute ---
+  const [showOfferte, setShowOfferte] = useState(false);
+  const [pendingOfferte, setPendingOfferte] = useState(0);
+  const refreshPendingOfferte = React.useCallback(async () => {
+    const { data: l } = await cea.from('computo_offerta_links').select('id').eq('project_id', String(project.id));
+    const ids = (l || []).map((x) => x.id);
+    if (!ids.length) { setPendingOfferte(0); return; }
+    const { count } = await cea.from('computo_offerte').select('id', { count: 'exact', head: true }).in('link_id', ids).eq('status', 'pending');
+    setPendingOfferte(count || 0);
+  }, [project.id]);
+  React.useEffect(() => { refreshPendingOfferte(); }, [refreshPendingOfferte]);
+
+  // Accettazione di un'offerta: nuova revisione copiata da quella inviata all'impresa, intitolata con il nome
+  // dell'impresa, con i prezzi offerti come prezzi impresa. Prezzi cliente: invariati oppure prezzo offerto +
+  // ricarico %. Le voci che l'impresa non ha quotato restano come sono.
+  const acceptOffer = (offerta, link, clienteMode, ricarico) => {
+    const source = revisions.find((r) => String(r.id) === String(link?.revision_id)) || latestRevision;
+    if (!source) { alert('Questo progetto non ha più revisioni a cui applicare l\'offerta.'); return null; }
+    const prezzi = new Map((offerta.prezzi || []).map((p) => [String(p.id), p]));
+    const newItems = structuredClone(source.items || []).map((it) => {
+      if (it.type === 'subtotal') return it;
+      const p = prezzi.get(String(it.id));
+      if (!p) return it;
+      const imp = Number(p.price) || 0;
+      const next = { ...it, unitPriceImpresa: formatEuro(imp).replace(' €', '') };
+      if (clienteMode === 'ricarico') next.unitPriceCliente = formatEuro(imp * (1 + (Number(ricarico) || 0) / 100)).replace(' €', '');
+      return next;
+    });
+    const real = newItems.filter((it) => it.type !== 'subtotal');
+    const total = formatEuro(sumImpresa(real));
+    const totalCliente = formatEuro(sumCliente(real));
+    const newRev = {
+      ...structuredClone(source), id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: offerta.impresa_nome || link?.impresa_nome || 'Offerta impresa',
+      dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0],
+      items: newItems, total, totalCliente, offerta: { id: offerta.id, impresa: offerta.impresa_nome, totale: Number(offerta.totale) || 0 },
+    };
+    onUpdateProject({ ...project, revisions: [...revisions, newRev], value: total });
+    setSelectedRevisionId(newRev.id);
+    return newRev.id;
+  };
+
   const saveNewVersion = () => {
     const total = formatEuro(sumImpresa(realItems));
     const totalCliente = formatEuro(sumCliente(realItems));
@@ -4016,6 +4208,13 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
             <button onClick={() => requestPdf(project, selectedRevision, false)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬇ Scarica PDF completo (impresa+cliente)</button>
             <button onClick={() => requestPdf(project, selectedRevision, true)} style={{ background: C.maroon, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>⬇ Scarica PDF solo cliente</button>
             <button onClick={() => exportComputoExcelSenzaPrezzi(project, selectedRevision)} title="Voci e quantità senza alcun prezzo, da far compilare a un'impresa" style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Excel senza prezzi</button>
+            <button onClick={() => setShowOfferte(true)} title="Manda il computo a un'impresa per farlo quotare online" style={{ position: 'relative', background: C.black, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>
+              Offerte imprese
+              {pendingOfferte > 0 && <span style={{ position: 'absolute', top: -6, right: -6, background: C.maroon, color: C.white, borderRadius: 999, minWidth: 18, height: 18, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', border: '2px solid #FAF9F6' }}>{pendingOfferte}</span>}
+            </button>
+            {showOfferte && (
+              <OfferteImpreseModal project={project} revision={selectedRevision} onClose={() => { setShowOfferte(false); refreshPendingOfferte(); }} onAcceptOffer={acceptOffer} />
+            )}
             <button onClick={() => requestPdf(project, selectedRevision, 'muto')} title="Voci e quantità senza alcun prezzo, da far compilare a un'impresa" style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬇ PDF senza prezzi</button>
           </div>
 
@@ -7802,6 +8001,506 @@ function LoginScreen({ onSignedIn }) {
   );
 }
 
+// ===================== Offerte imprese sul computo =====================
+// Lo studio genera, per una revisione del computo, un link (+ PIN) da mandare a un'impresa. L'impresa apre il
+// computo senza prezzi, scrive il proprio prezzo unitario voce per voce e lo invia allo studio. L'offerta resta
+// "in attesa" (tabella cea.computo_offerte) finché lo studio non la apre: accettandola si crea una nuova
+// revisione del computo, intitolata con il nome dell'impresa, con i suoi prezzi come prezzi impresa.
+
+const offertaUrl = (token) => `${window.location.origin}${window.location.pathname}?offerta=${token}`;
+
+// Fotografia del computo inviata all'impresa: solo struttura, voci, quantità e note visibili al cliente —
+// nessun prezzo dello studio.
+function buildOffertaSnapshot(project, revision) {
+  const groups = buildComputoGroups(revision);
+  return {
+    noteInizio: revision.noteInizio || '',
+    noteFine: revision.noteFine || '',
+    ubicazione: project.header?.ubicazione || '',
+    sections: groups.map((g) => ({
+      name: g.name,
+      categorie: g.categorie.filter((c) => c.items.length).map((c) => ({
+        name: c.name,
+        items: c.items.map((it) => ({ id: String(it.id), code: it.code || '', desc: it.desc || '', qty: it.qty || '0', unit: it.unit || '', note: it.noteCliente || '' })),
+      })),
+    })).filter((s) => s.categorie.length),
+  };
+}
+
+function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
+  const [tab, setTab] = useState('offerte'); // 'offerte' | 'link'
+  const [links, setLinks] = useState(null);
+  const [offerte, setOfferte] = useState(null);
+  const [userId, setUserId] = useState(null);
+  const [newImpresa, setNewImpresa] = useState('');
+  const [justCreated, setJustCreated] = useState(null); // { url, pin, impresa }
+  const [opened, setOpened] = useState(null); // offerta aperta nel dettaglio
+  const [busy, setBusy] = useState(false);
+  const projectId = String(project.id);
+
+  const reload = async () => {
+    const { data: l } = await cea.from('computo_offerta_links').select('*').eq('project_id', projectId).order('created_at', { ascending: false });
+    setLinks(l || []);
+    const ids = (l || []).map((x) => x.id);
+    if (!ids.length) { setOfferte([]); return; }
+    const { data: o } = await cea.from('computo_offerte').select('*').in('link_id', ids).order('submitted_at', { ascending: false });
+    setOfferte(o || []);
+  };
+  React.useEffect(() => {
+    reload();
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
+  }, []);
+
+  const linkOf = (id) => (links || []).find((l) => l.id === id);
+  const shareText = (impresa, url, pin) => `Buongiorno,\nle inviamo il computo metrico del progetto "${project.name}" da quotare.\nApra il link, inserisca il PIN e compili i prezzi unitari, poi clicchi "Invia allo studio".\n\nLink: ${url}\nPIN: ${pin}\n\nGrazie`;
+  const copy = (text) => navigator.clipboard?.writeText(text).then(() => alert('Copiato negli appunti.')).catch(() => window.prompt('Copia il testo:', text));
+
+  const createLink = async () => {
+    const impresa = newImpresa.trim();
+    if (!impresa) { alert("Scrivi il nome dell'impresa."); return; }
+    if (!revision) { alert('Apri prima una revisione del computo.'); return; }
+    setBusy(true);
+    const token = crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    const { error } = await cea.from('computo_offerta_links').insert({
+      token, pin, project_id: projectId, project_name: project.name, revision_id: String(revision.id),
+      revision_label: revision.customName || revision.label, impresa_nome: impresa, snapshot: buildOffertaSnapshot(project, revision),
+    });
+    setBusy(false);
+    if (error) { alert('Creazione del link non riuscita: ' + error.message); return; }
+    setJustCreated({ url: offertaUrl(token), pin, impresa });
+    setNewImpresa('');
+    reload();
+  };
+
+  const toggleLink = async (link) => {
+    if (link.active && !confirm(`Disattivare il link di "${link.impresa_nome}"? L'impresa non potrà più aprirlo né inviare offerte.`)) return;
+    await cea.from('computo_offerta_links').update({ active: !link.active }).eq('id', link.id);
+    reload();
+  };
+
+  const reject = async (o) => {
+    if (!confirm(`Rifiutare l'offerta di "${o.impresa_nome}"?`)) return;
+    setBusy(true);
+    const { error } = await cea.from('computo_offerte').update({ status: 'rejected', reviewed_at: new Date().toISOString(), reviewed_by: userId }).eq('id', o.id);
+    setBusy(false);
+    if (error) { alert('Operazione non riuscita: ' + error.message); return; }
+    setOpened(null);
+    reload();
+  };
+
+  const accept = async (o, clienteMode, ricarico) => {
+    const link = linkOf(o.link_id);
+    setBusy(true);
+    const revId = onAcceptOffer(o, link, clienteMode, ricarico);
+    if (!revId) { setBusy(false); return; }
+    const { error } = await cea.from('computo_offerte').update({ status: 'accepted', reviewed_at: new Date().toISOString(), reviewed_by: userId, revision_created: String(revId) }).eq('id', o.id);
+    setBusy(false);
+    if (error) alert("La revisione è stata creata, ma non sono riuscito ad aggiornare lo stato dell'offerta: " + error.message);
+    setOpened(null);
+    reload();
+  };
+
+  const pendingCount = (offerte || []).filter((o) => o.status === 'pending').length;
+  const statusChip = (st) => {
+    const map = { pending: ['In attesa', '#5A4E47', '#F1ECE6'], accepted: ['Accettata', '#2F5D45', '#E7F0EA'], rejected: ['Rifiutata', '#862D2D', '#F4EAEA'] };
+    const [label, color, bg] = map[st] || [st, C.gray, '#F1ECE6'];
+    return <span style={{ fontSize: 11, fontWeight: 600, color, background: bg, borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap' }}>{label}</span>;
+  };
+  const tabBtn = (key, label) => (
+    <button onClick={() => setTab(key)} style={{ border: 'none', background: tab === key ? C.black : 'transparent', color: tab === key ? C.white : C.darkGray, borderRadius: 999, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>{label}</button>
+  );
+  const input = { width: '100%', boxSizing: 'border-box', border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '9px 11px', fontSize: 13, fontFamily: FONT };
+
+  if (opened) {
+    return <OffertaDettaglioModal offerta={opened} link={linkOf(opened.link_id)} project={project} busy={busy} onBack={() => setOpened(null)} onReject={() => reject(opened)} onAccept={(mode, ric) => accept(opened, mode, ric)} />;
+  }
+
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: 720, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+          <div>
+            <h2 style={{ fontFamily: FONT, fontSize: 19, fontWeight: 600, margin: 0, color: C.black }}>Offerte imprese</h2>
+            <p style={{ fontSize: 12, color: C.gray, margin: '4px 0 0' }}>Manda il computo a un'impresa: compila i prezzi online e li invia allo studio.</p>
+          </div>
+          <button onClick={onClose} style={{ border: 'none', background: 'transparent', fontSize: 20, color: C.gray, cursor: 'pointer', lineHeight: 1 }}>×</button>
+        </div>
+        <div style={{ display: 'inline-flex', gap: 4, background: '#F4F0EA', borderRadius: 999, padding: 4, marginBottom: 16 }}>
+          {tabBtn('offerte', `Offerte ricevute${pendingCount ? ` (${pendingCount})` : ''}`)}
+          {tabBtn('link', 'Invia a un\'impresa')}
+        </div>
+
+        {tab === 'offerte' && (
+          offerte === null ? <p style={{ fontSize: 13, color: C.gray }}>Caricamento…</p>
+          : offerte.length === 0 ? (
+            <div style={{ border: `1px dashed ${C.paleGray}`, borderRadius: 12, padding: 18, fontSize: 13, color: C.gray, textAlign: 'center' }}>
+              Nessuna offerta ricevuta per questo progetto. Vai su <b style={{ color: C.black, cursor: 'pointer' }} onClick={() => setTab('link')}>Invia a un'impresa</b> per creare il link.
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {offerte.map((o) => {
+                const link = linkOf(o.link_id);
+                return (
+                  <div key={o.id} style={{ display: 'flex', alignItems: 'center', gap: 12, border: `1px solid ${o.status === 'pending' ? C.maroon : C.paleGray}`, borderRadius: 12, padding: '11px 14px', flexWrap: 'wrap' }}>
+                    <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.black }}>{o.impresa_nome || link?.impresa_nome}</div>
+                      <div style={{ fontSize: 11.5, color: C.gray }}>
+                        Inviata il {new Date(o.submitted_at).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                        {link?.revision_label ? ` · su ${link.revision_label}` : ''}{o.referente ? ` · ${o.referente}` : ''}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: C.black, whiteSpace: 'nowrap' }}>{formatEuro(Number(o.totale) || 0)}</div>
+                    {statusChip(o.status)}
+                    <button onClick={() => setOpened(o)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '6px 13px', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}>{o.status === 'pending' ? 'Apri e valuta' : 'Vedi'}</button>
+                  </div>
+                );
+              })}
+            </div>
+          )
+        )}
+
+        {tab === 'link' && (
+          <>
+            <div style={{ background: '#FAF8F4', border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.black, marginBottom: 5 }}>Nome dell'impresa</label>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <input value={newImpresa} onChange={(e) => setNewImpresa(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && createLink()} placeholder="Es. Edil Rossi S.r.l." style={{ ...input, flex: '1 1 240px', width: 'auto' }} />
+                <button disabled={busy} onClick={createLink} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Crea link</button>
+              </div>
+              <p style={{ fontSize: 11.5, color: C.gray, margin: '8px 0 0' }}>
+                L'impresa vedrà la revisione aperta ora (<b>{revision?.customName || revision?.label}</b>) con voci, quantità e note, ma nessun prezzo dello studio e nessun dato del cliente.
+              </p>
+            </div>
+            {justCreated && (
+              <div style={{ border: `1px solid ${C.maroon}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: C.black, marginBottom: 6 }}>Link per {justCreated.impresa} pronto</div>
+                <div style={{ fontSize: 12, color: C.darkGray, wordBreak: 'break-all', marginBottom: 4 }}>{justCreated.url}</div>
+                <div style={{ fontSize: 13, color: C.black, marginBottom: 10 }}>PIN: <b style={{ letterSpacing: '0.15em' }}>{justCreated.pin}</b></div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => copy(shareText(justCreated.impresa, justCreated.url, justCreated.pin))} style={{ border: 'none', background: C.black, color: C.white, borderRadius: 999, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Copia messaggio con link e PIN</button>
+                  <button onClick={() => copy(justCreated.url)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '7px 14px', fontSize: 12, cursor: 'pointer' }}>Copia solo link</button>
+                </div>
+              </div>
+            )}
+            <p style={{ fontSize: 12, fontWeight: 600, color: C.black, margin: '0 0 8px' }}>Link creati per questo progetto</p>
+            {links === null ? <p style={{ fontSize: 13, color: C.gray }}>Caricamento…</p> : links.length === 0 ? <p style={{ fontSize: 12.5, color: C.gray }}>Nessun link ancora.</p> : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {links.map((l) => (
+                  <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, borderBottom: `1px solid ${C.paleGray}`, padding: '8px 0', flexWrap: 'wrap', opacity: l.active ? 1 : 0.55 }}>
+                    <div style={{ flex: '1 1 200px', minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: C.black }}>{l.impresa_nome}</div>
+                      <div style={{ fontSize: 11.5, color: C.gray }}>{l.revision_label} · PIN {l.pin} · {l.active ? 'attivo' : 'disattivato'}</div>
+                    </div>
+                    <button onClick={() => copy(shareText(l.impresa_nome, offertaUrl(l.token), l.pin))} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '5px 11px', fontSize: 11.5, cursor: 'pointer' }}>Copia link e PIN</button>
+                    <button onClick={() => toggleLink(l)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '5px 11px', fontSize: 11.5, cursor: 'pointer', color: l.active ? C.maroon : C.black }}>{l.active ? 'Disattiva' : 'Riattiva'}</button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// Dettaglio di un'offerta: confronto voce per voce con il prezzo impresa della revisione di partenza, poi
+// accetta (crea la revisione con il nome dell'impresa) o rifiuta.
+function OffertaDettaglioModal({ offerta, link, project, busy, onBack, onAccept, onReject }) {
+  const [clienteMode, setClienteMode] = useState('mantieni'); // 'mantieni' | 'ricarico'
+  const [ricarico, setRicarico] = useState('10');
+  const snapshot = link?.snapshot || { sections: [] };
+  const prezzi = new Map((offerta.prezzi || []).map((p) => [String(p.id), p]));
+  const sourceRev = (project.revisions || []).find((r) => String(r.id) === String(link?.revision_id));
+  const sourceItems = new Map((sourceRev?.items || []).map((it) => [String(it.id), it]));
+  const missing = snapshot.sections.reduce((n, s) => n + s.categorie.reduce((m, c) => m + c.items.filter((it) => !prezzi.has(it.id)).length, 0), 0);
+  let totOfferta = 0;
+  let totStudio = 0;
+  const th = { textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.4, color: C.gray, fontWeight: 600, padding: '6px 6px', borderBottom: `1.5px solid ${C.black}` };
+  const td = { padding: '7px 6px', fontSize: 12, borderBottom: `1px solid ${C.paleGray}`, verticalAlign: 'top' };
+  const num = { ...td, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div style={{ background: C.white, borderRadius: 16, padding: 22, width: 980, maxWidth: '100%', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 12 }}>
+          <div>
+            <button onClick={onBack} style={{ border: 'none', background: 'transparent', color: C.gray, fontSize: 12, cursor: 'pointer', padding: 0, marginBottom: 4 }}>← Offerte</button>
+            <h2 style={{ fontFamily: FONT, fontSize: 19, fontWeight: 600, margin: 0, color: C.black }}>Offerta di {offerta.impresa_nome}</h2>
+            <p style={{ fontSize: 12, color: C.gray, margin: '4px 0 0' }}>
+              Su {link?.revision_label || 'revisione eliminata'} · {[offerta.referente, offerta.email, offerta.telefono].filter(Boolean).join(' · ') || 'nessun referente indicato'}
+            </p>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10.5, color: C.gray, textTransform: 'uppercase', letterSpacing: 0.5 }}>Totale offerta IVA esclusa</div>
+            <div style={{ fontSize: 22, fontWeight: 600, color: C.maroon }}>{formatEuro(Number(offerta.totale) || 0)}</div>
+          </div>
+        </div>
+        {offerta.note && <div style={{ background: '#FAF8F4', borderLeft: `3px solid ${C.maroon}`, padding: '8px 12px', fontSize: 12.5, color: C.darkGray, whiteSpace: 'pre-wrap', marginBottom: 10 }}>{offerta.note}</div>}
+        {missing > 0 && <p style={{ fontSize: 12, color: C.maroon, margin: '0 0 8px' }}>{missing} voc{missing === 1 ? 'e' : 'i'} senza prezzo: nella nuova revisione manterranno il prezzo impresa attuale.</p>}
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, border: `1px solid ${C.paleGray}`, borderRadius: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+            <colgroup><col style={{ width: 90 }} /><col /><col style={{ width: 80 }} /><col style={{ width: 105 }} /><col style={{ width: 110 }} /><col style={{ width: 110 }} /><col style={{ width: 70 }} /></colgroup>
+            <thead style={{ position: 'sticky', top: 0, background: C.white }}>
+              <tr><th style={th}>Codice</th><th style={th}>Descrizione</th><th style={{ ...th, textAlign: 'right' }}>Q.tà</th><th style={{ ...th, textAlign: 'right' }}>Prezzo offerto</th><th style={{ ...th, textAlign: 'right' }}>Importo offerto</th><th style={{ ...th, textAlign: 'right' }}>Importo attuale</th><th style={{ ...th, textAlign: 'right' }}>Diff.</th></tr>
+            </thead>
+            <tbody>
+              {snapshot.sections.map((s, si) => (
+                <React.Fragment key={si}>
+                  <tr><td colSpan={7} style={{ ...td, background: '#F4EAEA', color: C.maroon, fontWeight: 700, textTransform: 'uppercase', fontSize: 11.5 }}>{s.name}</td></tr>
+                  {s.categorie.map((c, ci) => (
+                    <React.Fragment key={ci}>
+                      <tr><td colSpan={7} style={{ ...td, background: '#F6F3EE', fontWeight: 600 }}>{c.name}</td></tr>
+                      {c.items.map((it) => {
+                        const p = prezzi.get(it.id);
+                        const qty = parseEuro(it.qty);
+                        const offered = p ? Number(p.price) || 0 : null;
+                        const src = sourceItems.get(it.id);
+                        const studioImp = src ? parseEuro(src.unitPriceImpresa) * parseEuro(src.qty) : null;
+                        const offImp = offered !== null ? offered * qty : null;
+                        if (offImp !== null) totOfferta += offImp;
+                        if (studioImp !== null && offImp !== null) totStudio += studioImp; // confronto solo sulle voci quotate
+                        const diff = offImp !== null && studioImp ? ((offImp - studioImp) / studioImp) * 100 : null;
+                        return (
+                          <tr key={it.id}>
+                            <td style={{ ...td, color: C.gray, fontSize: 11 }}>{it.code}</td>
+                            <td style={td}>
+                              {it.desc}
+                              {p?.note && <div style={{ fontSize: 11, color: C.maroon, fontStyle: 'italic', marginTop: 3 }}>Nota impresa: {p.note}</div>}
+                            </td>
+                            <td style={num}>{it.qty} {it.unit}</td>
+                            <td style={{ ...num, fontWeight: 600 }}>{offered !== null ? formatEuro(offered) : '—'}</td>
+                            <td style={{ ...num, fontWeight: 600, color: C.maroon }}>{offImp !== null ? formatEuro(offImp) : '—'}</td>
+                            <td style={{ ...num, color: C.gray }}>{studioImp !== null ? formatEuro(studioImp) : '—'}</td>
+                            <td style={{ ...num, color: diff === null ? C.gray : diff > 0 ? C.maroon : '#2F5D45' }}>{diff === null ? '—' : `${diff > 0 ? '+' : ''}${itNum(diff, 1)}%`}</td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  ))}
+                </React.Fragment>
+              ))}
+              <tr>
+                <td colSpan={4} style={{ ...td, textAlign: 'right', fontWeight: 700 }}>Totale IVA esclusa{missing > 0 ? ' (solo voci quotate)' : ''}</td>
+                <td style={{ ...num, fontWeight: 700, color: C.maroon }}>{formatEuro(totOfferta)}</td>
+                <td style={{ ...num, fontWeight: 700, color: C.gray }}>{formatEuro(totStudio)}</td>
+                <td style={num}>{totStudio ? `${totOfferta > totStudio ? '+' : ''}${itNum(((totOfferta - totStudio) / totStudio) * 100, 1)}%` : ''}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {offerta.status === 'pending' ? (
+          <div style={{ marginTop: 14, display: 'flex', gap: 14, alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 12.5, color: C.darkGray }}>
+              <div style={{ fontWeight: 600, color: C.black, marginBottom: 6 }}>Prezzi cliente nella nuova revisione</div>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: 'pointer' }}>
+                <input type="radio" checked={clienteMode === 'mantieni'} onChange={() => setClienteMode('mantieni')} style={{ accentColor: C.maroon }} /> Mantieni i prezzi cliente attuali
+              </label>
+              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="radio" checked={clienteMode === 'ricarico'} onChange={() => setClienteMode('ricarico')} style={{ accentColor: C.maroon }} /> Prezzo offerto +
+                <input value={ricarico} onChange={(e) => { setRicarico(e.target.value); setClienteMode('ricarico'); }} style={{ width: 52, border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '4px 6px', fontSize: 12.5, textAlign: 'right' }} /> % di ricarico
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button disabled={busy} onClick={onReject} style={{ border: `1px solid ${C.paleGray}`, background: C.white, color: C.maroon, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Rifiuta</button>
+              <button disabled={busy} onClick={() => onAccept(clienteMode, parseEuro(ricarico))} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{busy ? 'Un attimo…' : `Accetta e crea revisione "${offerta.impresa_nome}"`}</button>
+            </div>
+          </div>
+        ) : (
+          <p style={{ fontSize: 12.5, color: C.gray, margin: '12px 0 0' }}>
+            Offerta {offerta.status === 'accepted' ? 'accettata: è stata creata la revisione con il nome dell\'impresa.' : 'rifiutata.'}
+          </p>
+        )}
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// Vista pubblica per l'impresa (link + PIN, nessun account): computo senza prezzi da compilare e inviare.
+function OffertaImpresaView({ token }) {
+  const [pin, setPin] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [error, setError] = useState('');
+  const [data, setData] = useState(null);
+  const [prices, setPrices] = useState({}); // id -> stringa digitata
+  const [notes, setNotes] = useState({}); // id -> nota
+  const [openNote, setOpenNote] = useState({});
+  const [referente, setReferente] = useState('');
+  const [email, setEmail] = useState('');
+  const [telefono, setTelefono] = useState('');
+  const [notaGenerale, setNotaGenerale] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sentAt, setSentAt] = useState(null);
+
+  const unlock = async () => {
+    if (!pin.trim() || checking) return;
+    setChecking(true); setError('');
+    const { data: result, error: err } = await cea.rpc('offerta_get', { p_token: token, p_pin: pin.trim() });
+    setChecking(false);
+    if (err) { setError('Link o PIN non validi. Controlla con lo studio.'); return; }
+    setData(result);
+    if (result.pending) {
+      const pr = {}; const nt = {};
+      (result.pending.prezzi || []).forEach((p) => { pr[String(p.id)] = itNum(Number(p.price) || 0, 2); if (p.note) nt[String(p.id)] = p.note; });
+      setPrices(pr); setNotes(nt);
+      setReferente(result.pending.referente || ''); setEmail(result.pending.email || ''); setTelefono(result.pending.telefono || '');
+      setNotaGenerale(result.pending.note || '');
+    }
+  };
+
+  const sections = data?.snapshot?.sections || [];
+  const allItems = sections.flatMap((s) => s.categorie.flatMap((c) => c.items));
+  const priceOf = (id) => (String(prices[id] ?? '').trim() === '' ? null : parseEuro(prices[id]));
+  const sectionTotal = (s) => s.categorie.reduce((n, c) => n + c.items.reduce((m, it) => m + (priceOf(it.id) || 0) * parseEuro(it.qty), 0), 0);
+  const total = sections.reduce((n, s) => n + sectionTotal(s), 0);
+  const filled = allItems.filter((it) => priceOf(it.id) !== null).length;
+
+  const submit = async () => {
+    if (!filled) { alert('Inserisci almeno un prezzo prima di inviare.'); return; }
+    if (filled < allItems.length && !confirm(`Hai compilato ${filled} voci su ${allItems.length}. Inviare comunque l'offerta?`)) return;
+    if (!referente.trim() && !confirm('Non hai indicato un referente. Inviare comunque?')) return;
+    const payload = allItems.filter((it) => priceOf(it.id) !== null).map((it) => ({ id: it.id, price: priceOf(it.id), note: (notes[it.id] || '').trim() }));
+    setSending(true);
+    const { error: err } = await cea.rpc('offerta_submit', {
+      p_token: token, p_pin: pin.trim(), p_prezzi: payload, p_note: notaGenerale.trim(), p_referente: referente.trim(),
+      p_email: email.trim(), p_telefono: telefono.trim(), p_totale: Math.round(total * 100) / 100,
+    });
+    setSending(false);
+    if (err) { alert('Invio non riuscito: ' + err.message); return; }
+    setSentAt(nowLabel());
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const field = { width: '100%', boxSizing: 'border-box', border: '1px solid #E3D9CC', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontFamily: FONT, background: '#fff', color: '#2B2321' };
+
+  if (!data) {
+    return (
+      <div style={{ minHeight: '100vh', background: '#F4EFE8', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT, padding: 16 }}>
+        <div style={{ background: '#fff', borderRadius: 20, boxShadow: '0 8px 24px rgba(33,26,22,0.08)', padding: 32, width: 380, maxWidth: '100%' }}>
+          <img src="/quant-logo-full.png" alt="Quant" style={{ height: 54, marginBottom: 18 }} />
+          <h1 style={{ fontSize: 21, fontWeight: 500, color: '#2B2321', margin: '0 0 6px' }}>Computo da quotare</h1>
+          <p style={{ fontSize: 13, color: '#8B8178', margin: '0 0 22px', lineHeight: 1.5 }}>Inserisci il PIN che ti ha mandato lo studio per aprire il computo metrico e indicare i tuoi prezzi.</p>
+          <label style={{ fontSize: 11, fontWeight: 600, color: '#4A403C' }}>PIN</label>
+          <input value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && unlock()} inputMode="numeric" placeholder="••••••" style={{ ...field, fontSize: 17, letterSpacing: '0.25em', margin: '5px 0 14px' }} />
+          {error && <p style={{ fontSize: 12.5, color: '#862D2D', margin: '0 0 10px' }}>{error}</p>}
+          <button disabled={checking} onClick={unlock} style={{ width: '100%', background: '#862D2D', color: '#fff', border: 'none', borderRadius: 999, padding: '12px 0', fontSize: 14, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>{checking ? 'Un attimo…' : 'Apri il computo'}</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#F4EFE8', fontFamily: FONT, color: '#2B2321' }}>
+      <header style={{ background: '#2B2321', color: '#fff', padding: '14px 20px' }}>
+        <div style={{ maxWidth: 1060, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 500 }}>{data.projectName}</div>
+            <div style={{ fontSize: 12, color: '#C9BFB4' }}>{data.studioNome || 'Studio'} · richiesta di offerta per <b style={{ color: '#fff' }}>{data.impresaNome}</b></div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10.5, color: '#C9BFB4', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Totale offerta IVA esclusa</div>
+            <div style={{ fontSize: 20, fontWeight: 600 }}>{formatEuro(total)}</div>
+          </div>
+        </div>
+      </header>
+
+      <main style={{ maxWidth: 1060, margin: '0 auto', padding: '20px 16px 120px' }}>
+        {sentAt && (
+          <div style={{ background: '#E7F0EA', border: '1px solid #B9D3C2', color: '#2F5D45', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13.5 }}>
+            <b>Offerta inviata allo studio</b> ({sentAt}). Puoi ancora correggerla e inviarla di nuovo finché lo studio non l'ha valutata.
+          </div>
+        )}
+        {!sentAt && data.pending && (
+          <div style={{ background: '#fff', border: '1px solid #E3D9CC', borderRadius: 14, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#4A403C' }}>
+            Hai già inviato un'offerta: trovi i tuoi prezzi qui sotto. Se la modifichi e la invii di nuovo, sostituisce quella precedente.
+          </div>
+        )}
+        <div style={{ background: '#fff', border: '1px solid #E3D9CC', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13, color: '#4A403C', lineHeight: 1.55 }}>
+          Per ogni voce indica il tuo <b>prezzo unitario</b> (IVA esclusa): l'importo si calcola da solo. Puoi aggiungere una nota alla singola voce. Quando hai finito clicca <b>Invia allo studio</b> in basso.
+          {data.snapshot?.ubicazione && <div style={{ marginTop: 6, color: '#8B8178' }}>Ubicazione: {data.snapshot.ubicazione}</div>}
+        </div>
+        {(data.snapshot?.noteInizio || '').trim() && (
+          <div style={{ background: '#FAF8F4', borderLeft: '3px solid #862D2D', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{data.snapshot.noteInizio}</div>
+        )}
+
+        {sections.map((s, si) => (
+          <section key={si} style={{ background: '#fff', border: '1px solid #E3D9CC', borderRadius: 16, marginBottom: 16, overflow: 'hidden' }}>
+            <div style={{ background: '#2B2321', color: '#fff', padding: '11px 16px', display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{s.name}</span>
+              <span style={{ fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap' }}>{formatEuro(sectionTotal(s))}</span>
+            </div>
+            {s.categorie.map((c, ci) => (
+              <div key={ci}>
+                <div style={{ background: '#F6F3EE', padding: '8px 16px', fontSize: 12.5, fontWeight: 600, borderBottom: '1px solid #EDE6DB' }}>{c.name}</div>
+                {c.items.map((it) => {
+                  const p = priceOf(it.id);
+                  const importo = p !== null ? p * parseEuro(it.qty) : null;
+                  return (
+                    <div key={it.id} style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 14px', alignItems: 'flex-start', padding: '11px 16px', borderBottom: '1px solid #F0EAE1' }}>
+                      <div style={{ flex: '1 1 340px', minWidth: 220 }}>
+                        <div style={{ fontSize: 11, color: '#8B8178', fontFamily: 'ui-monospace, monospace' }}>{it.code}</div>
+                        <div style={{ fontSize: 13, lineHeight: 1.45 }}>{it.desc}</div>
+                        {it.note && <div style={{ fontSize: 11.5, color: '#8B8178', fontStyle: 'italic', marginTop: 3 }}>{it.note}</div>}
+                        {openNote[it.id] || notes[it.id] ? (
+                          <input value={notes[it.id] || ''} onChange={(e) => setNotes((n) => ({ ...n, [it.id]: e.target.value }))} placeholder="Nota per lo studio su questa voce" style={{ ...field, fontSize: 12, padding: '6px 9px', marginTop: 6 }} />
+                        ) : (
+                          <button onClick={() => setOpenNote((o) => ({ ...o, [it.id]: true }))} style={{ border: 'none', background: 'transparent', color: '#862D2D', fontSize: 11.5, padding: 0, marginTop: 5, cursor: 'pointer' }}>+ aggiungi nota</button>
+                        )}
+                      </div>
+                      <div style={{ width: 96, textAlign: 'right' }}>
+                        <div style={{ fontSize: 10, color: '#8B8178', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Quantità</div>
+                        <div style={{ fontSize: 13.5, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{it.qty} {it.unit}</div>
+                      </div>
+                      <div style={{ width: 130 }}>
+                        <div style={{ fontSize: 10, color: '#8B8178', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>Prezzo unitario €</div>
+                        <input value={prices[it.id] ?? ''} onChange={(e) => setPrices((pr) => ({ ...pr, [it.id]: e.target.value }))} inputMode="decimal" placeholder="0,00" style={{ ...field, textAlign: 'right', fontVariantNumeric: 'tabular-nums', background: p === null ? '#FFFBEA' : '#fff' }} />
+                      </div>
+                      <div style={{ width: 120, textAlign: 'right' }}>
+                        <div style={{ fontSize: 10, color: '#8B8178', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Importo</div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: '#862D2D', fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap', marginTop: 8 }}>{importo !== null ? formatEuro(importo) : '—'}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </section>
+        ))}
+
+        {(data.snapshot?.noteFine || '').trim() && (
+          <div style={{ background: '#fff', border: '1px solid #E3D9CC', borderRadius: 14, padding: '12px 16px', marginBottom: 16, fontSize: 13, whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
+            <div style={{ fontSize: 10.5, color: '#8B8178', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>Note</div>
+            {data.snapshot.noteFine}
+          </div>
+        )}
+
+        <div style={{ background: '#fff', border: '1px solid #E3D9CC', borderRadius: 16, padding: 16 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>I tuoi riferimenti</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 10, marginBottom: 10 }}>
+            <input value={referente} onChange={(e) => setReferente(e.target.value)} placeholder="Referente" style={field} />
+            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" type="email" style={field} />
+            <input value={telefono} onChange={(e) => setTelefono(e.target.value)} placeholder="Telefono" style={field} />
+          </div>
+          <textarea value={notaGenerale} onChange={(e) => setNotaGenerale(e.target.value)} placeholder="Note generali sull'offerta (tempi, condizioni, esclusioni…)" rows={3} style={{ ...field, resize: 'vertical' }} />
+        </div>
+      </main>
+
+      <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff', borderTop: '1px solid #E3D9CC', padding: '12px 16px', zIndex: 20 }}>
+        <div style={{ maxWidth: 1060, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 12.5, color: '#8B8178' }}>{filled} di {allItems.length} voci compilate · <b style={{ color: '#2B2321' }}>Totale {formatEuro(total)}</b> IVA esclusa</div>
+          <button disabled={sending} onClick={submit} style={{ background: '#862D2D', color: '#fff', border: 'none', borderRadius: 999, padding: '12px 26px', fontSize: 14, fontWeight: 500, cursor: sending ? 'default' : 'pointer', fontFamily: FONT }}>
+            {sending ? 'Invio…' : sentAt ? 'Invia di nuovo' : 'Invia allo studio'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+// =================== fine offerte imprese ===================
+
 // Vista pubblica per un fornitore esterno: niente account, si accede con un link + PIN che lo studio genera
 // dalla pagina "Listino prezzi" (bottone "Condividi con fornitore"). Il fornitore vede le voci del listino
 // scelto — con il costo cliente, come riferimento — e può proporre il proprio costo impresa voce per voce.
@@ -7968,6 +8667,11 @@ export default function GestionaleEdilePreview() {
   const fornitoreToken = new URLSearchParams(window.location.search).get('fornitore');
   if (fornitoreToken) {
     return <FornitoreShareView token={fornitoreToken} />;
+  }
+  // Vista pubblica per un'impresa che compila i prezzi di un computo (link + PIN, nessun account)
+  const offertaToken = new URLSearchParams(window.location.search).get('offerta');
+  if (offertaToken) {
+    return <OffertaImpresaView token={offertaToken} />;
   }
 
   const [page, setPage] = useState('dashboard');
