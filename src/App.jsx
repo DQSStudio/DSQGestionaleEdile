@@ -4029,11 +4029,35 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const addTeamMember = () => {
-    const name = prompt('Nome della persona da assegnare:');
-    if (!name) return;
-    const role = prompt('Ruolo:', 'Collaboratore') || 'Collaboratore';
-    onUpdateProject({ ...project, team: [...(project.team || []), { name, role }] });
+  // Team assegnato: si sceglie fra le persone della sezione Team (cea.team_members), non più a testo libero.
+  // Nel progetto si salva il riferimento (memberId) più nome/email di riserva; nome, foto e ruolo mostrati
+  // vengono sempre dal profilo attuale della persona, così restano aggiornati se cambiano nel Team.
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [showTeamPicker, setShowTeamPicker] = useState(false);
+  React.useEffect(() => {
+    cea.from('team_members').select('id, name, email, role, job_title, photo, status').order('name').then(({ data }) => setTeamMembers(data || []));
+  }, []);
+  // Collegamento alla persona del Team: per id; per le voci vecchie (solo nome) per nome esatto, oppure per
+  // nome di battesimo se una sola persona del Team inizia con quel nome (es. "Angelica" → "Angelica Rossi").
+  const memberFor = (m) => {
+    if (m.memberId) return teamMembers.find((t) => t.id === m.memberId);
+    const n = (m.name || '').trim().toLowerCase();
+    if (!n) return undefined;
+    const exact = teamMembers.find((t) => (t.name || '').trim().toLowerCase() === n);
+    if (exact) return exact;
+    const byFirst = teamMembers.filter((t) => (t.name || '').trim().toLowerCase().startsWith(n + ' '));
+    return byFirst.length === 1 ? byFirst[0] : undefined;
+  };
+  const addTeamMember = () => setShowTeamPicker(true);
+  const assignMembers = (picked) => {
+    const current = project.team || [];
+    const additions = picked
+      .filter((t) => !current.some((m) => memberFor(m)?.id === t.id))
+      .map((t) => ({ memberId: t.id, name: t.name || t.email, email: t.email || '', role: t.job_title || t.role || 'Collaboratore' }));
+    // Collega anche le voci create a mano in passato, se il nome corrisponde a una persona del Team
+    const relinked = current.map((m) => { const t = memberFor(m); return t && !m.memberId ? { ...m, memberId: t.id, email: t.email || '' } : m; });
+    onUpdateProject({ ...project, team: [...relinked, ...additions] });
+    setShowTeamPicker(false);
   };
 
   const removeTeamMember = (idx) => {
@@ -5167,15 +5191,27 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
           <button onClick={addTeamMember} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>+ Aggiungi persona</button>
         </div>
         {(project.team || []).length === 0 && <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Nessuna persona assegnata a questo progetto.</p>}
-        {(project.team || []).map((m, i) => (
-          <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 0', borderBottom: i < (project.team || []).length - 1 ? `1px solid ${C.paleGray}` : 'none' }}>
-            <div>
-              <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{m.name}</p>
-              <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>{m.role}</p>
+        {(project.team || []).map((m, i) => {
+          const t = memberFor(m);
+          return (
+            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, padding: '10px 0', borderBottom: i < (project.team || []).length - 1 ? `1px solid ${C.paleGray}` : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                <MemberAvatar member={t || { name: m.name }} size={36} />
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{t?.name || m.name}</p>
+                  <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>
+                    {m.role || t?.job_title || t?.role}{(t?.email || m.email) ? ` · ${t?.email || m.email}` : ''}
+                    {!t && <span style={{ color: C.maroon }}> · non presente nel Team</span>}
+                  </p>
+                </div>
+              </div>
+              <button onClick={() => removeTeamMember(i)} style={rowBtnStyle}>🗑</button>
             </div>
-            <button onClick={() => removeTeamMember(i)} style={rowBtnStyle}>🗑</button>
-          </div>
-        ))}
+          );
+        })}
+        {showTeamPicker && (
+          <TeamPickerModal members={teamMembers} assigned={(project.team || []).map((m) => memberFor(m)?.id).filter(Boolean)} onClose={() => setShowTeamPicker(false)} onConfirm={assignMembers} />
+        )}
       </div>
     </div>
   );
@@ -7310,6 +7346,48 @@ function resizeImageToDataUrl(file, size = 256) {
 }
 
 const memberInitials = (nm) => (nm || '?').trim().split(/\s+/).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
+
+// Scelta delle persone del Team da assegnare a un progetto (selezione multipla, con ricerca).
+function TeamPickerModal({ members, assigned, onClose, onConfirm }) {
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState([]);
+  const terms = searchTerms(q);
+  const list = members.filter((t) => t.status !== 'Disattivato' && t.status !== 'Rimosso').filter((t) => matchesTerms(terms, t.name, t.email, t.job_title, t.role));
+  const toggle = (id) => setSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: 460, maxWidth: '100%', maxHeight: '86vh', display: 'flex', flexDirection: 'column' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: '0 0 4px', color: C.black }}>Assegna persone del team</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 12px' }}>Scegli una o più persone dalla sezione Team.</p>
+        <input value={q} onChange={(e) => setQ(e.target.value)} autoFocus placeholder="Cerca per nome, email o ruolo…" style={{ border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 13, fontFamily: FONT, marginBottom: 10 }} />
+        <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {members.length === 0 && <p style={{ fontSize: 12.5, color: C.gray }}>Nessuna persona nel Team: aggiungile prima dalla sezione Team.</p>}
+          {list.map((t) => {
+            const isAssigned = assigned.includes(t.id);
+            const isSel = sel.includes(t.id);
+            return (
+              <div key={t.id} onClick={() => !isAssigned && toggle(t.id)} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 10px', borderRadius: 12, cursor: isAssigned ? 'default' : 'pointer', border: `1px solid ${isSel ? C.maroon : 'transparent'}`, background: isSel ? 'rgba(134,45,45,0.05)' : 'transparent', opacity: isAssigned ? 0.5 : 1 }}>
+                <MemberAvatar member={t} size={36} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13.5, fontWeight: 500, color: C.black }}>{t.name || t.email}</div>
+                  <div style={{ fontSize: 11.5, color: C.gray, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{[t.job_title || t.role, t.email].filter(Boolean).join(' · ')}</div>
+                </div>
+                {isAssigned ? <span style={{ fontSize: 11, color: C.gray }}>già assegnato</span> : (
+                  <span style={{ width: 20, height: 20, borderRadius: 6, border: `1.5px solid ${isSel ? C.maroon : '#CFC4B6'}`, background: isSel ? C.maroon : C.white, color: C.white, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{isSel ? '✓' : ''}</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+          <button onClick={onClose} style={{ border: 'none', background: '#6B625C', color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Annulla</button>
+          <button disabled={!sel.length} onClick={() => onConfirm(members.filter((t) => sel.includes(t.id)))} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: sel.length ? 'pointer' : 'default', opacity: sel.length ? 1 : 0.6 }}>Assegna{sel.length ? ` (${sel.length})` : ''}</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 function MemberAvatar({ member, size = 38 }) {
   const base = { width: size, height: size, borderRadius: '50%', flex: 'none', border: '1px solid #E3D9CC', boxSizing: 'border-box' };
