@@ -986,12 +986,24 @@ function ListinoPage({ listini, setListini, activeId, setActiveId, projects, set
     setActiveId(id);
   };
 
-  const duplicateListino = () => {
-    const name = prompt('Nome della copia:', `${active.name} (copia)`);
-    if (!name) return;
+  const [showDuplica, setShowDuplica] = useState(false);
+  const duplicateListino = () => setShowDuplica(true);
+  // Crea la copia del listino attivo: con tutti i prezzi, oppure con la sola struttura (macro, categorie,
+  // sottocategorie, voci con codice, descrizione, unità e note) e i prezzi da compilare. Senza prezzi, il prezzo
+  // cliente scritto come formula (es. "=impresa*1.1") resta: appena si inserisce il costo impresa il prezzo
+  // cliente si ricalcola da solo; i prezzi cliente fissi invece vengono svuotati.
+  const confirmDuplicate = (name, withPrices) => {
     const id = Math.max(...listini.map((l) => l.id)) + 1;
-    setListini([...listini, { id, name, macros: structuredClone(active.macros) }]);
+    const macros = structuredClone(active.macros);
+    if (!withPrices) {
+      macros.forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((sc) => (sc.voci || []).forEach((v) => {
+        v.priceImpresa = '';
+        v.priceCliente = String(v.priceCliente || '').trim().startsWith('=') ? v.priceCliente : '';
+      }))));
+    }
+    setListini([...listini, { id, name, macros }]);
     setActiveId(id);
+    setShowDuplica(false);
   };
 
   const renameListino = () => {
@@ -1048,10 +1060,46 @@ function ListinoPage({ listini, setListini, activeId, setActiveId, projects, set
 
       <EditableCatalog macros={active.macros} setMacros={setMacrosForActive} projects={projects} setProjects={setProjects} listinoId={active.id} />
 
+      {showDuplica && (
+        <DuplicaListinoModal sourceName={active.name} onClose={() => setShowDuplica(false)} onConfirm={confirmDuplicate} />
+      )}
       {showFornitoreSharing && (
         <FornitoreSharingModal listini={listini} setListini={setListini} activeId={activeId} onClose={() => setShowFornitoreSharing(false)} />
       )}
     </div>
+  );
+}
+
+function DuplicaListinoModal({ sourceName, onClose, onConfirm }) {
+  const [name, setName] = useState(`${sourceName} (copia)`);
+  const [withPrices, setWithPrices] = useState(true);
+  const option = (value, title, desc) => (
+    <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '11px 12px', border: `1px solid ${withPrices === value ? C.maroon : C.paleGray}`, borderRadius: 12, cursor: 'pointer', background: withPrices === value ? 'rgba(134,45,45,0.04)' : C.white }}>
+      <input type="radio" checked={withPrices === value} onChange={() => setWithPrices(value)} style={{ marginTop: 3, accentColor: C.maroon }} />
+      <span>
+        <span style={{ display: 'block', fontSize: 13, fontWeight: 600, color: C.black }}>{title}</span>
+        <span style={{ display: 'block', fontSize: 11.5, color: C.gray, marginTop: 2, lineHeight: 1.4 }}>{desc}</span>
+      </span>
+    </label>
+  );
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 14, padding: 22, width: 440, maxWidth: '100%' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, margin: '0 0 6px', color: C.black }}>Duplica listino</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>Copia di "{sourceName}" con tutte le macrocategorie, categorie, sottocategorie e voci.</p>
+        <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: C.black, marginBottom: 5 }}>Nome della copia</label>
+        <input value={name} onChange={(e) => setName(e.target.value)} autoFocus style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '9px 11px', fontSize: 13, fontFamily: FONT, marginBottom: 14 }} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 18 }}>
+          {option(true, 'Con i prezzi', 'Copia anche i prezzi impresa e cliente di ogni voce.')}
+          {option(false, 'Senza prezzi', 'Copia solo voci, descrizioni, unità di misura e note: i prezzi restano da compilare. Le formule del prezzo cliente (es. =impresa*1.1) vengono mantenute.')}
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} style={{ border: 'none', background: '#6B625C', color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Annulla</button>
+          <button onClick={() => name.trim() && onConfirm(name.trim(), withPrices)} disabled={!name.trim()} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: name.trim() ? 'pointer' : 'default', opacity: name.trim() ? 1 : 0.6 }}>Duplica</button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -2709,6 +2757,7 @@ function exportComputoExcel(project, revision, clientOnly) {
   rows.push(['Cliente', project.client]);
   rows.push(['Versione', revision.customName || revision.label]);
   rows.push(['Data modifica', revision.dateModified]);
+  if ((revision.noteInizio || '').trim()) { rows.push([]); rows.push(['Note', revision.noteInizio.trim()]); }
   rows.push([]);
   rows.push(clientOnly
     ? ['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo cliente', 'Totale cliente', 'Note']
@@ -2778,6 +2827,7 @@ function exportComputoExcel(project, revision, clientOnly) {
   econ.breakdown.forEach((b) => rows.push([`${b.label} (cliente)`, '', '', '', '', '', formatEuro(b.ivaCliente)]));
   rows.push(['Totale generale IVA inclusa (cliente)', '', '', '', '', '', formatEuro(econ.totCliente)]);
 
+  if ((revision.noteFine || '').trim()) { rows.push([]); rows.push(['Note finali', revision.noteFine.trim()]); }
   const ws = XLSX.utils.aoa_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Computo');
@@ -2785,7 +2835,57 @@ function exportComputoExcel(project, revision, clientOnly) {
   XLSX.writeFile(wb, filename);
 }
 
-function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
+// Computo "muto" (senza prezzi) da dare a un'impresa per farsi quotare i lavori: stesse voci, quantità e note,
+// ma con le colonne Prezzo unitario e Importo vuote. Gli importi sono già formule (Quantità × Prezzo), con un
+// totale per sezione e un totale generale: l'impresa deve solo compilare i prezzi unitari.
+function exportComputoExcelSenzaPrezzi(project, revision) {
+  const groups = buildComputoGroups(revision);
+  const rows = [];
+  const formulas = []; // [rigaExcel (1-based), colonna, formula]
+  rows.push(['Computo metrico (senza prezzi)']);
+  rows.push(['Progetto', project.name]);
+  rows.push(['Versione', revision.customName || revision.label]);
+  rows.push(['Data', revision.dateModified]);
+  if ((revision.noteInizio || '').trim()) { rows.push([]); rows.push(['Note', revision.noteInizio.trim()]); }
+  rows.push([]);
+  rows.push(['Sezione', 'Categoria', 'Codice', 'Descrizione', 'Quantità', 'U.M.', 'Prezzo unitario (€)', 'Importo (€)', 'Note']);
+  const sectionTotalRows = [];
+  groups.forEach((g) => {
+    const itemRows = [];
+    g.categorie.forEach((cat) => {
+      cat.items.forEach((it) => {
+        rows.push([g.name, cat.name, it.code, it.desc, parseEuro(it.qty), it.unit, '', '', it.noteCliente || '']);
+        const r = rows.length;
+        itemRows.push(r);
+        formulas.push([r, 'H', `IF(G${r}="","",E${r}*G${r})`]);
+      });
+    });
+    if (itemRows.length) {
+      rows.push([g.name, '', '', `Totale ${g.name} IVA esclusa`, '', '', '', '']);
+      const r = rows.length;
+      sectionTotalRows.push(r);
+      formulas.push([r, 'H', `SUM(H${itemRows[0]}:H${itemRows[itemRows.length - 1]})`]);
+    }
+    rows.push([]);
+  });
+  rows.push(['', '', '', 'Totale generale IVA esclusa', '', '', '', '']);
+  if (sectionTotalRows.length) formulas.push([rows.length, 'H', sectionTotalRows.map((r) => `H${r}`).join('+')]);
+  if ((revision.noteFine || '').trim()) { rows.push([]); rows.push(['Note finali', revision.noteFine.trim()]); }
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  formulas.forEach(([r, col, f]) => { ws[`${col}${r}`] = { t: 'n', f, z: '#,##0.00' }; });
+  ws['!cols'] = [{ wch: 18 }, { wch: 18 }, { wch: 12 }, { wch: 70 }, { wch: 10 }, { wch: 8 }, { wch: 16 }, { wch: 16 }, { wch: 30 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Computo');
+  const filename = `${project.name.replace(/[^a-z0-9]+/gi, '_')}_${(revision.customName || revision.label).replace(/[^a-z0-9]+/gi, '_')}_senza_prezzi.xlsx`;
+  XLSX.writeFile(wb, filename);
+}
+
+function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studioSettings }) {
+  // clientOnly può valere false (completo impresa+cliente), true (solo cliente) o 'muto' (senza prezzi: voci e
+  // quantità con le colonne prezzo/importo vuote, da far compilare a un'impresa). Il muto usa l'impaginazione
+  // della versione cliente, ma senza alcun importo.
+  const noPrices = clientOnlyProp === 'muto';
+  const clientOnly = !!clientOnlyProp;
   const groups = buildComputoGroups(revision);
   const realItems = (revision.items || []).filter((it) => it.type !== 'subtotal');
   const header = project.header || {};
@@ -2882,13 +2982,14 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
         <tbody>
           <tr><td style={{ padding: `16px ${PAGE_SIDE}px` }}>
 
-      <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
-      <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Progetto: {project.name} — Cliente: {project.client}</p>
+      <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{noPrices ? 'Computo metrico — senza prezzi' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
+      <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Progetto: {project.name}{!noPrices && <> — Cliente: {project.client}</>}</p>
       <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Versione: {revision.customName || revision.label} — Modificata il {revision.dateModified}</p>
       {(header.descrizione || header.ubicazione) && (
         <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>{header.descrizione} {header.ubicazione && `— ${header.ubicazione}`}</p>
       )}
-      {project.clientSheet && (
+      {/* Nel computo senza prezzi (destinato a un'impresa) i recapiti del cliente non compaiono. */}
+      {project.clientSheet && !noPrices && (
         <div style={{ marginTop: 14, padding: '12px 14px', border: '1px solid #E5E2DA', borderRadius: 8, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
           <p style={{ fontSize: 10, fontWeight: 600, margin: '0 0 5px', color: '#1A1A1A', textTransform: 'uppercase', letterSpacing: 0.5 }}>Scheda cliente</p>
           <p style={{ fontSize: 10.5, margin: '2px 0' }}>{project.clientSheet.name}{project.clientSheet.type && ` — ${project.clientSheet.type}`}</p>
@@ -2901,6 +3002,11 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
               {[project.clientSheet.piva && `P.IVA ${project.clientSheet.piva}`, project.clientSheet.cf && `CF ${project.clientSheet.cf}`].filter(Boolean).join(' — ')}
             </p>
           )}
+        </div>
+      )}
+      {(revision.noteInizio || '').trim() && (
+        <div style={{ marginTop: 16, padding: '10px 14px', borderLeft: `3px solid ${C.maroon}`, background: '#FAF8F4', fontSize: 10.5, lineHeight: 1.5, color: '#3A3A3A', whiteSpace: 'pre-wrap', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          {revision.noteInizio.trim()}
         </div>
       )}
       {groups.map((g, gi) => {
@@ -2938,8 +3044,8 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                 <th style={thStyle}>U.M.</th>
                 {!clientOnly && <th style={{ ...thStyle, textAlign: 'right' }}>Prezzo impresa</th>}
                 {!clientOnly && <th style={{ ...thStyle, textAlign: 'right' }}>Totale impresa</th>}
-                <th style={{ ...thStyle, textAlign: 'right' }}>Prezzo cliente</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>Totale cliente</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>{noPrices ? 'Prezzo unitario' : 'Prezzo cliente'}</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>{noPrices ? 'Importo' : 'Totale cliente'}</th>
               </tr>
             </thead>
             <tbody>
@@ -2966,8 +3072,17 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                       <td style={{ padding: '5px 4px', color: '#8A8A8A', whiteSpace: 'nowrap' }}>{it.unit}</td>
                       {!clientOnly && <td style={{ ...numCell, color: '#5A5A5A' }}>{formatEuro(parseEuro(it.unitPriceImpresa))}</td>}
                       {!clientOnly && <td style={{ ...numCell, fontWeight: 600 }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>}
-                      <td style={{ ...numCell, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente))}</td>
-                      <td style={{ ...numCell, fontWeight: 600, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
+                      {noPrices ? (
+                        <>
+                          <td style={{ ...numCell }}><div style={{ borderBottom: '1px solid #C9C4BA', height: 12, marginLeft: 8 }} /></td>
+                          <td style={{ ...numCell }}><div style={{ borderBottom: '1px solid #C9C4BA', height: 12, marginLeft: 8 }} /></td>
+                        </>
+                      ) : (
+                        <>
+                          <td style={{ ...numCell, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente))}</td>
+                          <td style={{ ...numCell, fontWeight: 600, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
+                        </>
+                      )}
                     </tr>
                     );
                   })}
@@ -2984,12 +3099,12 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
                   <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                     <td colSpan={clientOnly ? 6 : 8} style={{ padding: '8px 4px', fontWeight: 700, borderTop: '1px solid #E5E2DA' }}>
                       {it.title}
-                      {hasDiscount && (
+                      {hasDiscount && !noPrices && (
                         <span style={{ fontWeight: 400, color: '#8A8A8A' }}>
                           {' '}— lordo {formatEuro(grossAmt)}, Sconto {it.discountPct}% (−{formatEuro(grossAmt - netAmt)}), netto {formatEuro(netAmt)}
                         </span>
                       )}
-                      {hasVat && (
+                      {hasVat && !noPrices && (
                         <span style={{ fontWeight: 400, color: '#8A8A8A' }}>
                           {' '}— IVA esclusa {formatEuro(netAmt)}, {it.vatLabel} {formatEuro(netAmt * (it.vatRate / 100))}, IVA inclusa {formatEuro(netAmt * (1 + it.vatRate / 100))}
                         </span>
@@ -3003,6 +3118,16 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
             </tbody>
           </table>
           {(() => {
+            if (noPrices) {
+              return (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, width: 320, maxWidth: '100%', fontSize: 9.5, fontWeight: 700, color: '#1A1A1A' }}>
+                    <span style={{ whiteSpace: 'nowrap' }}>Totale {g.name} IVA esclusa</span>
+                    <div style={{ flex: 1, borderBottom: '1px solid #C9C4BA', height: 12 }} />
+                  </div>
+                </div>
+              );
+            }
             const s = econ.sections.find((x) => x.name === g.name);
             if (!s || (!s.grossImpresa && !s.grossCliente)) return null;
             const line = { fontSize: 9.5, display: 'flex', justifyContent: 'space-between', gap: 12, color: '#5A5A5A', margin: '2px 0' };
@@ -3032,7 +3157,13 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
         );
       })}
       <div style={{ marginTop: 30, maxWidth: 320, marginLeft: 'auto', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
-        {!clientOnly && (
+        {noPrices && (
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, fontSize: 12, fontWeight: 700, color: '#1A1A1A', padding: '6px 0' }}>
+            <span style={{ whiteSpace: 'nowrap' }}>Totale generale IVA esclusa</span>
+            <div style={{ flex: 1, borderBottom: '1.5px solid #1A1A1A', height: 14 }} />
+          </div>
+        )}
+        {!noPrices && !clientOnly && (
           <>
             <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (impresa)</span><span>{formatEuro(econ.netImpresa)}</span></p>
             {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaImpresa)}</span></p>)}
@@ -3040,7 +3171,7 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
             <div style={{ height: 16 }} />
           </>
         )}
-        {clientOnly ? (
+        {noPrices ? null : clientOnly ? (
           <>
             {/* Versione cliente: in evidenza il totale generale IVA esclusa; IVA e totale IVA inclusa restano righe normali. */}
             <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '0 0 8px', paddingBottom: 6, borderBottom: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA esclusa</span><span>{formatEuro(econ.netCliente)}</span></p>
@@ -3056,9 +3187,48 @@ function PrintableComputo({ project, revision, clientOnly, studioSettings }) {
         )}
       </div>
 
+      {(revision.noteFine || '').trim() && (
+        <div style={{ marginTop: 26, padding: '10px 14px', borderTop: '1px solid #E5E2DA', fontSize: 10.5, lineHeight: 1.5, color: '#3A3A3A', whiteSpace: 'pre-wrap', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+          <p style={{ fontSize: 9, fontWeight: 600, margin: '0 0 5px', color: '#8A8A8A', textTransform: 'uppercase', letterSpacing: 0.5 }}>Note</p>
+          {revision.noteFine.trim()}
+        </div>
+      )}
+
           </td></tr>
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Nota libera del computo (in cima o in fondo): bozza locale salvata quando si esce dal campo, così non si
+// salva (e non si crea una nuova revisione) a ogni lettera digitata. Il campo si può allargare in altezza.
+function ComputoNoteField({ label, hint, value, onSave, placeholder }) {
+  const [draft, setDraft] = useState(value || '');
+  const [open, setOpen] = useState(!!(value || '').trim());
+  useEffect(() => { setDraft(value || ''); if ((value || '').trim()) setOpen(true); }, [value]);
+  const commit = () => { if ((draft || '') !== (value || '')) onSave(draft); };
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} style={{ background: 'transparent', border: `1px dashed ${C.paleGray}`, borderRadius: 12, padding: '9px 14px', fontSize: 12.5, fontWeight: 400, color: C.gray, cursor: 'pointer', fontFamily: FONT, width: '100%', textAlign: 'left', margin: '0 0 12px' }}>
+        + {label}
+      </button>
+    );
+  }
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '12px 14px', margin: '0 0 12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, marginBottom: 6 }}>
+        <span style={{ fontSize: 12.5, fontWeight: 600, color: C.black, fontFamily: FONT }}>{label}</span>
+        <span style={{ fontSize: 11, color: C.gray }}>{hint}</span>
+      </div>
+      <textarea
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        placeholder={placeholder}
+        rows={3}
+        style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '9px 11px', fontSize: 13, fontFamily: FONT, color: C.black, resize: 'vertical', minHeight: 64, lineHeight: 1.45, background: '#FDFCFA' }}
+      />
     </div>
   );
 }
@@ -3845,6 +4015,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
             <button onClick={() => exportComputoExcel(project, selectedRevision, true)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Scarica Excel solo cliente</button>
             <button onClick={() => requestPdf(project, selectedRevision, false)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬇ Scarica PDF completo (impresa+cliente)</button>
             <button onClick={() => requestPdf(project, selectedRevision, true)} style={{ background: C.maroon, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>⬇ Scarica PDF solo cliente</button>
+            <button onClick={() => exportComputoExcelSenzaPrezzi(project, selectedRevision)} title="Voci e quantità senza alcun prezzo, da far compilare a un'impresa" style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Excel senza prezzi</button>
+            <button onClick={() => requestPdf(project, selectedRevision, 'muto')} title="Voci e quantità senza alcun prezzo, da far compilare a un'impresa" style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬇ PDF senza prezzi</button>
           </div>
 
           <div style={{ ...card, marginBottom: 18 }}>
@@ -4021,6 +4193,13 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                 </div>
                 <button onClick={addCustomSection} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer', whiteSpace: 'nowrap' }}>+ Nuova macrosezione</button>
               </div>
+              <ComputoNoteField
+                label="Nota iniziale del computo"
+                hint="compare in cima al PDF e all'Excel, anche nella versione cliente"
+                value={selectedRevision.noteInizio}
+                onSave={(v) => applyRevisionChange(() => ({ noteInizio: v }))}
+                placeholder="Es. premesse, oggetto dei lavori, condizioni generali…"
+              />
               <div
                 data-general-dropzone="true"
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -4462,6 +4641,13 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                 )}
               </div>
 
+              <ComputoNoteField
+                label="Nota finale del computo"
+                hint="compare in fondo al PDF e all'Excel, dopo i totali"
+                value={selectedRevision.noteFine}
+                onSave={(v) => applyRevisionChange(() => ({ noteFine: v }))}
+                placeholder="Es. esclusioni, modalità di pagamento, validità dell'offerta…"
+              />
               <p style={{ fontSize: 11.5, color: C.gray, margin: '0 0 10px', maxWidth: 660 }}>
                 L'IVA si imposta in fondo a ogni sezione: il totale generale qui sotto somma l'IVA delle singole sezioni, divisa per aliquota.
               </p>
