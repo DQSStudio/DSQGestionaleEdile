@@ -2756,6 +2756,7 @@ function buildCronoSuggestions(revision) {
 // a un'impresa: prezzo unitario vuoto e importi già come formule Quantità × Prezzo, con somme per sezione).
 // ExcelJS si carica solo al momento dell'esportazione, così non appesantisce l'avvio dell'app.
 async function exportComputoExcel(project, revision, mode) {
+  if (mode === 'riepilogo') return exportComputoRiepilogoExcel(project, revision);
   const ExcelJS = (await import('exceljs')).default;
   const muto = mode === 'muto';
   const clientOnly = !!mode;
@@ -3031,11 +3032,128 @@ async function exportComputoExcel(project, revision, mode) {
 
 const exportComputoExcelSenzaPrezzi = (project, revision) => exportComputoExcel(project, revision, 'muto');
 
+// Versione semplificata per il cliente: un foglio con sezioni, categorie (numero voci e importo), totali di
+// sezione con IVA e totale generale. Nessuna singola voce.
+async function exportComputoRiepilogoExcel(project, revision) {
+  const ExcelJS = (await import('exceljs')).default;
+  const groups = buildComputoGroups(revision);
+  const econ = computeEconomics(revision);
+  const INK = 'FF2B2321';
+  const ACC = 'FF862D2D';
+  const GRAY = 'FF8B8178';
+  const EURO = '#,##0.00 "€"';
+  const fill = (argb) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+  const line = { style: 'thin', color: { argb: 'FFDCD5C9' } };
+  const wb = new ExcelJS.Workbook();
+  wb.creator = 'Quant';
+  const ws = wb.addWorksheet('Riepilogo', {
+    views: [{ showGridLines: false }],
+    pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.5, right: 0.5, top: 0.6, bottom: 0.6, header: 0.2, footer: 0.25 }, horizontalCentered: true },
+  });
+  ws.columns = [{ width: 58 }, { width: 10 }, { width: 18 }];
+  ws.headerFooter.oddFooter = `&L&8${String(project.name || '').replace(/&/g, '&&')}&R&8Pagina &P di &N`;
+  const merged = (text, font, height, fillArgb) => {
+    const row = ws.addRow([text]);
+    ws.mergeCells(row.number, 1, row.number, 3);
+    row.getCell(1).font = { name: 'Arial', size: 10, color: { argb: INK }, ...font };
+    row.getCell(1).alignment = { wrapText: true, vertical: 'top' };
+    if (fillArgb) row.getCell(1).fill = fill(fillArgb);
+    row.height = height || Math.max(16, Math.ceil(String(text).length / 95) * 13 + 6);
+    return row;
+  };
+  merged('Computo metrico — riepilogo', { size: 16, bold: true }, 26);
+  [['Progetto', project.name], ['Cliente', project.client], ['Versione', revision.customName || revision.label], ['Data', revision.dateModified]].filter(([, v]) => v).forEach(([k, v]) => {
+    const row = ws.addRow([`${k}: ${v}`]);
+    ws.mergeCells(row.number, 1, row.number, 3);
+    row.getCell(1).font = { name: 'Arial', size: 10, color: { argb: INK } };
+  });
+  ws.addRow([]);
+  if ((revision.noteInizio || '').trim()) { merged(revision.noteInizio.trim(), {}, null, 'FFFAF8F4'); ws.addRow([]); }
+
+  const head = ws.addRow(['SEZIONE / CATEGORIA', 'N. VOCI', 'IMPORTO']);
+  head.height = 22;
+  head.eachCell((c, n) => {
+    c.font = { name: 'Arial', bold: true, size: 9, color: { argb: 'FFFFFFFF' } };
+    c.fill = fill(INK);
+    c.alignment = { vertical: 'middle', horizontal: n === 1 ? 'left' : 'right', indent: 1 };
+  });
+  ws.pageSetup.printTitlesRow = `${head.number}:${head.number}`;
+  ws.views = [{ state: 'frozen', ySplit: head.number, showGridLines: false }];
+
+  const totalRow = (label, value, opts = {}) => {
+    const row = ws.addRow([label, '', value]);
+    ws.mergeCells(row.number, 1, row.number, 2);
+    const f = { name: 'Arial', size: opts.size || 10, bold: !!opts.bold, color: { argb: opts.color || INK } };
+    row.getCell(1).font = f;
+    row.getCell(1).alignment = { horizontal: 'right', indent: 1 };
+    row.getCell(3).font = f;
+    row.getCell(3).numFmt = EURO;
+    row.getCell(3).alignment = { horizontal: 'right', indent: 1 };
+    if (opts.fill) [1, 2, 3].forEach((n) => { row.getCell(n).fill = fill(opts.fill); });
+    if (opts.top) [1, 2, 3].forEach((n) => { row.getCell(n).border = { top: { style: opts.top, color: { argb: opts.color || INK } } }; });
+    row.height = opts.height || 17;
+  };
+
+  groups.forEach((g) => {
+    const cats = g.categorie.filter((c) => c.items.length);
+    if (!cats.length) return;
+    ws.addRow([]).height = 8;
+    const sec = merged(String(g.name).toUpperCase(), { bold: true, size: 11, color: { argb: ACC } }, 20, 'FFF4EAEA');
+    sec.getCell(1).border = { top: { style: 'medium', color: { argb: ACC } } };
+    sec.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+    cats.forEach((c) => {
+      const row = ws.addRow([c.name, c.items.length, c.items.reduce((n, it) => n + parseEuro(it.unitPriceCliente) * parseEuro(it.qty), 0)]);
+      row.getCell(1).font = { name: 'Arial', size: 10, color: { argb: INK } };
+      row.getCell(1).alignment = { indent: 2, wrapText: true, vertical: 'top' };
+      row.getCell(2).font = { name: 'Arial', size: 10, color: { argb: GRAY } };
+      row.getCell(2).alignment = { horizontal: 'right', indent: 1, vertical: 'top' };
+      row.getCell(3).font = { name: 'Arial', size: 10, color: { argb: INK } };
+      row.getCell(3).numFmt = EURO;
+      row.getCell(3).alignment = { horizontal: 'right', indent: 1, vertical: 'top' };
+      [1, 2, 3].forEach((n) => { row.getCell(n).border = { bottom: line }; });
+      row.height = Math.max(17, Math.ceil(String(c.name).length / 60) * 13 + 4);
+    });
+    const s = econ.sections.find((x) => x.name === g.name);
+    if (!s || (!s.grossCliente && !s.netCliente)) return;
+    if (s.discountPct > 0) {
+      totalRow(`Subtotale ${g.name}`, s.grossCliente, {});
+      totalRow(`Sconto ${s.discountPct}%`, -(s.grossCliente - s.netCliente), {});
+    }
+    totalRow(`Totale ${g.name} IVA esclusa`, s.netCliente, { bold: true, fill: 'FFFAF8F4' });
+    totalRow(s.vat.label, s.ivaCliente, { color: GRAY, size: 9 });
+    totalRow(`Totale ${g.name} IVA inclusa`, s.totCliente, { color: GRAY, size: 9 });
+  });
+
+  ws.addRow([]).height = 10;
+  totalRow('Totale generale IVA esclusa', econ.netCliente, { bold: true, size: 11, color: ACC, fill: 'FFF4EAEA', top: 'medium', height: 22 });
+  econ.breakdown.forEach((b) => totalRow(b.label, b.ivaCliente, { color: GRAY }));
+  totalRow('Totale generale IVA inclusa', econ.totCliente, { top: 'thin', height: 20 });
+  if ((revision.noteFine || '').trim()) {
+    ws.addRow([]);
+    merged('NOTE', { bold: true, size: 9, color: { argb: GRAY } }, 16);
+    merged(revision.noteFine.trim(), {});
+  }
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const filename = `${String(project.name || 'computo').replace(/[^a-z0-9]+/gi, '_')}_${String(revision.customName || revision.label || '').replace(/[^a-z0-9]+/gi, '_')}_riepilogo.xlsx`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
 function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studioSettings }) {
   // clientOnly può valere false (completo impresa+cliente), true (solo cliente) o 'muto' (senza prezzi: voci e
   // quantità con le colonne prezzo/importo vuote, da far compilare a un'impresa). Il muto usa l'impaginazione
   // della versione cliente, ma senza alcun importo.
   const noPrices = clientOnlyProp === 'muto';
+  // 'riepilogo' = versione semplificata per il cliente: niente singole voci, solo sezioni, categorie e totali.
+  const riepilogo = clientOnlyProp === 'riepilogo';
   const clientOnly = !!clientOnlyProp;
   const groups = buildComputoGroups(revision);
   const realItems = (revision.items || []).filter((it) => it.type !== 'subtotal');
@@ -3133,7 +3251,7 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
         <tbody>
           <tr><td style={{ padding: `16px ${PAGE_SIDE}px` }}>
 
-      <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{noPrices ? 'Computo metrico — senza prezzi' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
+      <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{noPrices ? 'Computo metrico — senza prezzi' : riepilogo ? 'Computo metrico — riepilogo' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
       <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Progetto: {project.name}{!noPrices && <> — Cliente: {project.client}</>}</p>
       <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Versione: {revision.customName || revision.label} — Modificata il {revision.dateModified}</p>
       {(header.descrizione || header.ubicazione) && (
@@ -3160,7 +3278,54 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
           {revision.noteInizio.trim()}
         </div>
       )}
-      {groups.map((g, gi) => {
+      {riepilogo && (() => {
+        const cell = { padding: '6px 6px', fontSize: 10.5, borderBottom: '1px solid #F0EEE8' };
+        const num = { ...cell, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+        const th = { textAlign: 'left', borderBottom: '1.5px solid #1A1A1A', padding: '4px 6px', fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#8A8A8A', fontWeight: 600 };
+        return (
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 24, tableLayout: 'fixed' }}>
+            <colgroup><col /><col style={{ width: 70 }} /><col style={{ width: 110 }} /></colgroup>
+            <thead><tr><th style={th}>Sezione / categoria</th><th style={{ ...th, textAlign: 'right' }}>N. voci</th><th style={{ ...th, textAlign: 'right' }}>Importo</th></tr></thead>
+            <tbody>
+              {groups.map((g, gi) => {
+                const s = econ.sections.find((x) => x.name === g.name);
+                const cats = g.categorie.filter((c) => c.items.length);
+                if (!cats.length) return null;
+                return (
+                  <React.Fragment key={gi}>
+                    <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid', breakAfter: 'avoid', pageBreakAfter: 'avoid' }}>
+                      <td colSpan={3} style={{ padding: '14px 6px 6px', fontSize: 11.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.6, color: '#1A1A1A', borderBottom: `1px solid ${C.maroon}` }}>
+                        <span style={{ borderLeft: `3px solid ${C.maroon}`, paddingLeft: 8 }}>{g.name}</span>
+                      </td>
+                    </tr>
+                    {cats.map((c, ci) => (
+                      <tr key={ci} style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                        <td style={{ ...cell, paddingLeft: 18 }}>{c.name}</td>
+                        <td style={{ ...num, color: '#8A8A8A' }}>{c.items.length}</td>
+                        <td style={num}>{formatEuro(c.items.reduce((n, it) => n + parseEuro(it.unitPriceCliente) * parseEuro(it.qty), 0))}</td>
+                      </tr>
+                    ))}
+                    {s && (s.grossCliente || s.netCliente) ? (
+                      <>
+                        {s.discountPct > 0 && (
+                          <>
+                            <tr><td colSpan={2} style={{ ...num, borderBottom: 'none', color: '#5A5A5A' }}>Subtotale {g.name}</td><td style={{ ...num, borderBottom: 'none', color: '#5A5A5A' }}>{formatEuro(s.grossCliente)}</td></tr>
+                            <tr><td colSpan={2} style={{ ...num, borderBottom: 'none', color: '#5A5A5A' }}>Sconto {s.discountPct}%</td><td style={{ ...num, borderBottom: 'none', color: '#5A5A5A' }}>−{formatEuro(s.grossCliente - s.netCliente)}</td></tr>
+                          </>
+                        )}
+                        <tr style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}><td colSpan={2} style={{ ...num, borderBottom: 'none', fontWeight: 700 }}>Totale {g.name} IVA esclusa</td><td style={{ ...num, borderBottom: 'none', fontWeight: 700 }}>{formatEuro(s.netCliente)}</td></tr>
+                        <tr><td colSpan={2} style={{ ...num, borderBottom: 'none', color: '#5A5A5A', fontSize: 9.5 }}>{s.vat.label}</td><td style={{ ...num, borderBottom: 'none', color: '#5A5A5A', fontSize: 9.5 }}>{formatEuro(s.ivaCliente)}</td></tr>
+                        <tr><td colSpan={2} style={{ ...num, borderBottom: 'none', color: '#5A5A5A', fontSize: 9.5 }}>Totale {g.name} IVA inclusa</td><td style={{ ...num, borderBottom: 'none', color: '#5A5A5A', fontSize: 9.5 }}>{formatEuro(s.totCliente)}</td></tr>
+                      </>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        );
+      })()}
+      {!riepilogo && groups.map((g, gi) => {
         let runI = 0;
         let runC = 0;
         const thStyle = { textAlign: 'left', borderBottom: '1.5px solid #1A1A1A', padding: '4px 4px', fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#8A8A8A', fontWeight: 600, verticalAlign: 'bottom' };
@@ -4229,22 +4394,42 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
             </div>
           )}
 
-          <div style={{ display: 'flex', gap: 10, marginBottom: 18, flexWrap: 'wrap' }}>
-            <button onClick={saveNewVersion} style={{ background: C.maroon, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>+ Salva nuova versione</button>
-            <button onClick={() => setShowImportPdf(true)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>📄 Nuova revisione da PDF</button>
-            <button onClick={() => exportComputoExcel(project, selectedRevision, false)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Scarica Excel completo</button>
-            <button onClick={() => exportComputoExcel(project, selectedRevision, true)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Scarica Excel solo cliente</button>
-            <button onClick={() => requestPdf(project, selectedRevision, false)} style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬇ Scarica PDF completo (impresa+cliente)</button>
-            <button onClick={() => requestPdf(project, selectedRevision, true)} style={{ background: C.maroon, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>⬇ Scarica PDF solo cliente</button>
-            <button onClick={() => exportComputoExcelSenzaPrezzi(project, selectedRevision)} title="Voci e quantità senza alcun prezzo, da far compilare a un'impresa" style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬚ Excel senza prezzi</button>
-            <button onClick={() => setShowOfferte(true)} title="Manda il computo a un'impresa per farlo quotare online" style={{ position: 'relative', background: C.black, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.white, cursor: 'pointer' }}>
-              Offerte imprese
-              {pendingOfferte > 0 && <span style={{ position: 'absolute', top: -6, right: -6, background: C.maroon, color: C.white, borderRadius: 999, minWidth: 18, height: 18, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', border: '2px solid #FAF9F6' }}>{pendingOfferte}</span>}
-            </button>
+          {/* Barra azioni del computo, divisa per categorie: versioni, esportazioni (menu PDF / Excel con tutte le
+              varianti) e richieste di offerta alle imprese. */}
+          <div className="computo-toolbar" style={{ display: 'flex', alignItems: 'stretch', gap: 0, marginBottom: 18, flexWrap: 'wrap', background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 16, padding: '10px 6px' }}>
+            <ToolbarGroup label="Versioni">
+              <button onClick={saveNewVersion} style={tbBtn(true)}>+ Salva nuova versione</button>
+              <button onClick={() => setShowImportPdf(true)} style={tbBtn()}>Nuova revisione da PDF</button>
+            </ToolbarGroup>
+            <ToolbarGroup label="Esporta">
+              <ExportMenu
+                label="PDF"
+                items={[
+                  { label: 'Versione cliente', desc: 'Tutte le voci con i prezzi cliente', onClick: () => requestPdf(project, selectedRevision, true) },
+                  { label: 'Riepilogo cliente', desc: 'Versione semplificata: solo categorie e totali', onClick: () => requestPdf(project, selectedRevision, 'riepilogo') },
+                  { label: 'Completo impresa + cliente', desc: 'Uso interno, con i costi impresa', onClick: () => requestPdf(project, selectedRevision, false) },
+                  { label: 'Senza prezzi', desc: "Voci e quantità da far quotare a un'impresa", onClick: () => requestPdf(project, selectedRevision, 'muto') },
+                ]}
+              />
+              <ExportMenu
+                label="Excel"
+                items={[
+                  { label: 'Versione cliente', desc: 'Tutte le voci con i prezzi cliente', onClick: () => exportComputoExcel(project, selectedRevision, true) },
+                  { label: 'Riepilogo cliente', desc: 'Versione semplificata: solo categorie e totali', onClick: () => exportComputoExcel(project, selectedRevision, 'riepilogo') },
+                  { label: 'Completo impresa + cliente', desc: 'Uso interno, con i costi impresa', onClick: () => exportComputoExcel(project, selectedRevision, false) },
+                  { label: 'Senza prezzi', desc: 'Con le formule pronte per i prezzi', onClick: () => exportComputoExcelSenzaPrezzi(project, selectedRevision) },
+                ]}
+              />
+            </ToolbarGroup>
+            <ToolbarGroup label="Imprese" last>
+              <button onClick={() => setShowOfferte(true)} title="Manda il computo a un'impresa per farlo quotare online" style={{ ...tbBtn(), position: 'relative' }}>
+                Offerte imprese
+                {pendingOfferte > 0 && <span style={{ position: 'absolute', top: -7, right: -7, background: C.maroon, color: C.white, borderRadius: 999, minWidth: 18, height: 18, fontSize: 10, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px', border: '2px solid #fff' }}>{pendingOfferte}</span>}
+              </button>
+            </ToolbarGroup>
             {showOfferte && (
               <OfferteImpreseModal project={project} revision={selectedRevision} onClose={() => { setShowOfferte(false); refreshPendingOfferte(); }} onAcceptOffer={acceptOffer} />
             )}
-            <button onClick={() => requestPdf(project, selectedRevision, 'muto')} title="Voci e quantità senza alcun prezzo, da far compilare a un'impresa" style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, color: C.black, cursor: 'pointer' }}>⬇ PDF senza prezzi</button>
           </div>
 
           <div style={{ ...card, marginBottom: 18 }}>
@@ -7496,6 +7681,60 @@ function FatturaSalModal({ categoria, base, giaFatturato, numero, fattura, onClo
   );
 }
 
+// --- Barra azioni del computo ---
+const tbBtn = (primary = false) => ({
+  background: primary ? C.maroon : C.white, color: primary ? C.white : C.black,
+  border: primary ? 'none' : `1px solid ${C.paleGray}`, borderRadius: 999, padding: '8px 14px',
+  fontSize: 12.5, fontWeight: 500, fontFamily: FONT, cursor: 'pointer', whiteSpace: 'nowrap',
+});
+
+function ToolbarGroup({ label, last = false, children }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 14px', borderRight: last ? 'none' : `1px solid ${C.paleGray}`, margin: '2px 0' }}>
+      <span style={{ fontSize: 9.5, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8B8178' }}>{label}</span>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>{children}</div>
+    </div>
+  );
+}
+
+// Pulsante con menu a tendina (es. "PDF ▾" con le varianti di esportazione). Si chiude cliccando fuori o con Esc.
+function ExportMenu({ label, items }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button onClick={() => setOpen((o) => !o)} style={{ ...tbBtn(), display: 'inline-flex', alignItems: 'center', gap: 7, background: open ? '#F4F0EA' : C.white }}>
+        <svg viewBox="0 0 24 24" width={14} height={14} fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"><path d="M12 4v11" /><path d="M7.5 10.5 12 15l4.5-4.5" /><path d="M5 19.5h14" /></svg>
+        {label}
+        <span style={{ fontSize: 10, color: '#8B8178', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }}>▾</span>
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, zIndex: 40, background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, boxShadow: '0 12px 32px rgba(33,26,22,0.14)', padding: 6, minWidth: 310 }}>
+          {items.map((it, i) => (
+            <button
+              key={i}
+              onClick={() => { setOpen(false); it.onClick(); }}
+              className="export-menu-item"
+              style={{ display: 'block', width: '100%', textAlign: 'left', border: 'none', background: 'transparent', borderRadius: 10, padding: '9px 11px', cursor: 'pointer', fontFamily: FONT }}
+            >
+              <span style={{ display: 'block', fontSize: 13, fontWeight: 500, color: C.black }}>{it.label}</span>
+              <span style={{ display: 'block', fontSize: 11.5, color: '#8B8178', marginTop: 1 }}>{it.desc}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MemberAvatar({ member, size = 38 }) {
   const base = { width: size, height: size, borderRadius: '50%', flex: 'none', border: '1px solid #E3D9CC', boxSizing: 'border-box' };
   if (member?.photo) return <img src={member.photo} alt="" style={{ ...base, objectFit: 'cover', display: 'block' }} />;
@@ -9043,6 +9282,8 @@ export default function GestionaleEdilePreview() {
         html, body, #root { max-width: 100%; overflow-x: clip; }
         body { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
         .team-card:hover { border-color: #CFC4B6 !important; }
+        .export-menu-item:hover { background: #F6F3EE !important; }
+        @media (max-width: 700px) { .computo-toolbar > div { border-right: none !important; padding: 6px 10px !important; } }
         .print-only { display: none; }
         /* Margine vero della pagina stampata: niente (testo, tabelle, intestazione, piè) tocca più il bordo
            fisico del foglio. Le immagini personalizzate di intestazione/piè riempiono la larghezza DISPONIBILE
