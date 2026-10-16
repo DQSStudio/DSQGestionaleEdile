@@ -4077,13 +4077,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, impresa } } });
   };
 
-  const addFatturaCategoria = (categoria) => {
-    const label = prompt('Descrizione fattura (es. "Fattura n.1", "SAL 1 lavori"):');
-    if (!label) return;
-    const importo = parseEuro(prompt('Importo (€):', '0') || '0');
+  // Fattura di un SAL: si apre una finestra dove si inserisce la percentuale (l'importo si calcola da solo sul
+  // totale della categoria) oppure direttamente l'importo. { categoria, base, fattura? } — fattura = modifica.
+  const [fatturaCtx, setFatturaCtx] = useState(null);
+  const addFatturaCategoria = (categoria, base) => setFatturaCtx({ categoria, base, fattura: null });
+  const saveFatturaCategoria = (categoria, data) => {
     const current = cantiereSal[categoria] || { impresa: '', fatture: [] };
-    const fattura = { id: Date.now(), label, importo, stato: 'Emessa' };
-    onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, fatture: [...(current.fatture || []), fattura] } } });
+    const list = current.fatture || [];
+    const fatture = data.id && list.some((f) => f.id === data.id)
+      ? list.map((f) => (f.id === data.id ? { ...f, ...data } : f))
+      : [...list, { ...data, id: Date.now(), stato: data.stato || 'Emessa' }];
+    onUpdateProject({ ...project, cantiereSal: { ...cantiereSal, [categoria]: { ...current, fatture } } });
+    setFatturaCtx(null);
   };
 
   const updateFatturaStato = (categoria, fatturaId, stato) => {
@@ -4983,6 +4988,21 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
               </p>
             </div>
             {sections.length === 0 && <p style={{ fontSize: 12, color: C.gray, margin: 0 }}>Il computo approvato non ha ancora voci.</p>}
+            {fatturaCtx && (() => {
+              const entry = cantiereSal[fatturaCtx.categoria] || { fatture: [] };
+              const giaFatturato = (entry.fatture || []).filter((f) => f.id !== fatturaCtx.fattura?.id).reduce((n, f) => n + (f.importo || 0), 0);
+              return (
+                <FatturaSalModal
+                  categoria={fatturaCtx.categoria}
+                  base={fatturaCtx.base}
+                  giaFatturato={giaFatturato}
+                  numero={(entry.fatture || []).length + 1}
+                  fattura={fatturaCtx.fattura}
+                  onClose={() => setFatturaCtx(null)}
+                  onSave={(data) => saveFatturaCategoria(fatturaCtx.categoria, data)}
+                />
+              );
+            })()}
             {sections.map((s, si) => {
               const entry = cantiereSal[s.name] || { impresa: '', fatture: [] };
               const fatture = entry.fatture || [];
@@ -5000,7 +5020,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                     </div>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button onClick={() => setImpresaCategoria(s.name)} style={rowBtnStyle}>{entry.impresa ? '✎ Impresa' : '+ Impresa'}</button>
-                      <button onClick={() => addFatturaCategoria(s.name)} style={rowBtnStyle}>+ Fattura</button>
+                      <button onClick={() => addFatturaCategoria(s.name, s.netCliente)} style={rowBtnStyle}>+ Fattura</button>
                     </div>
                   </div>
 
@@ -5008,8 +5028,12 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                     <div style={{ marginTop: 10 }}>
                       {fatture.map((f) => (
                         <div key={f.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', gap: 8, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 12, color: C.black }}>{f.label} — {formatEuro(f.importo)}</span>
+                          <span style={{ fontSize: 12, color: C.black }}>
+                            {f.label}{f.data ? <span style={{ color: C.gray }}> · {new Date(f.data).toLocaleDateString('it-IT')}</span> : null} — <strong>{formatEuro(f.importo)}</strong>
+                            <span style={{ color: C.gray }}> ({itNum(f.percentuale != null ? f.percentuale : (s.netCliente ? (f.importo / s.netCliente) * 100 : 0), 2)}%)</span>
+                          </span>
                           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                            <button onClick={() => setFatturaCtx({ categoria: s.name, base: s.netCliente, fattura: f })} style={rowBtnStyle} title="Modifica fattura">✎</button>
                             <select value={f.stato} onChange={(e) => updateFatturaStato(s.name, f.id, e.target.value)} style={{ fontSize: 11, fontWeight: 600, padding: '4px 6px', borderRadius: 6, border: `1px solid ${C.paleGray}`, color: C.midGray }}>
                               {['Emessa', 'Pagata', 'Da pagare', 'Scaduta'].map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                             </select>
@@ -5021,7 +5045,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                   )}
 
                   <div style={{ display: 'flex', gap: 18, marginTop: 10, fontSize: 12, flexWrap: 'wrap' }}>
-                    <span style={{ color: C.gray }}>Fatturato: <strong style={{ color: C.black }}>{formatEuro(fatturato)}</strong></span>
+                    <span style={{ color: C.gray }}>Fatturato: <strong style={{ color: C.black }}>{formatEuro(fatturato)}</strong>{s.netCliente ? ` (${itNum((fatturato / s.netCliente) * 100, 1)}%)` : ''}</span>
                     <span style={{ color: C.gray }}>Pagato: <strong style={{ color: C.black }}>{formatEuro(pagato)}</strong></span>
                     <span style={{ color: C.gray }}>Residuo da fatturare: <strong style={{ color: residuo > 0.005 ? C.maroon : C.black }}>{formatEuro(residuo)}</strong></span>
                   </div>
@@ -7382,6 +7406,89 @@ function TeamPickerModal({ members, assigned, onClose, onConfirm }) {
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
           <button onClick={onClose} style={{ border: 'none', background: '#6B625C', color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Annulla</button>
           <button disabled={!sel.length} onClick={() => onConfirm(members.filter((t) => sel.includes(t.id)))} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: sel.length ? 'pointer' : 'default', opacity: sel.length ? 1 : 0.6 }}>Assegna{sel.length ? ` (${sel.length})` : ''}</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// Nuova fattura / modifica fattura di un SAL: modalità "percentuale" (l'importo = % × totale categoria,
+// calcolato e mostrato subito) oppure "importo" (si vede la % corrispondente). Avvisa se si supera il totale.
+function FatturaSalModal({ categoria, base, giaFatturato, numero, fattura, onClose, onSave }) {
+  const [label, setLabel] = useState(fattura?.label || `SAL ${numero}`);
+  const [data, setData] = useState(fattura?.data || new Date().toISOString().slice(0, 10));
+  const [mode, setMode] = useState(fattura ? (fattura.percentuale != null ? 'percentuale' : 'importo') : 'percentuale');
+  const [pct, setPct] = useState(fattura?.percentuale != null ? itNum(fattura.percentuale, 2) : '');
+  const [imp, setImp] = useState(fattura && fattura.percentuale == null ? itNum(fattura.importo || 0, 2) : '');
+  const pctNum = parseEuro(pct);
+  const importo = mode === 'percentuale' ? Math.round(base * pctNum) / 100 : parseEuro(imp);
+  const pctEff = mode === 'percentuale' ? pctNum : (base ? (importo / base) * 100 : 0);
+  const residuoDopo = base - giaFatturato - importo;
+  const residuoPct = base ? Math.max(0, ((base - giaFatturato) / base) * 100) : 0;
+  const switchMode = (m) => {
+    if (m === mode) return;
+    if (m === 'importo') setImp(importo ? itNum(importo, 2) : '');
+    else setPct(pctEff ? itNum(pctEff, 2) : '');
+    setMode(m);
+  };
+  const save = () => {
+    if (!label.trim()) { alert('Scrivi una descrizione per la fattura.'); return; }
+    if (!(importo > 0)) { alert(mode === 'percentuale' ? 'Inserisci una percentuale maggiore di zero.' : 'Inserisci un importo maggiore di zero.'); return; }
+    if (residuoDopo < -0.005 && !confirm(`Con questa fattura il fatturato supera il totale della categoria di ${formatEuro(-residuoDopo)}. Salvare comunque?`)) return;
+    onSave({ ...(fattura || {}), label: label.trim(), data, importo: Math.round(importo * 100) / 100, percentuale: mode === 'percentuale' ? pctNum : null });
+  };
+  const inputSt = { width: '100%', boxSizing: 'border-box', border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontFamily: FONT, color: C.black };
+  const lab = { display: 'block', fontSize: 11, fontWeight: 600, color: C.black, marginBottom: 5 };
+  const seg = (key, text) => (
+    <button onClick={() => switchMode(key)} style={{ flex: 1, border: 'none', borderRadius: 999, padding: '7px 10px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT, background: mode === key ? C.black : 'transparent', color: mode === key ? C.white : C.darkGray }}>{text}</button>
+  );
+  return createPortal(
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: 440, maxWidth: '100%' }}>
+        <h2 style={{ fontFamily: FONT, fontSize: 18, fontWeight: 600, margin: '0 0 4px', color: C.black }}>{fattura ? 'Modifica fattura' : 'Nuova fattura'}</h2>
+        <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>{categoria} · totale categoria {formatEuro(base)} IVA esclusa · già fatturato {formatEuro(giaFatturato)}</p>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 150px', gap: 10, marginBottom: 14 }}>
+          <div><label style={lab}>Descrizione</label><input value={label} onChange={(e) => setLabel(e.target.value)} style={inputSt} placeholder="Es. SAL 1, Fattura n.3" /></div>
+          <div><label style={lab}>Data</label><input type="date" value={data} onChange={(e) => setData(e.target.value)} style={inputSt} /></div>
+        </div>
+        <div style={{ display: 'flex', gap: 4, background: '#F4F0EA', borderRadius: 999, padding: 4, marginBottom: 12 }}>
+          {seg('percentuale', 'In percentuale')}
+          {seg('importo', 'Importo')}
+        </div>
+        {mode === 'percentuale' ? (
+          <div style={{ marginBottom: 12 }}>
+            <label style={lab}>Percentuale del totale categoria</label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <input value={pct} onChange={(e) => setPct(e.target.value)} autoFocus inputMode="decimal" placeholder="Es. 30" style={{ ...inputSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} />
+              <span style={{ fontSize: 15, color: C.gray }}>%</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              {[10, 20, 25, 30, 50].map((v) => (
+                <button key={v} onClick={() => setPct(String(v))} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '4px 10px', fontSize: 11.5, cursor: 'pointer' }}>{v}%</button>
+              ))}
+              {residuoPct > 0.005 && <button onClick={() => setPct(itNum(residuoPct, 2))} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '4px 10px', fontSize: 11.5, cursor: 'pointer' }}>Saldo ({itNum(residuoPct, 2)}%)</button>}
+            </div>
+          </div>
+        ) : (
+          <div style={{ marginBottom: 12 }}>
+            <label style={lab}>Importo (€, IVA esclusa)</label>
+            <input value={imp} onChange={(e) => setImp(e.target.value)} autoFocus inputMode="decimal" placeholder="0,00" style={{ ...inputSt, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }} />
+          </div>
+        )}
+        <div style={{ background: '#FAF8F4', border: `1px solid ${C.paleGray}`, borderRadius: 12, padding: '12px 14px', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 12, color: C.gray }}>Importo fattura</span>
+            <span style={{ fontSize: 20, fontWeight: 600, color: C.maroon, fontVariantNumeric: 'tabular-nums' }}>{formatEuro(importo)}</span>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: C.gray, marginTop: 4 }}>
+            <span>pari al {itNum(pctEff, 2)}% del totale categoria</span>
+            <span style={{ color: residuoDopo < -0.005 ? C.maroon : C.gray }}>residuo dopo: {formatEuro(residuoDopo)}</span>
+          </div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+          <button onClick={onClose} style={{ border: 'none', background: '#6B625C', color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Annulla</button>
+          <button onClick={save} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>{fattura ? 'Salva modifiche' : 'Aggiungi fattura'}</button>
         </div>
       </div>
     </div>,
