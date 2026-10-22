@@ -7803,12 +7803,12 @@ function ImportaDaVecchioGestionale({ isAdmin, onDone, onSkip }) {
     <div style={box}><div style={card}>
       <h2 style={{ margin: '0 0 8px', fontWeight: 300, fontSize: 22 }}>Primo avvio nella suite</h2>
       {isAdmin ? (<>
-        <p style={{ fontSize: 13, color: C.black, margin: '0 0 14px' }}>Qui non c'è ancora nulla. Inserisci le credenziali con cui entri oggi nel Gestionale: i dati vengono copiati senza toccare l'originale.</p>
+        <p style={{ fontSize: 13, color: C.black, margin: '0 0 14px' }}>Inserisci le credenziali con cui entri oggi nel Gestionale: i dati vengono copiati senza toccare l'originale e sostituiscono quelli presenti qui.</p>
         <input style={inp} type="email" placeholder="Email del Gestionale attuale" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input style={inp} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
         {msg && <p style={{ fontSize: 12.5, color: C.maroon }}>{msg}</p>}
         <button disabled={busy || !email || !password} onClick={run} style={{ background: C.maroon, color: '#fff', border: 'none', borderRadius: 999, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }}>{busy ? 'Copia in corso…' : 'Copia i dati'}</button>
-        <button onClick={onSkip} style={{ background: 'none', border: 'none', color: '#8B8178', fontSize: 12, marginLeft: 12, cursor: 'pointer' }}>Parti da zero</button>
+        <button onClick={onSkip} style={{ background: 'none', border: 'none', color: '#8B8178', fontSize: 12, marginLeft: 12, cursor: 'pointer' }}>Annulla</button>
       </>) : <p style={{ fontSize: 13 }}>Un amministratore deve ancora copiare i dati dal Gestionale attuale.</p>}
     </div></div>
   );
@@ -9247,7 +9247,7 @@ export default function GestionaleEdilePreview() {
     supabase.rpc('quant_carica').then(({ data: r, error }) => {
       if (error) { console.error(error); setDataLoaded(true); return; }
       const saved = (r && r.dati) || {};
-      if (!saved.projects || !saved.projects.length) setNeedsImport(true);
+      if (!saved.projects || !saved.projects.length || /[?&]importa=1/.test(window.location.search)) setNeedsImport(true);
       if (saved.projects) setProjects(saved.projects);
       if (saved.listini) setListini(ensureVoceUids(saved.listini));
       if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
