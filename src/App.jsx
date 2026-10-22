@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { supabase, cea } from './supabaseClient';
+import { createClient } from '@supabase/supabase-js';
+import { supabase, cea, SUITE_URL, SUITE_KEY, OLD_URL, OLD_KEY } from './supabaseClient';
 import * as XLSX from 'xlsx';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
@@ -4033,10 +4034,10 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     if (dsmClients !== null || loadingDsmClients) return;
     setLoadingDsmClients(true);
     setDsmClientsError('');
-    supabase.from('app_state').select('data').eq('id', 1).maybeSingle().then(({ data, error }) => {
+    supabase.rpc('quant_clienti').then(({ data, error }) => {
       setLoadingDsmClients(false);
       if (error) { setDsmClientsError('Impossibile leggere l\'anagrafica clienti da Desearq Studio Manager: ' + error.message); return; }
-      setDsmClients((data?.data && data.data.clients) || []);
+      setDsmClients(Array.isArray(data) ? data : []);
     });
   };
 
@@ -7518,6 +7519,35 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
   );
 }
 
+// Gestione accessi della suite (funzione "admin-manage-team"): stessa forma di risposta di functions.invoke.
+async function callAdminTeam(body) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return { data: null, error: { message: 'Sessione scaduta, ricarica la pagina e riaccedi.' } };
+  const res = await fetch(SUITE_URL + '/functions/v1/admin-manage-team', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session.access_token, apikey: SUITE_KEY },
+    body: JSON.stringify(body),
+  });
+  let out = {};
+  try { out = await res.json(); } catch (_e) { /* risposta non JSON */ }
+  if (!res.ok || out.error) return { data: null, error: { message: out.error || ('Errore ' + res.status) } };
+  return { data: out, error: null };
+}
+async function teamMemberAction(action, member, extra) {
+  if (!member.auth_user_id) return { data: null, error: { message: 'Questa persona non ha un accesso collegato.' } };
+  return callAdminTeam({ action, user_id: member.auth_user_id, ...extra });
+}
+async function teamCreate({ email, password, name, role }) {
+  const c = await callAdminTeam({ action: 'create_team_login', email, password, full_name: name });
+  if (c.error) return c;
+  if (role === 'Admin') {
+    const r = await callAdminTeam({ action: 'set_role', user_id: c.data.user_id, ruolo: 'amministratore' });
+    if (r.error) return r;
+  }
+  await supabase.rpc('quant_io'); // allinea l'elenco persone
+  return c;
+}
+
 // Il client supabase-js, quando una Edge Function risponde con uno stato non-2xx, mette in `error`
 // un FunctionsHttpError generico ("Edge Function returned a non-2xx status code") e nasconde il vero
 // messaggio (es. "Solo un amministratore può...") dentro `error.context`, che è la Response originale
@@ -7735,6 +7765,55 @@ function ExportMenu({ label, items }) {
   );
 }
 
+// Primo avvio nella suite: porta qui i dati del Gestionale attuale (copia, l'originale non viene toccato).
+function ImportaDaVecchioGestionale({ isAdmin, onDone, onSkip }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [msg, setMsg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const box = { minHeight: '100vh', background: PAGE_GRADIENT, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: FONT };
+  const card = { background: C.white, borderRadius: 20, boxShadow: '0 8px 24px rgba(0,0,0,0.10)', padding: 32, width: 400, maxWidth: 'calc(100vw - 32px)' };
+  const inp = { width: '100%', boxSizing: 'border-box', border: '1px solid #E3D9CC', borderRadius: 8, padding: '10px 12px', fontSize: 13, fontFamily: FONT, marginBottom: 10 };
+  const run = async () => {
+    setMsg(''); setBusy(true);
+    try {
+      const old = createClient(OLD_URL, OLD_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+      const li = await old.auth.signInWithPassword({ email: email.trim(), password });
+      if (li.error) { setMsg('Accesso al Gestionale attuale non riuscito.'); setBusy(false); return; }
+      const st = await old.schema('cea').from('app_state').select('data').eq('id', 1).maybeSingle();
+      if (st.error || !st.data || !st.data.data) { setMsg('Non riesco a leggere i dati: ' + (st.error?.message || 'vuoti')); setBusy(false); return; }
+      const tm = await old.schema('cea').from('team_members').select('*');
+      const lk = await old.schema('cea').from('fornitore_links').select('*');
+      const sb = await old.schema('cea').from('fornitore_submissions').select('*');
+      const ol = await old.schema('cea').from('computo_offerta_links').select('*');
+      const of = await old.schema('cea').from('computo_offerte').select('*');
+      const r = await supabase.rpc('quant_salva', { p_dati: st.data.data });
+      if (r.error) { setMsg('Salvataggio non riuscito: ' + r.error.message); setBusy(false); return; }
+      const t = await supabase.rpc('quant_importa_extra', {
+        p_team: tm.data || [], p_fornitore_links: lk.data || [], p_fornitore_submissions: sb.data || [],
+        p_offerta_links: ol.data || [], p_offerte: of.data || [],
+      });
+      await old.auth.signOut();
+      if (t.error) { setMsg('Dati copiati, ma team e link non importati: ' + t.error.message); setBusy(false); return; }
+      if (r.data && r.data.proiezione_errore) alert('Dati copiati. Il riallineamento delle tabelle ha segnalato: ' + r.data.proiezione_errore);
+      onDone();
+    } catch (e) { setMsg('Errore: ' + (e.message || e)); setBusy(false); }
+  };
+  return (
+    <div style={box}><div style={card}>
+      <h2 style={{ margin: '0 0 8px', fontWeight: 300, fontSize: 22 }}>Primo avvio nella suite</h2>
+      {isAdmin ? (<>
+        <p style={{ fontSize: 13, color: C.black, margin: '0 0 14px' }}>Qui non c'è ancora nulla. Inserisci le credenziali con cui entri oggi nel Gestionale: i dati vengono copiati senza toccare l'originale.</p>
+        <input style={inp} type="email" placeholder="Email del Gestionale attuale" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <input style={inp} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} />
+        {msg && <p style={{ fontSize: 12.5, color: C.maroon }}>{msg}</p>}
+        <button disabled={busy || !email || !password} onClick={run} style={{ background: C.maroon, color: '#fff', border: 'none', borderRadius: 999, padding: '10px 20px', fontSize: 13, cursor: 'pointer' }}>{busy ? 'Copia in corso…' : 'Copia i dati'}</button>
+        <button onClick={onSkip} style={{ background: 'none', border: 'none', color: '#8B8178', fontSize: 12, marginLeft: 12, cursor: 'pointer' }}>Parti da zero</button>
+      </>) : <p style={{ fontSize: 13 }}>Un amministratore deve ancora copiare i dati dal Gestionale attuale.</p>}
+    </div></div>
+  );
+}
+
 function MemberAvatar({ member, size = 38 }) {
   const base = { width: size, height: size, borderRadius: '50%', flex: 'none', border: '1px solid #E3D9CC', boxSizing: 'border-box' };
   if (member?.photo) return <img src={member.photo} alt="" style={{ ...base, objectFit: 'cover', display: 'block' }} />;
@@ -7781,9 +7860,13 @@ function TeamMemberModal({ member, isAdmin, isSelf, onClose, onSaved, onRemoved 
   const save = async () => {
     if (!isAdmin) return;
     if (!name.trim()) { setError('Il nome è obbligatorio.'); return; }
-    if (newPassword && newPassword.length < 6) { setError('La nuova password deve avere almeno 6 caratteri.'); return; }
+    if (newPassword && newPassword.length < 8) { setError('La nuova password deve avere almeno 8 caratteri.'); return; }
     if (isSelf && role !== 'Admin' && member.role === 'Admin' && !confirm('Stai togliendo a te stesso il ruolo di Admin: non potrai più modificare il team. Continuare?')) return;
     setSaving(true); setError(''); setInfo('');
+    if (role !== member.role && member.auth_user_id) {
+      const { error: roleErr } = await teamMemberAction('set_role', member, { ruolo: role === 'Admin' ? 'amministratore' : 'socio' });
+      if (roleErr) { setSaving(false); setError('Ruolo non cambiato: ' + roleErr.message); return; }
+    }
     const { data: updated, error: upErr } = await cea.from('team_members')
       .update({ name: name.trim(), job_title: jobTitle.trim() || null, phone: phone.trim() || null, notes: notes.trim() || null, role, photo })
       .eq('id', member.id).select().maybeSingle();
@@ -7791,13 +7874,13 @@ function TeamMemberModal({ member, isAdmin, isSelf, onClose, onSaved, onRemoved 
     let finalRow = updated;
     const newEmail = email.trim().toLowerCase();
     if (newEmail && newEmail !== (member.email || '').toLowerCase()) {
-      const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', { body: { action: 'update_email', memberId: member.id, email: newEmail } });
+      const { data, error: err } = await teamMemberAction('update_email', member, { email: newEmail });
       const msg = err ? await extractFunctionErrorMessage(err, 'Cambio email non riuscito.') : data?.error;
       if (msg) { setSaving(false); onSaved(finalRow); setError(`Dati salvati, ma l'email non è stata cambiata: ${msg}`); return; }
       finalRow = { ...finalRow, email: newEmail };
     }
     if (newPassword) {
-      const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', { body: { action: 'reset_password', memberId: member.id, password: newPassword } });
+      const { data, error: err } = await teamMemberAction('reset_password', member, { password: newPassword });
       const msg = err ? await extractFunctionErrorMessage(err, 'Cambio password non riuscito.') : data?.error;
       if (msg) { setSaving(false); onSaved(finalRow); setError(`Dati salvati, ma la password non è stata cambiata: ${msg}`); return; }
     }
@@ -7809,6 +7892,10 @@ function TeamMemberModal({ member, isAdmin, isSelf, onClose, onSaved, onRemoved 
 
   const remove = async () => {
     if (!confirm(`Rimuovere ${member.name} dal team? Perderà l'accesso al workspace.`)) return;
+    if (member.auth_user_id) {
+      const { error: susErr } = await teamMemberAction('set_suspended', member, { suspended: true });
+      if (susErr) { setError('Accesso non disattivato: ' + susErr.message); return; }
+    }
     const { error: err } = await cea.from('team_members').delete().eq('id', member.id);
     if (err) { setError(err.message); return; }
     onRemoved(member.id);
@@ -7918,11 +8005,9 @@ function TeamPage({ profile, onProfileChange }) {
   const handleCreate = async () => {
     const trimmedEmail = email.trim();
     if (!name.trim() || !trimmedEmail || !password) { setError('Nome, email e password sono obbligatori.'); return; }
-    if (password.length < 6) { setError('La password deve avere almeno 6 caratteri.'); return; }
+    if (password.length < 8) { setError('La password deve avere almeno 8 caratteri.'); return; }
     setError(''); setCreating(true);
-    const { data, error: err } = await supabase.functions.invoke('cea-admin-create-user', {
-      body: { action: 'create', email: trimmedEmail, password, name: name.trim(), role },
-    });
+    const { data, error: err } = await teamCreate({ email: trimmedEmail, password, name: name.trim(), role });
     setCreating(false);
     if (err) { setError(await extractFunctionErrorMessage(err, 'Creazione non riuscita.')); return; }
     if (data?.error) { setError(data.error); return; }
@@ -9137,16 +9222,11 @@ export default function GestionaleEdilePreview() {
     if (!authUser) { setProfile(null); return; }
     let cancelled = false;
     setProfileError('');
-    cea.from('team_members').select('*').eq('auth_user_id', authUser.id).maybeSingle().then(async ({ data, error }) => {
+    supabase.rpc('quant_io').then(({ data, error }) => {
       if (cancelled) return;
       if (error) { setProfileError(error.message); return; }
-      if (data) { setProfile(data); return; }
-      // Nessun profilo collegato: prova a reclamare un invito esistente o a fare da primo admin
-      // (copre anche gli account creati prima che questo sistema di team esistesse).
-      const { data: claimed, error: claimErr } = await cea.rpc('bootstrap_or_claim_invite', { p_name: authUser.email.split('@')[0] });
-      if (cancelled) return;
-      if (claimErr) { setProfileError(claimErr.message); return; }
-      setProfile(claimed);
+      if (!data || !data.profilo) { setProfileError('Il Gestionale non è attivo per questo accesso. Chiedi a un amministratore dello studio.'); return; }
+      setProfile(data.profilo);
     });
     return () => { cancelled = true; };
   }, [authUser]);
@@ -9158,14 +9238,16 @@ export default function GestionaleEdilePreview() {
 
   // --- Dati condivisi del workspace (progetti, listini, fornitori): un unico documento salvato su Supabase ---
   const [dataLoaded, setDataLoaded] = useState(false);
+  const [needsImport, setNeedsImport] = useState(false);
   const [saveStatus, setSaveStatus] = useState('ok'); // 'ok' | 'saving' | 'error'
   const saveTimer = React.useRef(null);
 
   React.useEffect(() => {
     if (!profile || profile.status !== 'Attivo') return;
-    cea.from('app_state').select('data').eq('id', 1).maybeSingle().then(({ data, error }) => {
+    supabase.rpc('quant_carica').then(({ data: r, error }) => {
       if (error) { console.error(error); setDataLoaded(true); return; }
-      const saved = data?.data || {};
+      const saved = (r && r.dati) || {};
+      if (!saved.projects || !saved.projects.length) setNeedsImport(true);
       if (saved.projects) setProjects(saved.projects);
       if (saved.listini) setListini(ensureVoceUids(saved.listini));
       if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
@@ -9176,20 +9258,18 @@ export default function GestionaleEdilePreview() {
   }, [profile?.id, profile?.status]);
 
   React.useEffect(() => {
-    if (!dataLoaded || !profile || profile.status !== 'Attivo') return;
+    if (!dataLoaded || needsImport || !profile || profile.status !== 'Attivo') return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveStatus('saving');
     saveTimer.current = setTimeout(() => {
-      cea.from('app_state').update({
-        data: { projects, listini, activeListinoId, fornitoriCatalog, studioSettings },
-        updated_at: new Date().toISOString(),
-        updated_by: authUser?.id,
-      }).eq('id', 1).then(({ error }) => {
-        if (error) { console.error('Salvataggio fallito:', error.message); setSaveStatus('error'); } else setSaveStatus('ok');
+      supabase.rpc('quant_salva', {
+        p_dati: { projects, listini, activeListinoId, fornitoriCatalog, studioSettings },
+      }).then(({ data: r, error }) => {
+        if (error) { console.error('Salvataggio fallito:', error.message); setSaveStatus('error'); } else { if (r && r.proiezione_errore) console.warn('Riallineamento tabelle suite:', r.proiezione_errore); setSaveStatus('ok'); }
       });
     }, 900);
     return () => clearTimeout(saveTimer.current);
-  }, [projects, listini, activeListinoId, fornitoriCatalog, studioSettings, dataLoaded]);
+  }, [projects, listini, activeListinoId, fornitoriCatalog, studioSettings, dataLoaded, needsImport]);
 
   // Ogni modifica ai listini passa da qui: se cambiano i prezzi di qualche voce, li si riporta nei computi
   // in attesa di approvazione (vedi propagateListinoPrices) e si avvisa quante voci sono state aggiornate.
@@ -9262,6 +9342,10 @@ export default function GestionaleEdilePreview() {
         </div>
       </div>
     );
+  }
+
+  if (needsImport && dataLoaded) {
+    return <ImportaDaVecchioGestionale isAdmin={profile.role === 'Admin'} onDone={() => window.location.reload()} onSkip={() => setNeedsImport(false)} />;
   }
 
   if (profile.status !== 'Attivo') {
