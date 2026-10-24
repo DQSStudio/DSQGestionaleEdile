@@ -9226,7 +9226,7 @@ export default function GestionaleEdilePreview() {
       if (cancelled) return;
       if (error) { setProfileError(error.message); return; }
       if (!data || !data.profilo) { setProfileError('Il Gestionale non è attivo per questo accesso. Chiedi a un amministratore dello studio.'); return; }
-      setProfile(data.profilo);
+      setProfile({ ...data.profilo, org_id: data.org_id || data.profilo.org_id });
     });
     return () => { cancelled = true; };
   }, [authUser]);
@@ -9247,7 +9247,15 @@ export default function GestionaleEdilePreview() {
     supabase.rpc('quant_carica').then(({ data: r, error }) => {
       if (error) { console.error(error); setDataLoaded(true); return; }
       const saved = (r && r.dati) || {};
-      if (!saved.projects || !saved.projects.length || /[?&]importa=1/.test(window.location.search)) setNeedsImport(true);
+      const ORG_STORICA = 'd0000000-0000-4000-8000-0000000000d5'; // lo studio che arriva dal vecchio Gestionale
+      const nuovoStudio = (!saved.projects || !saved.projects.length) && profile.org_id && profile.org_id !== ORG_STORICA;
+      if (nuovoStudio) {
+        // uno studio nuovo parte da zero: niente dati di esempio e niente importazione
+        setProjects([]);
+        setListini([{ id: 1, name: 'Listino standard', macros: [] }]);
+        setActiveListinoId(1);
+        setFornitoriCatalog([]);
+      } else if (!saved.projects || !saved.projects.length || /[?&]importa=1/.test(window.location.search)) setNeedsImport(true);
       if (saved.projects) setProjects(saved.projects);
       if (saved.listini) setListini(ensureVoceUids(saved.listini));
       if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
