@@ -303,8 +303,10 @@ function computeEconomics(revision) {
 function addItemToProjectRevision(project, revisionId, newItem) {
   const revisions = project.revisions;
   const latest = revisions[revisions.length - 1];
-  const target = revisions.find((r) => r.id === revisionId) || latest;
-  const isLatest = target.id === latest.id;
+  // revisionId può essere direttamente l'oggetto revisione (scelto dall'elenco per posizione): così non si
+  // dipende dagli id, che nei dati reali possono ripetersi.
+  const target = (revisionId && typeof revisionId === 'object' && revisions.includes(revisionId) ? revisionId : revisions.find((r) => String(r.id) === String(revisionId))) || latest;
+  const isLatest = target === latest;
   const newItems = [...(target.items || []), newItem];
   const realItems = newItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(realItems));
@@ -312,7 +314,7 @@ function addItemToProjectRevision(project, revisionId, newItem) {
   if (isLatest) {
     return {
       ...project,
-      revisions: revisions.map((r) => (r.id === target.id ? { ...r, items: newItems, dateModified: nowLabel(), total, totalCliente } : r)),
+      revisions: revisions.map((r) => (r === target ? { ...r, items: newItems, dateModified: nowLabel(), total, totalCliente } : r)),
       value: total,
     };
   }
@@ -1896,14 +1898,14 @@ function addListinoVoceToProject(project, revisionId, item) {
     revisions = [{ id: Date.now(), label: 'Revisione 1', customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: [], extraSections: [], total: '0,00 €', totalCliente: '0,00 €' }];
   }
   const latest = revisions[revisions.length - 1];
-  const target = revisions.find((r) => String(r.id) === String(revisionId)) || latest;
-  const editable = target.id === latest.id && (target.status || STATUS_OPTIONS[0]) === STATUS_OPTIONS[0];
+  const target = (revisionId && typeof revisionId === 'object' && revisions.includes(revisionId) ? revisionId : revisions.find((r) => String(r.id) === String(revisionId))) || latest;
+  const editable = target === latest && (target.status || STATUS_OPTIONS[0]) === STATUS_OPTIONS[0];
   const nextItems = regenerateItemCodes(resolveLinkedQuantities([...(target.items || []), item]));
   const real = nextItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(real));
   const totalCliente = formatEuro(sumCliente(real));
   if (editable) {
-    return { project: { ...project, revisions: revisions.map((r) => (r.id === target.id ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r)), value: total }, label: target.customName || target.label, forked: false };
+    return { project: { ...project, revisions: revisions.map((r) => (r === target ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r)), value: total }, label: target.customName || target.label, forked: false };
   }
   const label = `Revisione ${revisions.length + 1}`;
   const newRev = { ...target, id: Date.now() + 1, label, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: nextItems, total, totalCliente };
@@ -1911,23 +1913,23 @@ function addListinoVoceToProject(project, revisionId, item) {
 }
 
 function ListinoAddToComputoModal({ voce, projects, onClose, onAdd }) {
+  // Progetto e revisione si scelgono per POSIZIONE nell'elenco, non per id (gli id possono ripetersi nei dati).
   const sorted = [...projects].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'it'));
-  const [projectId, setProjectId] = useState(sorted[0]?.id ?? '');
-  const project = projects.find((p) => String(p.id) === String(projectId));
+  const [projectIdx, setProjectIdx] = useState(0);
+  const project = sorted[projectIdx] || sorted[0];
   const revs = project?.revisions || [];
-  const [revisionId, setRevisionId] = useState(revs[revs.length - 1]?.id ?? '');
+  const [revIdx, setRevIdx] = useState(Math.max(0, revs.length - 1));
   const [qty, setQty] = useState('1');
-  const rev = revs.find((r) => String(r.id) === String(revisionId)) || revs[revs.length - 1];
-  const willFork = rev && ((rev.status || STATUS_OPTIONS[0]) !== STATUS_OPTIONS[0] || rev.id !== revs[revs.length - 1]?.id);
+  const rev = revs[revIdx] || revs[revs.length - 1];
+  const willFork = rev && ((rev.status || STATUS_OPTIONS[0]) !== STATUS_OPTIONS[0] || rev !== revs[revs.length - 1]);
   const impresa = parseEuro(voce.priceImpresa);
   const cliente = evalClientPrice(voce.priceCliente, impresa);
   const field = { width: '100%', boxSizing: 'border-box', fontSize: 12.5, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px', fontFamily: FONT, background: '#fff' };
   const label = { fontSize: 11, fontWeight: 700, color: C.midGray };
-  const changeProject = (id) => {
-    setProjectId(id);
-    const p = projects.find((x) => String(x.id) === String(id));
-    const r = p?.revisions || [];
-    setRevisionId(r[r.length - 1]?.id ?? '');
+  const changeProject = (idx) => {
+    setProjectIdx(idx);
+    const r = sorted[idx]?.revisions || [];
+    setRevIdx(Math.max(0, r.length - 1));
   };
   return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
@@ -1942,15 +1944,15 @@ function ListinoAddToComputoModal({ voce, projects, onClose, onAdd }) {
         ) : (
           <>
             <label style={label}>Progetto</label>
-            <select value={projectId} onChange={(e) => changeProject(e.target.value)} style={field}>
-              {sorted.map((p) => <option key={p.id} value={p.id}>{p.name}{p.client ? ` — ${p.client}` : ''}</option>)}
+            <select value={projectIdx} onChange={(e) => changeProject(Number(e.target.value))} style={field}>
+              {sorted.map((p, i) => <option key={i} value={i}>{p.name}{p.client ? ` — ${p.client}` : ''}</option>)}
             </select>
             <label style={label}>Computo (versione)</label>
             {revs.length === 0 ? (
               <p style={{ fontSize: 12, color: C.gray, margin: '4px 0 12px' }}>Questo progetto non ha ancora un computo: verrà creata la "Revisione 1".</p>
             ) : (
-              <select value={revisionId} onChange={(e) => setRevisionId(e.target.value)} style={field}>
-                {revs.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.status || STATUS_OPTIONS[0]} · {r.dateModified}</option>)}
+              <select value={revIdx} onChange={(e) => setRevIdx(Number(e.target.value))} style={field}>
+                {revs.map((r, i) => <option key={i} value={i}>{r.customName || r.label} · {r.status || STATUS_OPTIONS[0]} · {r.dateModified}</option>)}
               </select>
             )}
             {willFork && (
@@ -1966,7 +1968,7 @@ function ListinoAddToComputoModal({ voce, projects, onClose, onAdd }) {
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={{ background: 'transparent', color: C.black, border: `1px solid ${C.paleGray}`, padding: '9px 16px', borderRadius: 999, fontSize: 12.5, cursor: 'pointer', fontFamily: FONT }}>Annulla</button>
           {sorted.length > 0 && (
-            <button onClick={() => onAdd(projectId, revisionId, qty || '1')} style={{ background: C.maroon, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>Aggiungi</button>
+            <button onClick={() => onAdd(project, rev || null, qty || '1')} style={{ background: C.maroon, color: '#fff', border: 'none', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>Aggiungi</button>
           )}
         </div>
       </div>
@@ -2266,12 +2268,11 @@ function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }
           voce={addToComputoVoce}
           projects={projects || []}
           onClose={() => setAddToComputoVoce(null)}
-          onAdd={(projectId, revisionId, qty) => {
+          onAdd={(project, revision, qty) => {
             const v = addToComputoVoce;
-            const project = (projects || []).find((p) => String(p.id) === String(projectId));
             if (!project) return;
             const revs = project.revisions || [];
-            const target = revs.find((r) => String(r.id) === String(revisionId)) || revs[revs.length - 1];
+            const target = revision || revs[revs.length - 1];
             const dupe = (target?.items || []).find((it) => it.type !== 'subtotal' && normText(it.desc) === normText(v.desc));
             if (dupe && !confirm(`La voce "${v.desc}" è già presente in questo computo${dupe.code ? ` (${dupe.code})` : ''}. Vuoi aggiungere comunque un duplicato?`)) return;
             const impresa = parseEuro(v.priceImpresa);
@@ -2283,8 +2284,8 @@ function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }
               unitPriceCliente: formatEuro(evalClientPrice(v.priceCliente, impresa)).replace(' €', ''),
               qty: String(qty), macro: v.macro, section: v.macro, categoria: v.categoria || 'Generale', sottocategoria: v.sotto || 'Generale',
             };
-            const res = addListinoVoceToProject(project, revisionId, item);
-            setProjects((projects || []).map((p) => (p.id === project.id ? res.project : p)));
+            const res = addListinoVoceToProject(project, target, item);
+            setProjects((projects || []).map((p) => (p === project ? res.project : p)));
             setAddToComputoVoce(null);
             setAddedNotice(`Aggiunta a "${project.name}" — ${res.label}${res.forked ? ' (nuova revisione: la versione approvata resta intatta)' : ''}.`);
             setTimeout(() => setAddedNotice(''), 6000);
@@ -4360,7 +4361,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
         <>
           <div style={{ ...card, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Versione aperta</label>
-            <select value={selectedRevisionId} onChange={(e) => setSelectedRevisionId(Number(e.target.value))} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
+            <select value={selectedRevisionId} onChange={(e) => setSelectedRevisionId(revisions.find((r) => String(r.id) === e.target.value)?.id ?? selectedRevisionId)} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
               {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · modificata il {r.dateModified}</option>)}
             </select>
             {!isEditingLatest && (
@@ -5141,11 +5142,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.paleGray}` }}>
               <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 10px', color: C.black }}>Confronta due revisioni</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <select value={selRevA} onChange={(e) => setSelRevA(Number(e.target.value))} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
+                <select value={selRevA} onChange={(e) => setSelRevA(revisions.find((r) => String(r.id) === e.target.value)?.id ?? selRevA)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
                   {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
                 </select>
                 <span style={{ color: C.gray }}>→</span>
-                <select value={selRevB} onChange={(e) => setSelRevB(Number(e.target.value))} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
+                <select value={selRevB} onChange={(e) => setSelRevB(revisions.find((r) => String(r.id) === e.target.value)?.id ?? selRevB)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
                   {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
                 </select>
                 <button onClick={() => setShowCompare(true)} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Confronta</button>
@@ -6613,18 +6614,35 @@ function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, req
 }
 
 function ConfrontoPage({ projects }) {
-  const [projectId, setProjectId] = useState(projects[0]?.id);
-  const project = projects.find((p) => p.id === projectId) || projects[0];
-  const revisions = project.revisions;
-  const [from, setFrom] = useState(revisions[0]?.id);
-  const [to, setTo] = useState(revisions[revisions.length - 1]?.id);
+  // Progetto e revisioni si scelgono per POSIZIONE nell'elenco (non per "id"), come nel Rilievo: nei dati
+  // reali alcuni progetti possono avere lo stesso id (es. importati o creati in blocco) o id non numerici,
+  // e una ricerca per id finiva sempre sul primo progetto, così la tendina sembrava non cambiare.
+  const firstComparable = Math.max(0, projects.findIndex((p) => (p.revisions || []).length >= 2));
+  const [projectIdx, setProjectIdx] = useState(firstComparable);
+  const project = projects[projectIdx] || projects[0];
+  const revisions = project?.revisions || [];
+  const [fromIdx, setFromIdx] = useState(0);
+  const [toIdx, setToIdx] = useState(null); // null = ultima revisione
+  const fi = Math.min(fromIdx, Math.max(revisions.length - 1, 0));
+  const ti = toIdx == null || toIdx >= revisions.length ? revisions.length - 1 : toIdx;
 
-  const handleProjectChange = (id) => {
-    setProjectId(id);
-    const proj = projects.find((p) => p.id === id);
-    setFrom(proj.revisions[0]?.id);
-    setTo(proj.revisions[proj.revisions.length - 1]?.id);
+  const handleProjectChange = (idx) => {
+    setProjectIdx(idx);
+    setFromIdx(0);
+    setToIdx(null);
   };
+
+  if (!project) {
+    return (
+      <div>
+        <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Confronto revisioni</p>
+        <h1 style={{ margin: '0 0 18px', fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Confronto revisioni</h1>
+        <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, textAlign: 'center', padding: 30 }}>
+          <p style={{ fontSize: 14, color: '#8B8178', margin: 0 }}>Non ci sono ancora progetti: crea un progetto e salva almeno due revisioni del computo per confrontarle.</p>
+        </div>
+      </div>
+    );
+  }
 
   const selStyle = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 10, padding: '9px 14px', fontSize: 13, fontWeight: 400, color: '#2B2321', fontFamily: FONT, cursor: 'pointer' };
 
@@ -6639,8 +6657,8 @@ function ConfrontoPage({ projects }) {
       <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 11.5, fontWeight: 600, color: '#6F655F' }}>PROGETTO</span>
-          <select value={projectId} onChange={(e) => handleProjectChange(Number(e.target.value))} style={selStyle}>
-            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <select value={projectIdx} onChange={(e) => handleProjectChange(Number(e.target.value))} style={{ ...selStyle, fontSize: 14, minWidth: 260 }}>
+            {projects.map((p, i) => <option key={i} value={i}>{p.name}{(p.revisions || []).length < 2 ? ' (meno di 2 revisioni)' : ''}</option>)}
           </select>
         </div>
       </section>
@@ -6652,16 +6670,16 @@ function ConfrontoPage({ projects }) {
       ) : (
         <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16, overflowX: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-            <select value={from} onChange={(e) => setFrom(Number(e.target.value))} style={selStyle}>
-              {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
+            <select value={fi} onChange={(e) => setFromIdx(Number(e.target.value))} style={{ ...selStyle, fontSize: 14 }}>
+              {revisions.map((r, i) => <option key={i} value={i}>{r.customName || r.label} · {r.dateModified}</option>)}
             </select>
             <span style={{ fontSize: 15, color: '#8B8178' }}>→</span>
-            <select value={to} onChange={(e) => setTo(Number(e.target.value))} style={selStyle}>
-              {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
+            <select value={ti} onChange={(e) => setToIdx(Number(e.target.value))} style={{ ...selStyle, fontSize: 14 }}>
+              {revisions.map((r, i) => <option key={i} value={i}>{r.customName || r.label} · {r.dateModified}</option>)}
             </select>
           </div>
 
-          <DiffTable diff={computeItemsDiff(revisions.find((r) => r.id === from)?.items, revisions.find((r) => r.id === to)?.items)} />
+          <DiffTable diff={computeItemsDiff(revisions[fi]?.items, revisions[ti]?.items)} />
         </section>
       )}
 
@@ -6895,10 +6913,12 @@ function ImportPdfComputoModal({ onClose, onConfirm }) {
 }
 
 function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
-  const eligible = projects.filter((p) => p.revisions.length > 0);
-  const [projectId, setProjectId] = useState(eligible[0]?.id);
-  const project = projects.find((p) => p.id === projectId);
-  const [revisionId, setRevisionId] = useState(project?.revisions[project.revisions.length - 1]?.id);
+  // Progetto e revisione si scelgono per POSIZIONE nell'elenco, non per id (gli id possono ripetersi nei dati).
+  const eligible = projects.filter((p) => (p.revisions || []).length > 0);
+  const [projectIdx, setProjectIdx] = useState(0);
+  const project = eligible[projectIdx] || eligible[0];
+  const [revIdx, setRevIdx] = useState(Math.max(0, (project?.revisions.length || 1) - 1));
+  const revision = project?.revisions[revIdx] || project?.revisions[project.revisions.length - 1];
   const priceOptions = [
     { id: 'listino', name: 'Prezzo di listino (nessuno sconto)', prezzoListino: variante.listinoPrice, prezzoScontato: variante.listinoPrice, prezzoCliente: variante.listinoPrice },
     ...variante.fornitori,
@@ -6910,10 +6930,9 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
   const clienteNum = parseEuro(selected.prezzoCliente);
   const scontoPct = listinoNum > 0 ? ((listinoNum - clienteNum) / listinoNum) * 100 : 0;
 
-  const handleProjectChange = (id) => {
-    setProjectId(id);
-    const proj = projects.find((p) => p.id === id);
-    setRevisionId(proj.revisions[proj.revisions.length - 1]?.id);
+  const handleProjectChange = (idx) => {
+    setProjectIdx(idx);
+    setRevIdx(Math.max(0, (eligible[idx]?.revisions.length || 1) - 1));
   };
 
   if (eligible.length === 0) {
@@ -6934,13 +6953,13 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
         <p style={{ fontSize: 12, color: C.gray, margin: '0 0 16px' }}>{prodottoLabel(prodotto)}{variante.nome ? ` — ${variante.nome}` : ''}</p>
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Progetto</label>
-        <select value={projectId} onChange={(e) => handleProjectChange(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }}>
-          {eligible.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        <select value={projectIdx} onChange={(e) => handleProjectChange(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }}>
+          {eligible.map((p, i) => <option key={i} value={i}>{p.name}</option>)}
         </select>
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Computo (versione)</label>
-        <select value={revisionId} onChange={(e) => setRevisionId(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }}>
-          {project?.revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
+        <select value={revIdx} onChange={(e) => setRevIdx(Number(e.target.value))} style={{ width: '100%', fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px' }}>
+          {project?.revisions.map((r, i) => <option key={i} value={i}>{r.customName || r.label} · {r.dateModified}</option>)}
         </select>
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Fornitore / fonte prezzo</label>
@@ -6962,7 +6981,7 @@ function AddToComputoModal({ prodotto, variante, projects, onClose, onAdd }) {
           <button onClick={onClose} style={{ background: C.darkGray, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 999, fontSize: 12, fontWeight: 600 }}>Annulla</button>
           <button
             onClick={() => {
-              onAdd(projectId, revisionId, selected, qty || '1');
+              onAdd(project, revision, selected, qty || '1');
               onClose();
             }}
             style={{ background: C.maroon, color: C.white, border: 'none', padding: '9px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600 }}
@@ -7322,7 +7341,7 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
   const isOpen = (key) => expanded[key] !== false;
   const toggle = (key) => setExpanded({ ...expanded, [key]: !isOpen(key) });
 
-  const addToComputo = (projectId, revisionId, priceSource, qty) => {
+  const addToComputo = (targetProject, targetRevision, priceSource, qty) => {
     const { prodotto, variante, tipoFornitura, gruppoFornitura } = addingTo;
     // Sezione unica "FORNITURE", sottosezione = tipo di fornitura (macrosezione del catalogo), nessun nome
     // del fornitore nella voce (resta solo nel campo nascosto "fornitore").
@@ -7331,8 +7350,7 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
 
     // Se questo prodotto/variante è già stato aggiunto a questo computo, lo si segnala e si chiede
     // conferma prima di creare un doppione — rispondendo di no non cambia nulla.
-    const targetProject = projects.find((p) => p.id === projectId);
-    const targetRevision = targetProject?.revisions.find((r) => r.id === revisionId) || targetProject?.revisions[targetProject.revisions.length - 1];
+    if (!targetProject) return;
     const dupe = (targetRevision?.items || []).find((it) => it.type !== 'subtotal' && String(it.desc || '').trim().toLowerCase() === desc.trim().toLowerCase());
     if (dupe && !confirm(`La voce "${desc}" è già presente nel computo${dupe.code ? ` (${dupe.code})` : ''}. Vuoi aggiungere comunque un duplicato?`)) {
       return;
@@ -7353,7 +7371,7 @@ function FornitoriPage({ projects, setProjects, catalog, setCatalog }) {
       sottocategoria: gruppoFornitura || 'Generale',
       fornitore: priceSource.id !== 'listino' ? priceSource.name : null,
     };
-    setProjects(projects.map((p) => (p.id === projectId ? addItemToProjectRevision(p, revisionId, newItem) : p)));
+    setProjects(projects.map((p) => (p === targetProject ? addItemToProjectRevision(p, targetRevision, newItem) : p)));
   };
 
   const addMacro = () => {
