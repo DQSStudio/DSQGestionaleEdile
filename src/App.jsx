@@ -8849,7 +8849,7 @@ function OffertaImpresaView({ token }) {
     setChecking(true); setError('');
     const { data: result, error: err } = await cea.rpc('offerta_get', { p_token: token, p_pin: pin.trim() });
     setChecking(false);
-    if (err) { setError('Link o PIN non validi. Controlla con lo studio.'); return; }
+    if (err || (result && result.errore)) { setError(result && result.errore ? result.errore : 'Link o PIN non validi. Controlla con lo studio.'); return; }
     setData(result);
     if (result.pending) {
       const pr = {}; const nt = {};
@@ -8873,12 +8873,12 @@ function OffertaImpresaView({ token }) {
     if (!referente.trim() && !confirm('Non hai indicato un referente. Inviare comunque?')) return;
     const payload = allItems.filter((it) => priceOf(it.id) !== null).map((it) => ({ id: it.id, price: priceOf(it.id), note: (notes[it.id] || '').trim() }));
     setSending(true);
-    const { error: err } = await cea.rpc('offerta_submit', {
+    const { data: esito, error: err } = await cea.rpc('offerta_submit', {
       p_token: token, p_pin: pin.trim(), p_prezzi: payload, p_note: notaGenerale.trim(), p_referente: referente.trim(),
       p_email: email.trim(), p_telefono: telefono.trim(), p_totale: Math.round(total * 100) / 100,
     });
     setSending(false);
-    if (err) { alert('Invio non riuscito: ' + err.message); return; }
+    if (err || (esito && esito.errore)) { alert('Invio non riuscito: ' + (err ? err.message : esito.errore)); return; }
     setSentAt(nowLabel());
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -9030,7 +9030,7 @@ function FornitoreShareView({ token }) {
     setChecking(true); setError('');
     const { data: result, error: err } = await cea.rpc('fornitore_get_listino', { p_token: token, p_pin: pin.trim() });
     setChecking(false);
-    if (err) { setError('Link o PIN non validi. Controlla con lo studio.'); return; }
+    if (err || (result && result.errore)) { setError(result && result.errore ? result.errore : 'Link o PIN non validi. Controlla con lo studio.'); return; }
     setData(result);
     const initial = {};
     (result.macros || []).forEach((m) => (m.categorie || []).forEach((c) => (c.sottocategorie || []).forEach((s) => (s.voci || []).forEach((v) => {
@@ -9060,9 +9060,9 @@ function FornitoreShareView({ token }) {
     }))));
     if (items.length === 0) { alert('Non hai modificato nessuna voce: cambia almeno un costo impresa (o aggiungi una nota) prima di inviare.'); return; }
     setSubmitting(true);
-    const { error: err } = await cea.rpc('fornitore_submit', { p_token: token, p_pin: pin.trim(), p_items: items });
+    const { data: esito, error: err } = await cea.rpc('fornitore_submit', { p_token: token, p_pin: pin.trim(), p_items: items });
     setSubmitting(false);
-    if (err) { alert('Invio non riuscito: ' + err.message); return; }
+    if (err || (esito && esito.errore)) { alert('Invio non riuscito: ' + (err ? err.message : esito.errore)); return; }
     setSentAt(nowLabel());
   };
 
