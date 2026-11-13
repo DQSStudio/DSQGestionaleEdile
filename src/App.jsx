@@ -83,6 +83,10 @@ const NAV_GROUPS = [
 ];
 
 const STATUS_OPTIONS = ['In attesa di approvazione', 'Approvato', 'In fase di cantiere'];
+// Una revisione si può modificare sul posto solo finché è "In attesa di approvazione". Una revisione
+// approvata (o in fase di cantiere) resta congelata: qualunque modifica crea una nuova revisione, così il
+// confronto tra le versioni ha sempre senso. Eliminarla resta comunque possibile.
+const isRevisionEditable = (rev) => !!rev && (rev.status || STATUS_OPTIONS[0]) === STATUS_OPTIONS[0];
 const statusTone = {
   'In attesa di approvazione': 'orange',
   'Approvato': 'teal',
@@ -154,13 +158,21 @@ const daysBetweenISO = (a, b) => Math.round((new Date(`${b}T00:00:00`) - new Dat
 // che finisce nel prezzo — la si ricalcola e la si salva in item.qty ogni volta che le misurazioni cambiano,
 // così tutto il resto dell'app (prezzi, stampe, sincronizzazione col Portale Clienti) continua a leggere
 // semplicemente item.qty come sempre, senza bisogno di sapere nulla delle misurazioni sottostanti.
+// Una riga può anche avere un valore diretto (row.valore): è il caso delle misure prese dal Rilievo
+// planimetrico (row.rilievoRef = id della forma/punto) o della quantità che la voce aveva prima di essere
+// suddivisa in righe. Vale così com'è, qualunque sia la modalità di calcolo della voce.
 function computeMisurazioneRowValue(row, unitaCalcolo) {
+  if (row.valore !== undefined && row.valore !== null && row.valore !== '') {
+    const d = parseEuro(row.valore);
+    return row.segno === '-' ? -d : d;
+  }
   const parUg = row.parUg !== '' && row.parUg !== undefined && row.parUg !== null ? parseEuro(row.parUg) : 1;
   const lung = parseEuro(row.lung);
   const larg = parseEuro(row.larg);
   const hPeso = parseEuro(row.hPeso);
   let v;
-  if (unitaCalcolo === 'ml') v = parUg * lung;
+  if (unitaCalcolo === 'nr') v = parUg;
+  else if (unitaCalcolo === 'ml') v = parUg * lung;
   else if (unitaCalcolo === 'mq') v = parUg * lung * larg;
   else if (unitaCalcolo === 'm3') v = parUg * lung * larg * hPeso;
   else return 0;
@@ -287,14 +299,47 @@ function computeEconomics(revision) {
     if (!b) { b = { label: s.vat.label, rate: s.vat.rate, ivaImpresa: 0, ivaCliente: 0 }; breakdown.push(b); }
     b.ivaImpresa += s.ivaImpresa;
     b.ivaCliente += s.ivaCliente;
+    b.works = true;
   });
   const sum = (k) => sections.reduce((n, s) => n + s[k], 0);
+  // Voci aggiuntive sotto il totale lavori (spese di progetto, pratica edilizia…): a percentuale
+  // sull'importo netto dei lavori (IVA esclusa, dopo gli sconti) oppure a importo fisso, ognuna con la sua
+  // IVA. Valgono per il cliente: si sommano al totale generale cliente, non al costo impresa.
+  const worksNetCliente = sum('netCliente');
+  const extras = getExtraCharges(revision).map((e) => {
+    const value = parseEuro(e.value);
+    const amount = e.type === 'pct' ? (worksNetCliente * value) / 100 : value;
+    const vatRate = e.vatRate === '' || e.vatRate == null ? 22 : Number(e.vatRate) || 0;
+    const iva = (amount * vatRate) / 100;
+    return { ...e, value, amount, vatRate, iva, tot: amount + iva };
+  }).filter((x) => x.amount);
+  extras.forEach((x) => {
+    let b = breakdown.find((y) => y.rate === x.vatRate);
+    if (!b) { b = { label: `IVA ${x.vatRate}%`, rate: x.vatRate, ivaImpresa: 0, ivaCliente: 0, works: false }; breakdown.push(b); }
+    b.ivaCliente += x.iva;
+  });
+  const extrasNet = extras.reduce((n, x) => n + x.amount, 0);
+  const extrasIva = extras.reduce((n, x) => n + x.iva, 0);
   return {
-    sections, breakdown,
-    netImpresa: sum('netImpresa'), netCliente: sum('netCliente'),
-    ivaImpresa: sum('ivaImpresa'), ivaCliente: sum('ivaCliente'),
-    totImpresa: sum('totImpresa'), totCliente: sum('totCliente'),
+    sections, breakdown, extras, extrasNet,
+    worksNetCliente, worksTotCliente: sum('totCliente'),
+    netImpresa: sum('netImpresa'), netCliente: worksNetCliente + extrasNet,
+    ivaImpresa: sum('ivaImpresa'), ivaCliente: sum('ivaCliente') + extrasIva,
+    totImpresa: sum('totImpresa'), totCliente: sum('totCliente') + extrasNet + extrasIva,
   };
+}
+
+const getExtraCharges = (revision) => (revision?.extraCharges || []).filter((e) => e && (String(e.label || '').trim() || parseEuro(e.value)));
+const extraChargeLabel = (x) => `${x.label || 'Voce aggiuntiva'}${x.type === 'pct' ? ` (${itNum(x.value, x.value % 1 ? 2 : 0)}% sull'importo lavori)` : ''}`;
+// Righe "Totale lavori + voci aggiuntive" da mostrare prima del totale generale (PDF, quadro economico).
+function ExtrasLines({ econ, style }) {
+  if (!econ.extras.length) return null;
+  return (
+    <>
+      <p style={style}><span>Totale lavori IVA esclusa</span><span style={{ whiteSpace: 'nowrap' }}>{formatEuro(econ.worksNetCliente)}</span></p>
+      {econ.extras.map((x, i) => <p key={i} style={style}><span>{extraChargeLabel(x)}</span><span style={{ whiteSpace: 'nowrap' }}>{formatEuro(x.amount)}</span></p>)}
+    </>
+  );
 }
 
 // Aggiunge una voce (es. una fornitura) alla revisione scelta di un progetto.
@@ -306,7 +351,7 @@ function addItemToProjectRevision(project, revisionId, newItem) {
   // revisionId può essere direttamente l'oggetto revisione (scelto dall'elenco per posizione): così non si
   // dipende dagli id, che nei dati reali possono ripetersi.
   const target = (revisionId && typeof revisionId === 'object' && revisions.includes(revisionId) ? revisionId : revisions.find((r) => String(r.id) === String(revisionId))) || latest;
-  const isLatest = target === latest;
+  const isLatest = target === latest && isRevisionEditable(target);
   const newItems = [...(target.items || []), newItem];
   const realItems = newItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(realItems));
@@ -1596,6 +1641,7 @@ const CALC_UNIT_OPTIONS = [
   { value: 'ml', label: 'Metri lineari (ml) — par.ug × lunghezza' },
   { value: 'mq', label: 'Metri quadri (m²) — par.ug × lunghezza × larghezza' },
   { value: 'm3', label: 'Metri cubi / peso (m³) — par.ug × lunghezza × larghezza × H/peso' },
+  { value: 'nr', label: 'Numero / somma di valori — par.ug (pezzi, punti, misure dal rilievo)' },
 ];
 
 function emptyMisurazioneRow() {
@@ -1779,7 +1825,19 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r, idx) => (
+                  {rows.map((r, idx) => (r.valore != null && r.valore !== '') ? (
+                    <tr key={idx} style={{ background: '#FAF8F4' }}>
+                      <td style={{ padding: '3px 4px' }}>
+                        <select value={r.segno} onChange={(e) => updateRow(idx, 'segno', e.target.value)} style={{ fontSize: 12, padding: '5px 4px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}>
+                          <option value="+">+ somma</option>
+                          <option value="-">− si detrae</option>
+                        </select>
+                      </td>
+                      <td colSpan={4} style={{ padding: '3px 4px', fontSize: 12, color: C.midGray }}>{r.rilievoRef != null ? '📐 ' : ''}{r.descr || 'Valore diretto'}</td>
+                      <td style={{ padding: '3px 4px', textAlign: 'right' }}><input value={r.valore} onChange={(e) => updateRow(idx, 'valore', e.target.value)} title="Valore della misura" style={{ ...colStyle(true), fontWeight: 700 }} /></td>
+                      <td style={{ padding: '3px 4px' }}><button onClick={() => removeRow(idx)} style={iconBtn}>🗑</button></td>
+                    </tr>
+                  ) : (
                     <tr key={idx}>
                       <td style={{ padding: '3px 4px' }}>
                         <select value={r.segno} onChange={(e) => updateRow(idx, 'segno', e.target.value)} style={{ fontSize: 12, padding: '5px 4px', borderRadius: 6, border: `1px solid ${C.paleGray}` }}>
@@ -1788,8 +1846,8 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
                         </select>
                       </td>
                       <td style={{ padding: '3px 4px' }}><input value={r.parUg} onChange={(e) => updateRow(idx, 'parUg', e.target.value)} style={colStyle(true)} /></td>
-                      <td style={{ padding: '3px 4px' }}><input value={r.lung} onChange={(e) => updateRow(idx, 'lung', e.target.value)} style={colStyle(true)} /></td>
-                      <td style={{ padding: '3px 4px' }}><input value={r.larg} onChange={(e) => updateRow(idx, 'larg', e.target.value)} disabled={unitaCalcolo === 'ml'} style={colStyle(unitaCalcolo !== 'ml')} /></td>
+                      <td style={{ padding: '3px 4px' }}><input value={r.lung} onChange={(e) => updateRow(idx, 'lung', e.target.value)} disabled={unitaCalcolo === 'nr'} style={colStyle(unitaCalcolo !== 'nr')} /></td>
+                      <td style={{ padding: '3px 4px' }}><input value={r.larg} onChange={(e) => updateRow(idx, 'larg', e.target.value)} disabled={unitaCalcolo === 'ml' || unitaCalcolo === 'nr'} style={colStyle(unitaCalcolo !== 'ml' && unitaCalcolo !== 'nr')} /></td>
                       <td style={{ padding: '3px 4px' }}><input value={r.hPeso} onChange={(e) => updateRow(idx, 'hPeso', e.target.value)} disabled={unitaCalcolo !== 'm3'} style={colStyle(unitaCalcolo === 'm3')} /></td>
                       <td style={{ padding: '3px 4px', textAlign: 'right', fontWeight: 700 }}>{itNum(computeMisurazioneRowValue(r, unitaCalcolo), 2)}</td>
                       <td style={{ padding: '3px 4px' }}><button onClick={() => removeRow(idx)} style={iconBtn}>🗑</button></td>
@@ -2998,6 +3056,11 @@ async function exportComputoExcel(project, revision, mode) {
     totalsRow('Totale generale IVA esclusa', sectionTotalCells.length ? { [p.totCol]: { formula: sectionTotalCells.join('+'), result: 0 } } : {}, { bold: true, topLine: 'medium', fill: 'FFF4EAEA', height: 22 });
   } else {
     const pick = (kI, kC) => Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? econ[kI] : econ[kC]]));
+    if (econ.extras.length) {
+      const cliCol = pairs.find((p) => p.key === 'c')?.totCol;
+      totalsRow('Totale lavori IVA esclusa', pick('netImpresa', 'worksNetCliente'), { topLine: 'thin' });
+      econ.extras.forEach((x) => totalsRow(extraChargeLabel(x), { [cliCol]: x.amount }, {}));
+    }
     totalsRow('Totale generale IVA esclusa', pick('netImpresa', 'netCliente'), { bold: true, topLine: 'medium', fill: clientOnly ? 'FFF4EAEA' : 'FFFAF8F4', color: clientOnly ? ACC : INK, height: 22 });
     econ.breakdown.forEach((b) => totalsRow(b.label, Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? b.ivaImpresa : b.ivaCliente])), {}));
     totalsRow('Totale generale IVA inclusa', pick('totImpresa', 'totCliente'), { bold: !clientOnly, topLine: 'thin', height: 20 });
@@ -3127,6 +3190,10 @@ async function exportComputoRiepilogoExcel(project, revision) {
   });
 
   ws.addRow([]).height = 10;
+  if (econ.extras.length) {
+    totalRow('Totale lavori IVA esclusa', econ.worksNetCliente, { top: 'thin' });
+    econ.extras.forEach((x) => totalRow(extraChargeLabel(x), x.amount, {}));
+  }
   totalRow('Totale generale IVA esclusa', econ.netCliente, { bold: true, size: 11, color: ACC, fill: 'FFF4EAEA', top: 'medium', height: 22 });
   econ.breakdown.forEach((b) => totalRow(b.label, b.ivaCliente, { color: GRAY }));
   totalRow('Totale generale IVA inclusa', econ.totCliente, { top: 'thin', height: 20 });
@@ -3484,7 +3551,7 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
         {!noPrices && !clientOnly && (
           <>
             <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (impresa)</span><span>{formatEuro(econ.netImpresa)}</span></p>
-            {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaImpresa)}</span></p>)}
+            {econ.breakdown.filter((b) => b.works).map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaImpresa)}</span></p>)}
             <p style={{ fontSize: 12, display: 'flex', justifyContent: 'space-between', fontWeight: 700, margin: '6px 0 0', paddingTop: 6, borderTop: '1px solid #E5E2DA' }}><span>Totale generale IVA inclusa (impresa)</span><span>{formatEuro(econ.totImpresa)}</span></p>
             <div style={{ height: 16 }} />
           </>
@@ -3492,12 +3559,14 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
         {noPrices ? null : clientOnly ? (
           <>
             {/* Versione cliente: in evidenza il totale generale IVA esclusa; IVA e totale IVA inclusa restano righe normali. */}
+            <ExtrasLines econ={econ} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', gap: 12, color: '#3A3A3A', margin: '4px 0' }} />
             <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '0 0 8px', paddingBottom: 6, borderBottom: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA esclusa</span><span>{formatEuro(econ.netCliente)}</span></p>
             {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaCliente)}</span></p>)}
             <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA inclusa</span><span>{formatEuro(econ.totCliente)}</span></p>
           </>
         ) : (
           <>
+            <ExtrasLines econ={econ} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', gap: 12, color: '#3A3A3A', margin: '4px 0' }} />
             <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA esclusa (cliente)</span><span>{formatEuro(econ.netCliente)}</span></p>
             {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaCliente)}</span></p>)}
             <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '6px 0 0', paddingTop: 6, borderTop: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA inclusa (cliente)</span><span>{formatEuro(econ.totCliente)}</span></p>
@@ -3515,6 +3584,74 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
           </td></tr>
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Voci aggiuntive sotto il totale lavori: spese di progetto, pratica edilizia, direzione lavori… a percentuale
+// sull'importo netto dei lavori oppure a importo fisso, ognuna con la sua IVA. Bozza locale salvata quando si
+// esce da un campo (non a ogni lettera), così una revisione approvata viene copiata una sola volta.
+const EXTRA_PRESETS = [
+  { label: 'Spese di progetto', type: 'pct', value: '10' },
+  { label: 'Direzione lavori', type: 'pct', value: '5' },
+  { label: 'Pratica edilizia', type: 'fixed', value: '' },
+  { label: 'Imprevisti', type: 'pct', value: '5' },
+];
+function ExtraChargesEditor({ charges, worksNet, onSave, locked }) {
+  const [rows, setRows] = useState(charges);
+  useEffect(() => { setRows(charges); }, [charges]);
+  const commit = (next) => {
+    const clean = next.map((r) => ({ id: r.id, label: r.label || '', type: r.type === 'fixed' ? 'fixed' : 'pct', value: String(r.value ?? ''), vatRate: r.vatRate === '' || r.vatRate == null ? 22 : Number(r.vatRate) }));
+    if (JSON.stringify(clean) !== JSON.stringify(charges)) onSave(clean);
+  };
+  const setRow = (i, patch, save = false) => {
+    const next = rows.map((r, j) => (j === i ? { ...r, ...patch } : r));
+    setRows(next);
+    if (save) commit(next);
+  };
+  const add = (preset) => {
+    const next = [...rows, { id: Date.now() + Math.random(), label: '', type: 'pct', value: '', vatRate: 22, ...preset }];
+    setRows(next);
+    if (preset) commit(next);
+  };
+  const remove = (i) => { const next = rows.filter((_, j) => j !== i); setRows(next); commit(next); };
+  const amountOf = (r) => (r.type === 'fixed' ? parseEuro(r.value) : (worksNet * parseEuro(r.value)) / 100);
+  const total = rows.reduce((n, r) => n + amountOf(r), 0);
+  const field = { border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '9px 11px', fontSize: 14, fontFamily: FONT, color: C.black, background: '#FDFCFA', boxSizing: 'border-box' };
+  const usedLabels = rows.map((r) => (r.label || '').trim().toLowerCase());
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '14px 16px', margin: '0 0 12px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', marginBottom: 4 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: C.black, fontFamily: FONT }}>Voci aggiuntive sul totale</span>
+        <span style={{ fontSize: 12.5, color: C.gray }}>Importo lavori IVA esclusa: <b style={{ color: C.black }}>{formatEuro(worksNet)}</b></span>
+      </div>
+      <p style={{ fontSize: 12.5, color: C.gray, margin: '0 0 12px', lineHeight: 1.45 }}>
+        Spese di progetto, pratica edilizia, direzione lavori… in percentuale sull'importo lavori o a importo fisso. Si aggiungono al totale generale del cliente, nel quadro economico, nel PDF e nell'Excel.
+        {locked && ' Questa versione è bloccata: la modifica creerà una nuova revisione.'}
+      </p>
+      {rows.map((r, i) => (
+        <div key={r.id || i} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', padding: '8px 0', borderTop: i ? `1px solid ${C.paleGray}` : 'none' }}>
+          <input value={r.label} onChange={(e) => setRow(i, { label: e.target.value })} onBlur={() => commit(rows)} placeholder="Descrizione (es. Spese di progetto)" style={{ ...field, flex: '1 1 220px', minWidth: 180 }} />
+          <select value={r.type} onChange={(e) => setRow(i, { type: e.target.value }, true)} style={{ ...field, width: 150 }}>
+            <option value="pct">% sull'importo</option>
+            <option value="fixed">Importo fisso €</option>
+          </select>
+          <input value={r.value} onChange={(e) => setRow(i, { value: e.target.value })} onBlur={() => commit(rows)} inputMode="decimal" placeholder={r.type === 'pct' ? 'Es. 10' : '0,00'} style={{ ...field, width: 100, textAlign: 'right' }} />
+          <span style={{ fontSize: 14, color: C.gray, width: 14 }}>{r.type === 'pct' ? '%' : '€'}</span>
+          <select value={String(r.vatRate ?? 22)} onChange={(e) => setRow(i, { vatRate: Number(e.target.value) }, true)} title="IVA di questa voce" style={{ ...field, width: 110 }}>
+            {[22, 10, 4, 0].map((v) => <option key={v} value={v}>IVA {v}%</option>)}
+          </select>
+          <span style={{ fontSize: 14.5, fontWeight: 600, color: C.maroon, minWidth: 110, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(amountOf(r))}</span>
+          <button onClick={() => remove(i)} title="Elimina voce" style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, width: 34, height: 34, cursor: 'pointer', color: C.gray }}>🗑</button>
+        </div>
+      ))}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center', marginTop: rows.length ? 10 : 0 }}>
+        <button onClick={() => add()} style={{ border: 'none', background: C.black, color: C.white, borderRadius: 999, padding: '8px 14px', fontSize: 13, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>+ Aggiungi voce</button>
+        {EXTRA_PRESETS.filter((p) => !usedLabels.includes(p.label.toLowerCase())).map((p) => (
+          <button key={p.label} onClick={() => add(p)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer', fontFamily: FONT, color: C.darkGray }}>+ {p.label}</button>
+        ))}
+        {rows.length > 0 && <span style={{ marginLeft: 'auto', fontSize: 14, color: C.gray }}>Totale voci aggiuntive: <b style={{ color: C.black }}>{formatEuro(total)}</b></span>}
+      </div>
     </div>
   );
 }
@@ -3663,15 +3800,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     const realNextItems = nextItems.filter((it) => it.type !== 'subtotal');
     const total = formatEuro(sumImpresa(realNextItems));
     const totalCliente = formatEuro(sumCliente(realNextItems));
-    if (isEditingLatest) {
-      const updatedRevisions = revisions.map((r) => (r.id === selectedRevision.id ? { ...r, ...patchWithCodes, dateModified: nowLabel(), modifiedBy: myBookmarkName, total, totalCliente } : r));
+    if (isEditingLatest && isRevisionEditable(selectedRevision)) {
+      const updatedRevisions = revisions.map((r) => (r === selectedRevision ? { ...r, ...patchWithCodes, dateModified: nowLabel(), modifiedBy: myBookmarkName, total, totalCliente } : r));
       onUpdateProject({ ...project, revisions: updatedRevisions, value: total });
     } else {
       const newRev = { ...selectedRevision, ...patchWithCodes, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0], total, totalCliente };
       onUpdateProject({ ...project, revisions: [...revisions, newRev], value: total });
       setSelectedRevisionId(newRev.id);
+      setForkNotice(`${selectedRevision.customName || selectedRevision.label} è ${isRevisionEditable(selectedRevision) ? 'una versione precedente' : `"${selectedRevision.status}"`} e resta intatta: la modifica è stata salvata nella nuova ${newRev.label}.`);
+      setTimeout(() => setForkNotice(''), 7000);
     }
   };
+  const [forkNotice, setForkNotice] = useState('');
 
   const applyItemsChange = (updater) => applyRevisionChange((rev) => ({ items: updater(rev.items || []) }));
 
@@ -4150,7 +4290,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   const openRevision = (id) => setSelectedRevisionId(id);
 
   const deleteRevision = (id) => {
-    if (!confirm('Eliminare definitivamente questa versione del computo?')) return;
+    const rev = revisions.find((r) => r.id === id);
+    const msg = rev && !isRevisionEditable(rev)
+      ? `Attenzione: "${rev.customName || rev.label}" è una versione ${rev.status.toUpperCase()}.\n\nEliminarla definitivamente? L'operazione non si può annullare.`
+      : 'Eliminare definitivamente questa versione del computo?';
+    if (!confirm(msg)) return;
     const remaining = revisions.filter((r) => r.id !== id);
     onUpdateProject({ ...project, revisions: remaining });
     if (selectedRevisionId === id) setSelectedRevisionId(remaining[remaining.length - 1]?.id);
@@ -4364,10 +4508,18 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
             <select value={selectedRevisionId} onChange={(e) => setSelectedRevisionId(revisions.find((r) => String(r.id) === e.target.value)?.id ?? selectedRevisionId)} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
               {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · modificata il {r.dateModified}</option>)}
             </select>
-            {!isEditingLatest && (
-              <span style={{ fontSize: 11, color: C.darkGray, background: 'rgba(67,67,67,0.1)', padding: '5px 10px', borderRadius: 8 }}>
+            {!isRevisionEditable(selectedRevision) ? (
+              <span style={{ fontSize: 12.5, color: C.white, background: C.maroon, padding: '7px 12px', borderRadius: 10, lineHeight: 1.4 }}>
+                🔒 Versione <b>{selectedRevision.status}</b>: è bloccata e non viene modificata. Qualunque modifica crea automaticamente una nuova revisione in attesa di approvazione.
+              </span>
+            ) : !isEditingLatest && (
+              <span style={{ fontSize: 12, color: C.darkGray, background: 'rgba(67,67,67,0.1)', padding: '6px 11px', borderRadius: 8 }}>
                 Stai visualizzando una versione precedente: la prima modifica creerà automaticamente una nuova versione, lasciando questa intatta.
               </span>
+            )}
+            {forkNotice && createPortal(
+              <div role="status" onClick={() => setForkNotice('')} style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 300, maxWidth: 420, background: '#2B2321', color: '#fff', borderRadius: 12, padding: '13px 17px', fontSize: 14, fontWeight: 300, lineHeight: 1.45, boxShadow: '0 10px 30px rgba(0,0,0,.18)', cursor: 'pointer' }}>{forkNotice}</div>,
+              document.body
             )}
           </div>
 
@@ -4892,7 +5044,13 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                                     </tr>
                                                   </thead>
                                                   <tbody>
-                                                    {detailRows.map((r, ri) => (
+                                                    {detailRows.map((r, ri) => (r.valore != null && r.valore !== '') ? (
+                                                      <tr key={ri} style={{ borderTop: `1px solid ${C.paleGray}` }}>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'left' }}>{r.segno === '-' ? '− si detrae' : '+ somma'}</td>
+                                                        <td colSpan={4} style={{ padding: '3px 6px', textAlign: 'left', color: C.midGray }}>{r.rilievoRef != null ? '📐 ' : ''}{r.descr || 'Valore diretto'}</td>
+                                                        <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{itNum(computeMisurazioneRowValue(r, it.unitaCalcolo), 2)}</td>
+                                                      </tr>
+                                                    ) : (
                                                       <tr key={ri} style={{ borderTop: `1px solid ${C.paleGray}` }}>
                                                         <td style={{ padding: '3px 6px', textAlign: 'left' }}>{r.segno === '-' ? '− si detrae' : '+ somma'}</td>
                                                         <td style={{ padding: '3px 6px', textAlign: 'right' }}>{r.parUg || '—'}</td>
@@ -5056,6 +5214,12 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                 )}
               </div>
 
+              <ExtraChargesEditor
+                charges={selectedRevision.extraCharges || []}
+                worksNet={economics.worksNetCliente}
+                locked={!isRevisionEditable(selectedRevision)}
+                onSave={(list) => applyRevisionChange(() => ({ extraCharges: list }))}
+              />
               <ComputoNoteField
                 label="Nota finale del computo"
                 hint="compare in fondo al PDF e all'Excel, dopo i totali"
@@ -5075,7 +5239,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                   </div>
                   <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.paleGray}` }}>
                     {economics.breakdown.length === 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: C.gray }}>IVA</span><span style={{ color: C.black }}>{formatEuro(0)}</span></div>}
-                    {economics.breakdown.map((b, i) => (
+                    {economics.breakdown.filter((b) => b.works).map((b, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: i ? 6 : 0 }}>
                         <span style={{ color: C.gray }}>{b.label}</span>
                         <span style={{ color: C.black }}>{formatEuro(b.ivaImpresa)}</span>
@@ -5090,9 +5254,10 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
 
                 <div style={{ ...card, maxWidth: 320, flex: 1, border: `1px solid ${C.maroon}` }}>
                   <p style={{ fontWeight: 700, fontSize: 15, margin: '0 0 12px', color: C.maroon, fontFamily: FONT }}>Quadro economico — Cliente</p>
+                  <ExtrasLines econ={economics} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13, margin: '0 0 6px', color: C.gray }} />
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8 }}>
                     <span style={{ color: C.gray }}>Totale IVA esclusa</span>
-                    <span style={{ fontWeight: 700, color: C.black }}>{formatEuro(importoLavoriCliente)}</span>
+                    <span style={{ fontWeight: 700, color: C.black }}>{formatEuro(economics.netCliente)}</span>
                   </div>
                   <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: `1px solid ${C.paleGray}` }}>
                     {economics.breakdown.length === 0 && <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}><span style={{ color: C.gray }}>IVA</span><span style={{ color: C.black }}>{formatEuro(0)}</span></div>}
@@ -5437,11 +5602,19 @@ const rowBtnStyle = { border: `1px solid ${C.paleGray}`, background: C.white, bo
 // Se il progetto non ha ancora nessuna revisione, ne crea una prima automaticamente ("Revisione 1", stessa
 // forma usata da "startComputo" nella scheda di dettaglio) invece di bloccare l'utente: il computo nasce
 // così da solo, misura dopo misura, man mano che si rileva dalle planimetrie.
+// Copia l'ultima revisione (approvata) in una nuova revisione "In attesa di approvazione" su cui lavorare.
+function forkRevisionForEdit(revisions) {
+  const src = revisions[revisions.length - 1];
+  const newRev = { ...structuredClone(src), id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0] };
+  return [...revisions, newRev];
+}
+
 function addComputoItemToProject(project, voce, qty = '1') {
   let revisions = project.revisions || [];
   if (revisions.length === 0) {
     revisions = [{ id: Date.now(), label: 'Revisione 1', customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: [], extraSections: [], total: '0,00 €', totalCliente: '0,00 €' }];
   }
+  if (!isRevisionEditable(revisions[revisions.length - 1])) revisions = forkRevisionForEdit(revisions);
   const latestRevision = revisions[revisions.length - 1];
   const impresaVal = voce.impresaValue !== undefined ? voce.impresaValue : parseEuro(voce.priceImpresa);
   const clienteVal = voce.clienteValue !== undefined ? voce.clienteValue : evalClientPrice(voce.priceCliente, impresaVal);
@@ -5457,23 +5630,47 @@ function addComputoItemToProject(project, voce, qty = '1') {
 // Incrementa la quantità di una voce GIÀ presente nella revisione più recente del computo (invece di
 // aggiungerne una nuova): usata quando una misura del rilievo viene attribuita a una voce già esistente
 // nel computo del progetto, così la quantità rilevata si somma a quella già inserita senza duplicare la riga.
-function incrementComputoItemQty(project, itemId, deltaNum) {
-  const revisions = project.revisions || [];
+// La misura NON viene solo sommata alla quantità: diventa una riga visibile nel dettaglio misurazioni della
+// voce ("Rilievo · planimetria · descrizione = valore"), così si vede da cosa è composto il totale. Ogni
+// riga ricorda la forma/il punto da cui viene (info.ref): ripremendo "Aggiorna computo" sulla stessa forma
+// la riga viene aggiornata, non aggiunta una seconda volta (niente quantità contate due volte).
+// Una voce con quantità manuale viene trasformata in righe: la quantità che aveva diventa la prima riga.
+function incrementComputoItemQty(project, itemId, deltaNum, info = {}) {
+  let revisions = project.revisions || [];
+  if (!revisions.length || !deltaNum) return { project, ok: false };
+  const current = (revisions[revisions.length - 1].items || []).find((it) => it.id === itemId);
+  if (!current) return { project, ok: false };
+  if (current.qtyLink) return { project, ok: false, reason: 'linked' };
+  if (!isRevisionEditable(revisions[revisions.length - 1])) revisions = forkRevisionForEdit(revisions);
   const latestRevision = revisions[revisions.length - 1];
-  if (!latestRevision || !deltaNum) return { project, ok: false };
   let found = false;
+  let replaced = false;
+  const fmt = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
   const nextItems = (latestRevision.items || []).map((it) => {
     if (it.id !== itemId) return it;
     found = true;
-    const newQty = parseEuro(it.qty) + deltaNum;
-    return { ...it, qty: newQty.toLocaleString('it-IT', { maximumFractionDigits: 2 }) };
+    let unitaCalcolo = it.unitaCalcolo || null;
+    let rows = (it.misurazioni || []).flatMap((g) => g.rows || []);
+    if (!unitaCalcolo) {
+      unitaCalcolo = defaultCalcForUnit(it.unit) || 'nr';
+      rows = parseEuro(it.qty) ? [{ segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(parseEuro(it.qty)), descr: 'Quantità già presente (inserita a mano)' }] : [];
+    }
+    const newRow = { segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(deltaNum), descr: info.label || 'Misura dal rilievo planimetrico', rilievoRef: info.ref ?? null };
+    if (info.ref != null && rows.some((r) => r.rilievoRef === info.ref)) {
+      rows = rows.map((r) => (r.rilievoRef === info.ref ? { ...r, valore: newRow.valore, descr: newRow.descr } : r));
+      replaced = true;
+    } else {
+      rows = [...rows, newRow];
+    }
+    const misurazioni = [{ rows }];
+    return { ...it, unitaCalcolo, misurazioni, qty: fmt(computeVoceQtyTotal(misurazioni, unitaCalcolo)) };
   });
   if (!found) return { project, ok: false };
   const realItems = nextItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(realItems));
   const totalCliente = formatEuro(sumCliente(realItems));
-  const updatedRevisions = revisions.map((r) => (r.id === latestRevision.id ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r));
-  return { project: { ...project, revisions: updatedRevisions, value: total }, ok: true };
+  const updatedRevisions = revisions.map((r) => (r === latestRevision ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r));
+  return { project: { ...project, revisions: updatedRevisions, value: total }, ok: true, replaced };
 }
 
 // --- Matematica del rilievo (scala/area/lunghezza/volume), a livello di modulo e non più chiusa dentro
@@ -5924,10 +6121,18 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
 
   // Forma collegata a una voce GIÀ ESISTENTE nel computo: somma il valore della misura alla quantità
   // già presente in quella riga, invece di creare una riga duplicata.
+  const rilievoLabel = (shape) => {
+    const pl = (project.planimetrie || []).find((p) => (p.shapes || []).some((x) => x.id === shape.id) || (p.markers || []).some((x) => x.id === shape.id));
+    const what = shape.type === 'area' ? 'area' : 'lunghezza';
+    const n = pl ? (pl.shapes || []).filter((x) => x.type === shape.type).findIndex((x) => x.id === shape.id) + 1 : 0;
+    return `Rilievo${pl?.name ? ` · ${String(pl.name).replace(/\.[a-z0-9]+$/i, '')}` : ''} · ${what}${n > 0 ? ` n. ${n}` : ''}${shapeHeightLabel(shape)}`;
+  };
+  const linkedFailMsg = 'Questa voce prende la quantità da un\'altra voce (è "collegata"): non le si possono aggiungere misure. Collega la misura alla voce di origine, oppure scollega la voce dal computo.';
   const updateShapeInComputo = (shape) => {
-    const { project: withItem, ok } = incrementComputoItemQty(project, shape.computoItemId, shape.value);
-    if (!ok) { alert('Non sono riuscito ad aggiornare la voce scelta nel computo: potrebbe essere stata rimossa o rinominata.'); return; }
+    const { project: withItem, ok, reason, replaced } = incrementComputoItemQty(project, shape.computoItemId, shape.value, { ref: shape.id, label: rilievoLabel(shape) });
+    if (!ok) { alert(reason === 'linked' ? linkedFailMsg : 'Non sono riuscito ad aggiornare la voce scelta nel computo: potrebbe essere stata rimossa o rinominata.'); return; }
     onUpdateProject(withItem);
+    if (replaced) alert('Questa misura era già nel dettaglio della voce: la riga è stata aggiornata con il valore attuale, non aggiunta una seconda volta.');
   };
 
   const shapeHeightLabel = (s) => {
@@ -5945,12 +6150,15 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   const handleMarkerConfirm = ({ source, code, computoItemId, qty }) => {
     if (!planModal) return;
     const { plId, xPct, yPct } = planModal;
-    let withItem, ok, linkCode = null, linkComputoItemId = null, linkDesc = null;
+    let withItem, ok, linkCode = null, linkComputoItemId = null, linkDesc = null, markerId = Date.now() + Math.random();
     if (source === 'computo') {
       const existingItem = latestComputoItems.find((it) => it.id === computoItemId);
       if (!existingItem) { closeModal(); return; }
-      const result = incrementComputoItemQty(project, computoItemId, parseEuro(qty || '0'));
+      markerId = Date.now() + Math.random();
+      const pl = (project.planimetrie || []).find((p) => p.id === plId);
+      const result = incrementComputoItemQty(project, computoItemId, parseEuro(qty || '0'), { ref: markerId, label: `Rilievo${pl?.name ? ` · ${String(pl.name).replace(/\.[a-z0-9]+$/i, '')}` : ''} · punto (${qty || '0'} pz)` });
       withItem = result.project; ok = result.ok;
+      if (result.reason === 'linked') { alert(linkedFailMsg); closeModal(); return; }
       linkComputoItemId = computoItemId; linkDesc = existingItem.desc;
     } else {
       const catalogItems = flattenListino(activeListino);
@@ -5964,7 +6172,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     onUpdateProject({
       ...withItem,
       planimetrie: (withItem.planimetrie || []).map((p) => (p.id === plId
-        ? { ...p, markers: [...p.markers, { id: Date.now() + Math.random(), x: xPct, y: yPct, code: linkCode, computoItemId: linkComputoItemId, desc: linkDesc }] }
+        ? { ...p, markers: [...p.markers, { id: markerId, x: xPct, y: yPct, code: linkCode, computoItemId: linkComputoItemId, desc: linkDesc }] }
         : p)),
     });
     closeModal();
@@ -6411,7 +6619,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                         <button onClick={() => startEditShape(pl, s)} style={rowBtnStyle}>✏️ Forma</button>
                         <button onClick={() => duplicatePlanShape(pl.id, s)} title="Duplica questa misura per collegarla anche a un'altra voce di listino" style={rowBtnStyle}>⧉ Duplica</button>
                         {s.computoItemId ? (
-                          <button onClick={() => updateShapeInComputo(s)} style={rowBtnStyle} title="Aggiunge il valore di questa misura alla quantità già presente nel computo">✎ Aggiorna computo</button>
+                          <button onClick={() => updateShapeInComputo(s)} style={rowBtnStyle} title="Aggiunge questa misura come riga nel dettaglio della voce del computo (se c'è già, la aggiorna)">✎ Aggiorna computo</button>
                         ) : s.code && (
                           <button onClick={() => addShapeToComputo(s)} style={rowBtnStyle} title="Crea una nuova riga nel computo con il valore di questa misura">+ Al computo</button>
                         )}
@@ -6484,19 +6692,24 @@ function DiffTable({ diff }) {
 function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, requestPdf }) {
   const [filterId, setFilterId] = useState('all'); // 'all' oppure l'id di un progetto
 
-  const updateProject = (updated) => setProjects(projects.map((p) => (p.id === updated.id ? updated : p)));
+  // Si aggiorna il progetto per riferimento (non per id): gli id dei progetti possono ripetersi nei dati.
+  const updateProject = (proj, updated) => setProjects(projects.map((p) => (p === proj ? updated : p)));
   const changeStatus = (proj, revId, status) => {
-    updateProject({ ...proj, revisions: proj.revisions.map((r) => (r.id === revId ? { ...r, status } : r)) });
+    updateProject(proj, { ...proj, revisions: proj.revisions.map((r) => (r.id === revId ? { ...r, status } : r)) });
   };
   const deleteRevision = (proj, revId) => {
-    if (!confirm('Eliminare definitivamente questa versione del computo?')) return;
-    updateProject({ ...proj, revisions: proj.revisions.filter((r) => r.id !== revId) });
+    const rev = proj.revisions.find((r) => r.id === revId);
+    const msg = rev && !isRevisionEditable(rev)
+      ? `Attenzione: "${rev.customName || rev.label}" è una versione ${rev.status.toUpperCase()}.\n\nEliminarla definitivamente? L'operazione non si può annullare.`
+      : 'Eliminare definitivamente questa versione del computo?';
+    if (!confirm(msg)) return;
+    updateProject(proj, { ...proj, revisions: proj.revisions.filter((r) => r.id !== revId) });
   };
   const renameRevision = (proj, revId) => {
     const rev = proj.revisions.find((r) => r.id === revId);
     const newName = prompt('Nuovo nome del computo (data di modifica e numero revisione restano invariati):', rev.customName || rev.label);
     if (!newName) return;
-    updateProject({ ...proj, revisions: proj.revisions.map((r) => (r.id === revId ? { ...r, customName: newName } : r)) });
+    updateProject(proj, { ...proj, revisions: proj.revisions.map((r) => (r.id === revId ? { ...r, customName: newName } : r)) });
   };
 
   const ghostPillBtn = { border: `1px solid ${C.paleGray}`, background: C.white, color: '#2B2321', fontSize: 11.5, fontWeight: 400, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' };
