@@ -5890,6 +5890,49 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     ? (project.revisions[project.revisions.length - 1].items || []).filter((it) => it.type !== 'subtotal')
     : [];
 
+  // Elenco delle misure sotto la planimetria, raggruppato come nel computo: macrocategoria → categoria ›
+  // sottocategoria. La classificazione viene dalla voce collegata: la voce del computo (se la misura è
+  // collegata a una voce già presente) oppure la voce di listino. Le misure senza voce finiscono in
+  // "Da classificare". L'ordine dei gruppi segue quello del computo, poi quello del listino.
+  const [collapsedGroups, setCollapsedGroups] = useState({});
+  const groupRilievoMeasures = (pl) => {
+    const catalog = flattenListino(activeListino);
+    const latestRev = (project.revisions || [])[project.revisions.length - 1];
+    const order = [];
+    if (latestRev) buildComputoGroups(latestRev).forEach((g) => g.categorie.forEach((c) => order.push(`${g.name}|${c.name}`)));
+    const classify = (m) => {
+      const it = m.computoItemId != null ? latestComputoItems.find((x) => x.id === m.computoItemId) : null;
+      if (it) {
+        const macro = it.section || it.macro || 'Voci varie';
+        const cat = it.categoria || 'Generale';
+        return { macro, cat, sotto: it.sottocategoria && it.sottocategoria !== 'Generale' ? it.sottocategoria : '', itemLabel: `${it.code ? it.code + ' — ' : ''}${String(it.desc || '').slice(0, 70)}` };
+      }
+      const v = m.code ? catalog.find((x) => x.code === m.code) : null;
+      if (v) return { macro: v.macro, cat: v.categoria, sotto: v.sottocategoria && v.sottocategoria !== 'Generale' ? v.sottocategoria : '', itemLabel: `${v.code} — ${String(v.desc || '').slice(0, 70)}` };
+      return { macro: 'Da classificare', cat: 'Misure non collegate a una voce', sotto: '', itemLabel: '', unassigned: true };
+    };
+    const map = new Map();
+    const push = (row, c) => {
+      const key = `${c.macro}|${c.cat}|${c.sotto}`;
+      if (!map.has(key)) map.set(key, { key, macro: c.macro, label: c.sotto ? `${c.cat} › ${c.sotto}` : c.cat, cat: c.cat, unassigned: !!c.unassigned, rows: [] });
+      map.get(key).rows.push({ ...row, itemLabel: c.itemLabel });
+    };
+    (pl.shapes || []).forEach((s) => push({ kind: 'shape', s }, classify(s)));
+    (pl.markers || []).forEach((m) => push({ kind: 'marker', m }, classify(m)));
+    const rank = (g) => {
+      if (g.unassigned) return 1e9;
+      const i = order.indexOf(`${g.macro}|${g.cat}`);
+      if (i >= 0) return i;
+      const mi = order.findIndex((k) => k.startsWith(`${g.macro}|`));
+      return mi >= 0 ? mi + 0.5 : 1e6;
+    };
+    const list = [...map.values()].sort((a, b) => rank(a) - rank(b) || a.macro.localeCompare(b.macro, 'it') || a.label.localeCompare(b.label, 'it'));
+    // tiene vicini i gruppi della stessa macrocategoria
+    const macros = [];
+    list.forEach((g) => { if (!macros.includes(g.macro)) macros.push(g.macro); });
+    return macros.flatMap((m) => list.filter((g) => g.macro === m));
+  };
+
   // planMode/planDraft sono stato locale di sola interazione (modalità attiva e punti del disegno in corso):
   // non vengono salvati, contano solo mentre questa pagina è aperta — chiave per planimetria, come nel resto del rilievo.
   const [planMode, setPlanModeRaw] = useState({});
@@ -6598,20 +6641,54 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                 )}
               </div>
 
-              {pl.markers.length > 0 && (
-                <div style={{ padding: '8px 12px', fontSize: 11, color: C.darkGray, borderTop: `1px solid ${C.paleGray}` }}>
-                  {pl.markers.length} punti aggiunti al computo · clicca un punto per rimuoverlo
-                </div>
-              )}
-
-              {(pl.shapes || []).length > 0 && (
+              {((pl.shapes || []).length > 0 || pl.markers.length > 0) && (() => {
+                const groups = groupRilievoMeasures(pl);
+                const fmtN = (n) => n.toLocaleString('it-IT', { maximumFractionDigits: 2 });
+                const totLabel = (rows) => {
+                  const byUnit = {};
+                  rows.forEach((r) => { if (r.kind === 'shape') byUnit[r.s.unit] = (byUnit[r.s.unit] || 0) + (r.s.value || 0); else byUnit.punti = (byUnit.punti || 0) + 1; });
+                  return Object.entries(byUnit).map(([u, v]) => (u === 'punti' ? `${v} punt${v === 1 ? 'o' : 'i'}` : `${fmtN(v)} ${u}`)).join(' · ');
+                };
+                const allOpen = groups.every((g) => !collapsedGroups[`${pl.id}|${g.key}`]);
+                return (
                 <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.paleGray}` }}>
-                  {pl.shapes.map((s) => (
-                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: C.black }}>Misure rilevate su questa planimetria</span>
+                    <button onClick={() => setCollapsedGroups((c) => { const n = { ...c }; groups.forEach((g) => { n[`${pl.id}|${g.key}`] = allOpen; }); return n; })} style={rowBtnStyle}>{allOpen ? '▸ Chiudi tutto' : '▾ Apri tutto'}</button>
+                  </div>
+                  {groups.map((g, gi) => {
+                    const isClosed = !!collapsedGroups[`${pl.id}|${g.key}`];
+                    const newMacro = gi === 0 || groups[gi - 1].macro !== g.macro;
+                    return (
+                    <div key={g.key} style={{ marginBottom: 6 }}>
+                      {newMacro && (
+                        <div style={{ background: g.unassigned ? '#6B625C' : C.maroon, color: C.white, borderRadius: 8, padding: '7px 12px', fontSize: 12.5, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', marginTop: gi ? 10 : 0 }}>
+                          {g.macro}
+                        </div>
+                      )}
+                      <div
+                        onClick={() => setCollapsedGroups((c) => ({ ...c, [`${pl.id}|${g.key}`]: !isClosed }))}
+                        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', cursor: 'pointer', background: '#F4EFE8', borderRadius: 8, padding: '7px 12px', marginTop: 4 }}
+                      >
+                        <span style={{ fontSize: 13, fontWeight: 600, color: C.black }}>
+                          <span style={{ display: 'inline-block', width: 14, color: '#8B8178' }}>{isClosed ? '▸' : '▾'}</span>{g.label}
+                        </span>
+                        <span style={{ fontSize: 12.5, color: '#4A403C' }}>{g.rows.length} misur{g.rows.length === 1 ? 'a' : 'e'} · <b>{totLabel(g.rows)}</b></span>
+                      </div>
+                      {!isClosed && g.rows.map((r) => r.kind === 'marker' ? (
+                    <div key={'m' + r.m.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0 6px 18px', borderBottom: `1px solid ${C.paleGray}` }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                        <span style={{ width: 18, height: 18, borderRadius: 999, background: C.maroon, color: C.white, fontSize: 9, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{pl.markers.indexOf(r.m) + 1}</span>
+                        <span style={{ fontSize: 12, color: C.black, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Punto n. {pl.markers.indexOf(r.m) + 1}{r.itemLabel ? ` — ${r.itemLabel}` : ''}</span>
+                      </div>
+                      <button onClick={() => { if (confirm(`Rimuovere il punto n. ${pl.markers.indexOf(r.m) + 1}?`)) removePunto(pl.id, r.m.id); }} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+                    </div>
+                  ) : (() => { const s = r.s; return (
+                    <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0 6px 18px', borderBottom: `1px solid ${C.paleGray}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
                         <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: C.black, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {s.desc}{s.code ? ` (${s.code})` : ''} — <strong>{s.value.toLocaleString('it-IT', { maximumFractionDigits: 2 })} {s.unit}</strong>{shapeHeightLabel(s)}
+                          {r.itemLabel || s.desc}{!r.itemLabel && s.code ? ` (${s.code})` : ''} — <strong>{s.value.toLocaleString('it-IT', { maximumFractionDigits: 2 })} {s.unit}</strong>{shapeHeightLabel(s)}
                         </span>
                       </div>
                       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
@@ -6626,9 +6703,13 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                         <button onClick={() => removePlanShape(pl.id, s.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
                       </div>
                     </div>
-                  ))}
+                  ); })())}
+                    </div>
+                    );
+                  })}
                 </div>
-              )}
+                );
+              })()}
             </div>
           );
         })}
