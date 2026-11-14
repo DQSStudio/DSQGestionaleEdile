@@ -2793,6 +2793,31 @@ function buildComputoGroups(revision) {
   });
 }
 
+// --- Parti del computo (piani, lotti, sezioni personalizzate): livello sopra le macrosezioni ---
+// Ogni voce può avere item.parte (nome della parte); revision.parti tiene l'elenco ordinato. Le voci senza
+// parte restano "Senza parte". Le macrosezioni, l'IVA e gli sconti restano per macrosezione: le parti servono
+// a filtrare il computo e a mostrare il totale di ogni piano/sezione.
+const NO_PARTE = '__senza_parte__';
+const getParti = (revision) => {
+  const list = [...(revision?.parti || [])];
+  (revision?.items || []).forEach((it) => { if (it.type !== 'subtotal' && it.parte && !list.includes(it.parte)) list.push(it.parte); });
+  return list;
+};
+const itemParte = (it, parti) => (it.parte && parti.includes(it.parte) ? it.parte : NO_PARTE);
+// Totale di ogni parte (IVA esclusa, con gli sconti di sezione): [] se il computo non è diviso in parti.
+function computePartsSummary(revision) {
+  const parti = getParti(revision);
+  if (!parti.length) return [];
+  const real = (revision.items || []).filter((it) => it.type !== 'subtotal');
+  const names = [...parti];
+  if (real.some((it) => itemParte(it, parti) === NO_PARTE)) names.push(NO_PARTE);
+  return names.map((name) => {
+    const sub = { ...revision, items: real.filter((it) => itemParte(it, parti) === name), extraCharges: [] };
+    const e = computeEconomics(sub);
+    return { name, label: name === NO_PARTE ? 'Senza parte' : name, count: sub.items.length, netImpresa: e.netImpresa, netCliente: e.worksNetCliente };
+  }).filter((x) => x.count > 0);
+}
+
 // Propone una lavorazione di cronoprogramma per ogni categoria del computo (stessa granularità e stessi
 // colori di "Stati avanzamento pagamenti", che raggruppa invece per macrosezione): "Murature", "Tinteggiatura"
 // ecc. invece di una riga per singola voce, troppo minuta per una schedulazione lavori. Ogni proposta porta con
@@ -3049,6 +3074,15 @@ async function exportComputoExcel(project, revision, mode) {
     totalsRow(`Totale ${g.name} IVA inclusa`, pick('totImpresa', 'totCliente'), { bold: true });
   });
 
+  // --- Riepilogo per parte (piani/sezioni) ---
+  const partsSummaryXl = muto ? [] : computePartsSummary(revision);
+  if (partsSummaryXl.length) {
+    ws.addRow([]).height = 10;
+    const ph = mergedText('RIEPILOGO PER PARTE', { font: { bold: true, size: 11, color: { argb: ACC } }, fill: 'FFF4EAEA', height: 20 });
+    ph.getCell(1).alignment = { vertical: 'middle' };
+    partsSummaryXl.forEach((pp) => totalsRow(pp.label, Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? pp.netImpresa : pp.netCliente])), {}));
+  }
+
   // --- Totale generale ---
   ws.addRow([]).height = 10;
   if (muto) {
@@ -3189,6 +3223,13 @@ async function exportComputoRiepilogoExcel(project, revision) {
     totalRow(`Totale ${g.name} IVA inclusa`, s.totCliente, { color: GRAY, size: 9 });
   });
 
+  const partsSummaryR = computePartsSummary(revision);
+  if (partsSummaryR.length) {
+    ws.addRow([]).height = 8;
+    const ph = merged('RIEPILOGO PER PARTE', { bold: true, size: 11, color: { argb: ACC } }, 20, 'FFF4EAEA');
+    ph.getCell(1).alignment = { vertical: 'middle', indent: 1 };
+    partsSummaryR.forEach((pp) => totalRow(pp.label, pp.netCliente, {}));
+  }
   ws.addRow([]).height = 10;
   if (econ.extras.length) {
     totalRow('Totale lavori IVA esclusa', econ.worksNetCliente, { top: 'thin' });
@@ -3541,6 +3582,32 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
         </div>
         );
       })}
+      {!noPrices && (() => {
+        const ps = computePartsSummary(revision);
+        if (!ps.length) return null;
+        const cellR = { padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+        return (
+          <div style={{ marginTop: 28, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+            <h3 style={{ fontSize: 11.5, fontWeight: 700, margin: '0 0 8px', padding: '1px 0 1px 10px', borderLeft: `3px solid ${C.maroon}`, textTransform: 'uppercase', letterSpacing: 0.6, color: '#1A1A1A' }}>Riepilogo per parte</h3>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 10 }}>
+              <thead><tr style={{ fontSize: 8, textTransform: 'uppercase', letterSpacing: 0.5, color: '#8A8A8A' }}>
+                <th style={{ textAlign: 'left', padding: '4px 6px', borderBottom: '1.5px solid #1A1A1A' }}>Parte</th>
+                {!clientOnly && <th style={{ ...cellR, borderBottom: '1.5px solid #1A1A1A' }}>Importo impresa</th>}
+                <th style={{ ...cellR, borderBottom: '1.5px solid #1A1A1A' }}>{clientOnly ? 'Importo' : 'Importo cliente'} (IVA esclusa)</th>
+              </tr></thead>
+              <tbody>
+                {ps.map((p) => (
+                  <tr key={p.name} style={{ borderBottom: '1px solid #F0EEE8' }}>
+                    <td style={{ padding: '4px 6px' }}>{p.label}</td>
+                    {!clientOnly && <td style={cellR}>{formatEuro(p.netImpresa)}</td>}
+                    <td style={{ ...cellR, color: C.maroon, fontWeight: 600 }}>{formatEuro(p.netCliente)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
       <div style={{ marginTop: 30, maxWidth: 320, marginLeft: 'auto', breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         {noPrices && (
           <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, fontSize: 12, fontWeight: 700, color: '#1A1A1A', padding: '6px 0' }}>
@@ -3584,6 +3651,42 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
           </td></tr>
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// Barra delle parti del computo (piani/sezioni): "Tutto", una scheda per parte, "Senza parte", "+ Parte".
+function ComputoPartiBar({ parti, activeParte, counts, totalCount, onSelect, onAdd, onRename, onDelete, onMove }) {
+  const chip = (key, label, count, active) => (
+    <button key={key} onClick={() => onSelect(key)} style={{ border: active ? 'none' : `1px solid ${C.paleGray}`, background: active ? C.black : C.white, color: active ? C.white : C.black, borderRadius: 999, padding: '8px 14px', fontSize: 13.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' }}>
+      {label} <span style={{ opacity: 0.6, fontWeight: 400 }}>{count}</span>
+    </button>
+  );
+  const isPart = parti.includes(activeParte);
+  return (
+    <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '10px 12px', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#8B8178', marginRight: 4 }}>Parti / piani</span>
+        {parti.length > 0 && chip('__all__', 'Tutto', totalCount, activeParte === '__all__')}
+        {parti.map((n) => chip(n, n, counts[n] || 0, activeParte === n))}
+        {parti.length > 0 && (counts[NO_PARTE] || 0) > 0 && chip(NO_PARTE, 'Senza parte', counts[NO_PARTE], activeParte === NO_PARTE)}
+        <button onClick={onAdd} style={{ border: `1px dashed ${C.paleGray}`, background: 'transparent', color: C.darkGray, borderRadius: 999, padding: '8px 14px', fontSize: 13, cursor: 'pointer', fontFamily: FONT }}>+ Parte</button>
+        {isPart && (
+          <span style={{ display: 'inline-flex', gap: 6, marginLeft: 'auto' }}>
+            <button onClick={() => onMove(activeParte, 'left')} title="Sposta a sinistra" style={rowBtnStyle}>◀</button>
+            <button onClick={() => onMove(activeParte, 'right')} title="Sposta a destra" style={rowBtnStyle}>▶</button>
+            <button onClick={() => onRename(activeParte)} style={rowBtnStyle}>✎ Rinomina</button>
+            <button onClick={() => onDelete(activeParte)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑 Elimina parte</button>
+          </span>
+        )}
+      </div>
+      {parti.length === 0 ? (
+        <p style={{ fontSize: 12.5, color: C.gray, margin: '6px 0 0' }}>Dividi il computo per piani o sezioni (es. Piano terra, Primo piano, Esterni): crea una parte con "+ Parte". Le voci già inserite restano "Senza parte" finché non le sposti.</p>
+      ) : activeParte !== '__all__' ? (
+        <p style={{ fontSize: 12.5, color: C.gray, margin: '6px 0 0' }}>Stai vedendo solo {activeParte === NO_PARTE ? 'le voci senza parte' : `"${activeParte}"`}: i subtotali delle sezioni sono di questa parte, il quadro economico resta quello generale.{activeParte !== NO_PARTE ? ' Le voci che aggiungi ora entrano in questa parte.' : ''} Per spostare voci, spuntale e usa la barra in basso.</p>
+      ) : (
+        <p style={{ fontSize: 12.5, color: C.gray, margin: '6px 0 0' }}>Scegli una parte per vedere e completare solo le sue voci. Per spostare voci da una parte o sezione all'altra, spuntale e usa la barra in basso.</p>
+      )}
     </div>
   );
 }
@@ -3736,8 +3839,22 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   // Raggruppamento a tre livelli (macrocategoria > categoria > sottocategoria), calcolato da
   // buildComputoGroups (condiviso anche con la stampa PDF e l'export Excel, così restano sempre
   // coerenti con quanto mostrato qui a schermo).
-  const groupedSections = buildComputoGroups(selectedRevision);
-  const allSectionNames = groupedSections.map((s) => s.name);
+  // Parti (piani/sezioni personalizzate): con una parte scelta, il computo mostra solo le sue voci e i
+  // subtotali di sezione sono quelli di quella parte; il quadro economico resta quello generale.
+  const parti = getParti(selectedRevision);
+  const [activeParte, setActiveParte] = useState('__all__');
+  const parteFilterOn = activeParte !== '__all__' && parti.length > 0;
+  const viewRevision = parteFilterOn
+    ? { ...selectedRevision, items: items.filter((it) => it.type !== 'subtotal' && itemParte(it, parti) === activeParte) }
+    : selectedRevision;
+  const fullGroups = buildComputoGroups(selectedRevision);
+  const groupedSections = buildComputoGroups(viewRevision);
+  const allSectionNames = fullGroups.map((s) => s.name);
+  // Selezione multipla di voci (per spostarle in un'altra parte, macrosezione o categoria)
+  const [selectedItemIds, setSelectedItemIds] = useState([]);
+  const isItemSelected = (id) => selectedItemIds.includes(String(id));
+  const toggleItemSelected = (id) => setSelectedItemIds((sel) => (sel.includes(String(id)) ? sel.filter((x) => x !== String(id)) : [...sel, String(id)]));
+  const [moveTarget, setMoveTarget] = useState({ parte: '', macro: '', categoria: '' });
 
   // Ricerca testuale fra le voci del computo aperto (per codice o descrizione): utile per ritrovare in
   // fretta una voce già inserita e da aggiornare/sistemare, senza dover scorrere a occhio tutto il computo.
@@ -3755,7 +3872,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
 
-  let importoLavori = 0;
+  let importoLavori = 0; // (ricalcolato sotto dal quadro economico generale)
   let importoLavoriCliente = 0;
   groupedSections.forEach((s) => {
     const realSectionItems = s.items.filter((it) => it.type !== 'subtotal');
@@ -3769,8 +3886,12 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   });
 
   const economics = computeEconomics(selectedRevision);
+  const economicsView = parteFilterOn ? computeEconomics(viewRevision) : economics;
+  importoLavori = economics.netImpresa;
+  importoLavoriCliente = economics.worksNetCliente;
+  const partsSummary = computePartsSummary(selectedRevision);
   groupedSections.forEach((s) => {
-    const e = economics.sections.find((x) => x.name === s.name);
+    const e = economicsView.sections.find((x) => x.name === s.name);
     if (e) Object.assign(s, { vat: e.vat, ivaImpresa: e.ivaImpresa, ivaCliente: e.ivaCliente, totImpresa: e.totImpresa, totCliente: e.totCliente });
   });
   const totale = economics.totImpresa;
@@ -3794,7 +3915,12 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   // Ricalcola sempre i codici delle voci col codice automatico, in modo che qualunque spostamento
   // (voce, sottocategoria o macrocategoria) tenga i codici coerenti con la posizione attuale.
   const applyRevisionChange = (updater) => {
-    const patch = updater(selectedRevision);
+    let patch = updater(selectedRevision);
+    // Con una parte scelta, le voci nuove (aggiunte da listino, fornitori, a mano…) entrano in quella parte.
+    if (patch.items && parteFilterOn && activeParte !== NO_PARTE) {
+      const prevIds = new Set(items.map((it) => String(it.id)));
+      patch = { ...patch, items: patch.items.map((it) => (it.type !== 'subtotal' && !prevIds.has(String(it.id)) && !it.parte ? { ...it, parte: activeParte } : it)) };
+    }
     const nextItems = regenerateItemCodes(resolveLinkedQuantities(patch.items || items));
     const patchWithCodes = patch.items ? { ...patch, items: nextItems } : patch;
     const realNextItems = nextItems.filter((it) => it.type !== 'subtotal');
@@ -3981,6 +4107,56 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
       [next[idxA], next[idxB]] = [next[idxB], next[idxA]];
       return next;
     });
+  };
+
+  const addParte = () => {
+    const name = (prompt('Nome della nuova parte (es. "Piano terra", "Primo piano", "Esterni", "Lotto A"):') || '').trim();
+    if (!name) return;
+    if (parti.includes(name)) { setActiveParte(name); return; }
+    applyRevisionChange((rev) => ({ parti: [...getParti(rev), name] }));
+    setActiveParte(name);
+  };
+  const renameParte = (oldName) => {
+    const name = (prompt('Rinomina parte:', oldName) || '').trim();
+    if (!name || name === oldName) return;
+    if (parti.includes(name)) { alert('Esiste già una parte con questo nome.'); return; }
+    applyRevisionChange((rev) => ({
+      parti: getParti(rev).map((n) => (n === oldName ? name : n)),
+      items: (rev.items || []).map((it) => (it.parte === oldName ? { ...it, parte: name } : it)),
+    }));
+    setActiveParte(name);
+  };
+  const deleteParte = (name) => {
+    const n = realItems.filter((it) => it.parte === name).length;
+    if (!confirm(n ? `Eliminare la parte "${name}"? Le sue ${n} voci NON vengono cancellate: restano nel computo come "Senza parte".` : `Eliminare la parte "${name}"?`)) return;
+    applyRevisionChange((rev) => ({
+      parti: getParti(rev).filter((x) => x !== name),
+      items: (rev.items || []).map((it) => (it.parte === name ? { ...it, parte: null } : it)),
+    }));
+    setActiveParte('__all__');
+  };
+  const moveParte = (name, dir) => {
+    const list = [...parti];
+    const i = list.indexOf(name);
+    const j = dir === 'left' ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    applyRevisionChange(() => ({ parti: list }));
+  };
+  // Sposta le voci selezionate: nella parte scelta e/o nella macrosezione (+ categoria) scelta.
+  const moveSelectedItems = () => {
+    const { parte, macro, categoria } = moveTarget;
+    if (!parte && !macro) { alert('Scegli la parte e/o la macrosezione di destinazione.'); return; }
+    const ids = new Set(selectedItemIds);
+    applyItemsChange((its) => its.map((it) => {
+      if (!ids.has(String(it.id))) return it;
+      let next = { ...it };
+      if (parte) next.parte = parte === NO_PARTE ? null : parte;
+      if (macro) next = { ...next, section: macro, macro, categoria: categoria || (macro === (it.section || it.macro) ? it.categoria : 'Generale') || 'Generale', sottocategoria: categoria ? 'Generale' : (macro === (it.section || it.macro) ? it.sottocategoria : 'Generale') };
+      return next;
+    }));
+    setSelectedItemIds([]);
+    setMoveTarget({ parte: '', macro: '', categoria: '' });
   };
 
   const addCustomSection = () => {
@@ -4740,6 +4916,17 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
             </div>
 
             <div style={{ flex: 1, minWidth: 320 }}>
+              <ComputoPartiBar
+                parti={parti}
+                activeParte={parteFilterOn ? activeParte : '__all__'}
+                counts={Object.fromEntries([...parti, NO_PARTE].map((n) => [n, realItems.filter((it) => itemParte(it, parti) === n).length]))}
+                totalCount={realItems.length}
+                onSelect={(n) => { setActiveParte(n); setSelectedItemIds([]); }}
+                onAdd={addParte}
+                onRename={renameParte}
+                onDelete={deleteParte}
+                onMove={moveParte}
+              />
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 8, flexWrap: 'wrap', position: 'sticky', top: 'var(--header-h, 68px)', zIndex: 15, background: '#FAF9F6', padding: '8px 0' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: '1 1 220px', maxWidth: 320 }}>
                   <input
@@ -4931,7 +5118,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                       <React.Fragment key={it.id}>
                                       <tr id={`computo-item-${it.id}`} className="no-print-zero-flag" title={hasZeroValue ? 'Un valore di questa voce è a zero (quantità o prezzo) — solo a schermo, per segnalartelo: non compare né nel PDF né nell\'export Excel.' : undefined} style={{ borderTop: `1px solid ${C.paleGray}`, background: rowBg }}>
                                         <td style={{ padding: '8px 6px' }}>
-                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
+                                            <input type="checkbox" checked={isItemSelected(it.id)} onChange={() => toggleItemSelected(it.id)} title="Seleziona per spostare in un'altra parte o macrosezione" style={{ width: 16, height: 16, accentColor: C.maroon, cursor: 'pointer', margin: '0 0 2px' }} />
                                             {hasDetail && (
                                               <button
                                                 onClick={() => setExpandedItems((ex) => ({ ...ex, [it.id]: !ex[it.id] }))}
@@ -4955,6 +5143,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                         <td style={{ padding: '8px 6px', fontWeight: 700, color: C.black }}>{it.code}</td>
                                         <td style={{ padding: '8px 6px', color: C.midGray }}>
                                           {it.desc}
+                                          {!parteFilterOn && parti.length > 0 && (
+                                            <span style={{ display: 'inline-block', marginLeft: 6, fontSize: 10.5, fontWeight: 600, color: itemParte(it, parti) === NO_PARTE ? '#8B8178' : C.maroon, background: itemParte(it, parti) === NO_PARTE ? '#F1ECE6' : 'rgba(134,45,45,0.08)', borderRadius: 999, padding: '1px 8px', verticalAlign: 'middle' }}>
+                                              {itemParte(it, parti) === NO_PARTE ? 'senza parte' : it.parte}
+                                            </span>
+                                          )}
                                           {it.qtyLink && (() => {
                                             const src = realItems.find((x) => String(x.id) === String(it.qtyLink.sourceId));
                                             return (
@@ -5214,6 +5407,58 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                 )}
               </div>
 
+              {selectedItemIds.length > 0 && createPortal(
+                <div style={{ position: 'fixed', left: '50%', bottom: 18, transform: 'translateX(-50%)', zIndex: 150, background: '#2B2321', color: '#fff', borderRadius: 16, padding: '12px 16px', boxShadow: '0 14px 40px rgba(0,0,0,.28)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', maxWidth: 'calc(100vw - 32px)', fontFamily: FONT }}>
+                  <b style={{ fontSize: 14, fontWeight: 600 }}>{selectedItemIds.length} voc{selectedItemIds.length === 1 ? 'e' : 'i'} selezionat{selectedItemIds.length === 1 ? 'a' : 'e'}</b>
+                  <span style={{ fontSize: 13, color: '#C9BFB4' }}>Sposta in:</span>
+                  {parti.length > 0 && (
+                    <select value={moveTarget.parte} onChange={(e) => setMoveTarget((m) => ({ ...m, parte: e.target.value }))} style={{ fontSize: 13, padding: '7px 9px', borderRadius: 9, border: 'none' }}>
+                      <option value="">Parte (invariata)</option>
+                      {parti.map((n) => <option key={n} value={n}>{n}</option>)}
+                      <option value={NO_PARTE}>Senza parte</option>
+                    </select>
+                  )}
+                  <select value={moveTarget.macro} onChange={(e) => setMoveTarget((m) => ({ ...m, macro: e.target.value, categoria: '' }))} style={{ fontSize: 13, padding: '7px 9px', borderRadius: 9, border: 'none' }}>
+                    <option value="">Macrosezione (invariata)</option>
+                    {allSectionNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                  {moveTarget.macro && (
+                    <select value={moveTarget.categoria} onChange={(e) => setMoveTarget((m) => ({ ...m, categoria: e.target.value }))} style={{ fontSize: 13, padding: '7px 9px', borderRadius: 9, border: 'none' }}>
+                      <option value="">Categoria: come ora / Generale</option>
+                      {(fullGroups.find((g) => g.name === moveTarget.macro)?.categorie || []).map((c) => <option key={c.name} value={c.name}>{c.name}</option>)}
+                    </select>
+                  )}
+                  <button onClick={moveSelectedItems} style={{ border: 'none', background: C.maroon, color: '#fff', borderRadius: 999, padding: '8px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Sposta</button>
+                  <button onClick={() => setSelectedItemIds(groupedSections.flatMap((g) => g.items).filter((it) => it.type !== 'subtotal' && (!voceSearchTerm || itemMatchesSearch(it))).map((it) => String(it.id)))} style={{ border: '1px solid #6B625C', background: 'transparent', color: '#fff', borderRadius: 999, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer' }}>Seleziona tutte le visibili</button>
+                  <button onClick={() => { setSelectedItemIds([]); setMoveTarget({ parte: '', macro: '', categoria: '' }); }} style={{ border: '1px solid #6B625C', background: 'transparent', color: '#fff', borderRadius: 999, padding: '7px 12px', fontSize: 12.5, cursor: 'pointer' }}>Annulla</button>
+                </div>,
+                document.body
+              )}
+              {partsSummary.length > 0 && (
+                <div style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '14px 16px', margin: '0 0 12px' }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: C.black, fontFamily: FONT, marginBottom: 8 }}>Riepilogo per parte <span style={{ fontSize: 12, fontWeight: 400, color: C.gray }}>(IVA esclusa, con gli sconti di sezione)</span></div>
+                  <div className="table-scroll">
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13.5 }}>
+                      <thead><tr style={{ color: C.gray, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}><th style={{ textAlign: 'left', padding: '5px 6px' }}>Parte</th><th style={{ textAlign: 'right', padding: '5px 6px' }}>Voci</th><th style={{ textAlign: 'right', padding: '5px 6px' }}>Impresa</th><th style={{ textAlign: 'right', padding: '5px 6px' }}>Cliente</th></tr></thead>
+                      <tbody>
+                        {partsSummary.map((p) => (
+                          <tr key={p.name} onClick={() => setActiveParte(p.name)} style={{ borderTop: `1px solid ${C.paleGray}`, cursor: 'pointer' }} title="Mostra solo questa parte">
+                            <td style={{ padding: '7px 6px', fontWeight: 500, color: p.name === NO_PARTE ? C.gray : C.black }}>{p.label}</td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', color: C.gray }}>{p.count}</td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{formatEuro(p.netImpresa)}</td>
+                            <td style={{ padding: '7px 6px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: C.maroon, fontWeight: 600 }}>{formatEuro(p.netCliente)}</td>
+                          </tr>
+                        ))}
+                        <tr style={{ borderTop: `1.5px solid ${C.black}` }}>
+                          <td style={{ padding: '7px 6px', fontWeight: 700 }}>Totale lavori</td><td />
+                          <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700 }}>{formatEuro(economics.netImpresa)}</td>
+                          <td style={{ padding: '7px 6px', textAlign: 'right', fontWeight: 700, color: C.maroon }}>{formatEuro(economics.worksNetCliente)}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
               <ExtraChargesEditor
                 charges={selectedRevision.extraCharges || []}
                 worksNet={economics.worksNetCliente}
