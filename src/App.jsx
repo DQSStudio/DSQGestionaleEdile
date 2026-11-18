@@ -4394,10 +4394,13 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   React.useEffect(() => { refreshPendingOfferte(); }, [refreshPendingOfferte]);
 
   // Accettazione di un'offerta: nuova revisione copiata da quella inviata all'impresa, intitolata con il nome
-  // dell'impresa, con i prezzi offerti come prezzi impresa. Prezzi cliente: invariati oppure prezzo offerto +
-  // ricarico %. Le voci che l'impresa non ha quotato restano come sono.
-  const acceptOffer = (offerta, link, clienteMode, ricarico) => {
-    const source = revisions.find((r) => String(r.id) === String(link?.revision_id)) || latestRevision;
+  // dell'impresa, con i prezzi offerti come prezzi impresa. Prezzi cliente: uguali al prezzo offerto oppure
+  // prezzo offerto + ricarico %. Le voci che l'impresa non ha quotato restano come sono.
+  // replaceRevId: revisione creata da un'accettazione precedente della stessa offerta, da eliminare.
+  const acceptOffer = (offerta, link, clienteMode, ricarico, replaceRevId) => {
+    const replaced = replaceRevId ? revisions.find((r) => String(r.id) === String(replaceRevId)) : null;
+    const baseRevisions = replaced ? revisions.filter((r) => r !== replaced) : revisions;
+    const source = baseRevisions.find((r) => String(r.id) === String(link?.revision_id)) || baseRevisions[baseRevisions.length - 1];
     if (!source) { alert('Questo progetto non ha più revisioni a cui applicare l\'offerta.'); return null; }
     const prezzi = new Map((offerta.prezzi || []).map((p) => [String(p.id), p]));
     const newItems = structuredClone(source.items || []).map((it) => {
@@ -4407,17 +4410,19 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
       const imp = Number(p.price) || 0;
       const next = { ...it, unitPriceImpresa: formatEuro(imp).replace(' €', '') };
       if (clienteMode === 'ricarico') next.unitPriceCliente = formatEuro(imp * (1 + (Number(ricarico) || 0) / 100)).replace(' €', '');
+      else if (clienteMode === 'impresa') next.unitPriceCliente = formatEuro(imp).replace(' €', '');
       return next;
     });
     const real = newItems.filter((it) => it.type !== 'subtotal');
     const total = formatEuro(sumImpresa(real));
     const totalCliente = formatEuro(sumCliente(real));
     const newRev = {
-      ...structuredClone(source), id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: offerta.impresa_nome || link?.impresa_nome || 'Offerta impresa',
+      ...structuredClone(source), id: Date.now(), label: replaced?.label || `Revisione ${baseRevisions.length + 1}`, customName: offerta.impresa_nome || link?.impresa_nome || 'Offerta impresa',
       dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0],
-      items: newItems, total, totalCliente, offerta: { id: offerta.id, impresa: offerta.impresa_nome, totale: Number(offerta.totale) || 0 },
+      items: newItems, total, totalCliente,
+      offerta: { id: offerta.id, impresa: offerta.impresa_nome, totale: Number(offerta.totale) || 0, prezziCliente: clienteMode === 'ricarico' ? `+${Number(ricarico) || 0}%` : 'prezzi impresa' },
     };
-    onUpdateProject({ ...project, revisions: [...revisions, newRev], value: total });
+    onUpdateProject({ ...project, revisions: [...baseRevisions, newRev], value: total });
     setSelectedRevisionId(newRev.id);
     return newRev.id;
   };
@@ -9077,21 +9082,162 @@ const offertaUrl = (token) => `${window.location.origin}${window.location.pathna
 
 // Fotografia del computo inviata all'impresa: solo struttura, voci, quantità e note visibili al cliente —
 // nessun prezzo dello studio.
-function buildOffertaSnapshot(project, revision) {
-  const groups = buildComputoGroups(revision);
+// Chiave di selezione di una categoria dentro una macrosezione (per scegliere cosa mandare all'impresa).
+const offertaCatKey = (macro, cat) => `${macro}\u0001${cat}`;
+const offertaItemMacro = (it) => it.section || it.macro || 'Voci varie';
+const offertaItemCat = (it) => it.categoria || 'Generale';
+// selezione: null = tutto il computo; altrimenti { cats: Set di offertaCatKey, parti: Set di nomi parte (o NO_PARTE) }.
+function offertaFilterItems(revision, selezione) {
+  const parti = getParti(revision);
+  return (revision?.items || []).filter((it) => {
+    if (it.type === 'subtotal') return false;
+    if (!selezione) return true;
+    if (!selezione.cats.has(offertaCatKey(offertaItemMacro(it), offertaItemCat(it)))) return false;
+    if (parti.length && !selezione.parti.has(itemParte(it, parti))) return false;
+    return true;
+  });
+}
+function buildOffertaSnapshot(project, revision, selezione = null) {
+  const parti = getParti(revision);
+  const chosen = offertaFilterItems(revision, selezione);
+  const toSections = (items, prefix) => buildComputoGroups({ ...revision, items, extraSections: [], categorieDefinite: {} }).map((g) => ({
+    name: prefix ? `${prefix} — ${g.name}` : g.name,
+    ...(prefix ? { parte: prefix } : {}),
+    categorie: g.categorie.filter((c) => c.items.length).map((c) => ({
+      name: c.name,
+      items: c.items.map((it) => ({ id: String(it.id), code: it.code || '', desc: it.desc || '', qty: it.qty || '0', unit: it.unit || '', note: it.noteCliente || '' })),
+    })),
+  })).filter((sec) => sec.categorie.length);
+  // Computo diviso in piani/parti: ogni macrosezione viene ripetuta per parte ("Piano terra — Demolizioni"),
+  // così l'impresa vede le quantità di ogni piano separate.
+  let sections;
+  if (parti.length) {
+    const names = [...parti, NO_PARTE];
+    sections = names.flatMap((name) => toSections(chosen.filter((it) => itemParte(it, parti) === name), name === NO_PARTE ? 'Senza parte' : name));
+  } else {
+    sections = toSections(chosen, '');
+  }
+  const totaleVoci = offertaFilterItems(revision, null).length;
+  const filtro = selezione ? {
+    parziale: chosen.length < totaleVoci,
+    voci: chosen.length,
+    totaleVoci,
+    macrosezioni: [...new Set(chosen.map(offertaItemMacro))],
+    parti: parti.length ? [...new Set(chosen.map((it) => itemParte(it, parti)))].map((n) => (n === NO_PARTE ? 'Senza parte' : n)) : [],
+  } : null;
   return {
     noteInizio: revision.noteInizio || '',
     noteFine: revision.noteFine || '',
     ubicazione: project.header?.ubicazione || '',
-    sections: groups.map((g) => ({
-      name: g.name,
-      categorie: g.categorie.filter((c) => c.items.length).map((c) => ({
-        name: c.name,
-        items: c.items.map((it) => ({ id: String(it.id), code: it.code || '', desc: it.desc || '', qty: it.qty || '0', unit: it.unit || '', note: it.noteCliente || '' })),
-      })),
-    })).filter((s) => s.categorie.length),
+    sections,
+    ...(filtro ? { filtro } : {}),
   };
 }
+
+// Scelta di cosa mandare all'impresa: piani/parti (se il computo è diviso) e macrosezioni, con la possibilità
+// di aprire una macrosezione e scegliere le singole categorie.
+function OffertaSelezione({ revision, selezione, onChange }) {
+  const [open, setOpen] = useState({});
+  const parti = getParti(revision);
+  const real = (revision?.items || []).filter((it) => it.type !== 'subtotal');
+  const parteNames = parti.length ? [...parti, ...(real.some((it) => itemParte(it, parti) === NO_PARTE) ? [NO_PARTE] : [])] : [];
+  const inParti = (it) => !parti.length || selezione.parti.has(itemParte(it, parti));
+  const groups = buildComputoGroups({ ...revision, items: real, extraSections: [], categorieDefinite: {} }).filter((g) => g.categorie.some((c) => c.items.length));
+  const countCat = (c) => c.items.filter(inParti).length;
+  const chosen = offertaFilterItems(revision, selezione).length;
+
+  const setCats = (keys, on) => {
+    const cats = new Set(selezione.cats);
+    keys.forEach((k) => (on ? cats.add(k) : cats.delete(k)));
+    onChange({ ...selezione, cats });
+  };
+  const toggleParte = (name) => {
+    const ps = new Set(selezione.parti);
+    if (ps.has(name)) ps.delete(name); else ps.add(name);
+    onChange({ ...selezione, parti: ps });
+  };
+  const allKeys = groups.flatMap((g) => g.categorie.filter((c) => c.items.length).map((c) => offertaCatKey(g.name, c.name)));
+  const linkBtn = { border: 'none', background: 'transparent', color: C.maroon, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0, fontFamily: FONT };
+  const box = { width: 18, height: 18, accentColor: C.maroon, cursor: 'pointer', flexShrink: 0 };
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      {parteNames.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.black, marginBottom: 6 }}>Piani / parti da inviare</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {parteNames.map((name) => {
+              const on = selezione.parti.has(name);
+              const n = real.filter((it) => itemParte(it, parti) === name).length;
+              return (
+                <button key={name} onClick={() => toggleParte(name)} style={{ border: `1px solid ${on ? C.maroon : C.paleGray}`, background: on ? C.maroon : C.white, color: on ? C.white : C.darkGray, borderRadius: 999, padding: '7px 13px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT }}>
+                  {on ? '✓ ' : ''}{name === NO_PARTE ? 'Senza parte' : name} <span style={{ opacity: 0.75 }}>({n})</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: C.black }}>Sezioni da inviare</div>
+        <div style={{ display: 'flex', gap: 14 }}>
+          <button style={linkBtn} onClick={() => setCats(allKeys, true)}>Seleziona tutte</button>
+          <button style={linkBtn} onClick={() => setCats(allKeys, false)}>Nessuna</button>
+        </div>
+      </div>
+      <div style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, background: C.white, maxHeight: 300, overflowY: 'auto' }}>
+        {groups.map((g, gi) => {
+          const cats = g.categorie.filter((c) => c.items.length);
+          const keys = cats.map((c) => offertaCatKey(g.name, c.name));
+          const nOn = keys.filter((k) => selezione.cats.has(k)).length;
+          const all = nOn === keys.length;
+          const some = nOn > 0 && !all;
+          const nItems = cats.reduce((n, c) => n + (selezione.cats.has(offertaCatKey(g.name, c.name)) ? countCat(c) : 0), 0);
+          const isOpen = !!open[g.name];
+          return (
+            <div key={g.name} style={{ borderTop: gi ? `1px solid ${C.paleGray}` : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
+                <input type="checkbox" checked={all} ref={(el) => { if (el) el.indeterminate = some; }} onChange={() => setCats(keys, !all)} style={box} aria-label={`Invia ${g.name}`} />
+                <span style={{ width: 8, height: 8, borderRadius: 999, background: g.color, flexShrink: 0 }} />
+                <span onClick={() => setCats(keys, !all)} style={{ flex: 1, minWidth: 0, fontSize: 13.5, fontWeight: 600, color: C.black, cursor: 'pointer' }}>{g.name}</span>
+                <span style={{ fontSize: 12, color: C.gray, whiteSpace: 'nowrap' }}>{nOn ? nVoci(nItems) : 'esclusa'}</span>
+                {cats.length > 1 && (
+                  <button onClick={() => setOpen((o) => ({ ...o, [g.name]: !isOpen }))} style={{ ...linkBtn, color: C.darkGray, fontWeight: 500 }}>{isOpen ? 'Chiudi ▴' : `Categorie (${nOn}/${cats.length}) ▾`}</button>
+                )}
+              </div>
+              {isOpen && cats.map((c) => {
+                const k = offertaCatKey(g.name, c.name);
+                const on = selezione.cats.has(k);
+                return (
+                  <label key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px 7px 46px', cursor: 'pointer', background: '#FCFAF7' }}>
+                    <input type="checkbox" checked={on} onChange={() => setCats([k], !on)} style={box} />
+                    <span style={{ flex: 1, fontSize: 13, color: C.black }}>{c.name}</span>
+                    <span style={{ fontSize: 12, color: C.gray }}>{nVoci(countCat(c))}</span>
+                  </label>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+      <p style={{ fontSize: 12.5, color: chosen ? C.darkGray : C.maroon, margin: '8px 0 0', fontWeight: 500 }}>
+        {chosen ? `L'impresa riceverà ${chosen} ${chosen === 1 ? 'voce' : 'voci'} su ${real.length}.` : 'Nessuna voce selezionata: scegli almeno una sezione.'}
+      </p>
+    </div>
+  );
+}
+
+const offertaSelezioneIniziale = (revision) => {
+  const real = (revision?.items || []).filter((it) => it.type !== 'subtotal');
+  const parti = getParti(revision);
+  return {
+    cats: new Set(real.map((it) => offertaCatKey(offertaItemMacro(it), offertaItemCat(it)))),
+    parti: new Set(parti.length ? real.map((it) => itemParte(it, parti)) : []),
+  };
+};
+
+const nVoci = (n) => `${n} ${n === 1 ? 'voce' : 'voci'}`;
+const offertaFiltroLabel = (f) => `Inviate ${f.voci} voci su ${f.totaleVoci}${f.parti?.length ? ` · ${f.parti.join(', ')}` : ''} · ${f.macrosezioni.join(', ')}`;
 
 function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
   const [tab, setTab] = useState('offerte'); // 'offerte' | 'link'
@@ -9099,7 +9245,8 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
   const [offerte, setOfferte] = useState(null);
   const [userId, setUserId] = useState(null);
   const [newImpresa, setNewImpresa] = useState('');
-  const [justCreated, setJustCreated] = useState(null); // { url, pin, impresa }
+  const [selezione, setSelezione] = useState(() => offertaSelezioneIniziale(revision));
+  const [justCreated, setJustCreated] = useState(null); // { url, pin, impresa, filtro }
   const [opened, setOpened] = useState(null); // offerta aperta nel dettaglio
   const [busy, setBusy] = useState(false);
   const projectId = String(project.id);
@@ -9125,16 +9272,18 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
     const impresa = newImpresa.trim();
     if (!impresa) { alert("Scrivi il nome dell'impresa."); return; }
     if (!revision) { alert('Apri prima una revisione del computo.'); return; }
+    const snapshot = buildOffertaSnapshot(project, revision, selezione);
+    if (!snapshot.sections.length) { alert("Scegli almeno una sezione da inviare all'impresa."); return; }
     setBusy(true);
     const token = crypto.randomUUID ? crypto.randomUUID().replace(/-/g, '') : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
     const pin = String(Math.floor(100000 + Math.random() * 900000));
     const { error } = await cea.from('computo_offerta_links').insert({
       token, pin, project_id: projectId, project_name: project.name, revision_id: String(revision.id),
-      revision_label: revision.customName || revision.label, impresa_nome: impresa, snapshot: buildOffertaSnapshot(project, revision),
+      revision_label: revision.customName || revision.label, impresa_nome: impresa, snapshot,
     });
     setBusy(false);
     if (error) { alert('Creazione del link non riuscita: ' + error.message); return; }
-    setJustCreated({ url: offertaUrl(token), pin, impresa });
+    setJustCreated({ url: offertaUrl(token), pin, impresa, filtro: snapshot.filtro });
     setNewImpresa('');
     reload();
   };
@@ -9155,10 +9304,10 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
     reload();
   };
 
-  const accept = async (o, clienteMode, ricarico) => {
+  const accept = async (o, clienteMode, ricarico, replaceRevId) => {
     const link = linkOf(o.link_id);
     setBusy(true);
-    const revId = onAcceptOffer(o, link, clienteMode, ricarico);
+    const revId = onAcceptOffer(o, link, clienteMode, ricarico, replaceRevId);
     if (!revId) { setBusy(false); return; }
     const { error } = await cea.from('computo_offerte').update({ status: 'accepted', reviewed_at: new Date().toISOString(), reviewed_by: userId, revision_created: String(revId) }).eq('id', o.id);
     setBusy(false);
@@ -9179,7 +9328,7 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
   const input = { width: '100%', boxSizing: 'border-box', border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '9px 11px', fontSize: 13, fontFamily: FONT };
 
   if (opened) {
-    return <OffertaDettaglioModal offerta={opened} link={linkOf(opened.link_id)} project={project} busy={busy} onBack={() => setOpened(null)} onReject={() => reject(opened)} onAccept={(mode, ric) => accept(opened, mode, ric)} />;
+    return <OffertaDettaglioModal offerta={opened} link={linkOf(opened.link_id)} project={project} busy={busy} onBack={() => setOpened(null)} onReject={() => reject(opened)} onAccept={(mode, ric, replaceId) => accept(opened, mode, ric, replaceId)} />;
   }
 
   return createPortal(
@@ -9235,14 +9384,16 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
                 <button disabled={busy} onClick={createLink} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer' }}>Crea link</button>
               </div>
               <p style={{ fontSize: 11.5, color: C.gray, margin: '8px 0 0' }}>
-                L'impresa vedrà la revisione aperta ora (<b>{revision?.customName || revision?.label}</b>) con voci, quantità e note, ma nessun prezzo dello studio e nessun dato del cliente.
+                L'impresa vedrà la revisione aperta ora (<b>{revision?.customName || revision?.label}</b>) con le voci scelte qui sotto, quantità e note, ma nessun prezzo dello studio e nessun dato del cliente.
               </p>
+              {revision && <OffertaSelezione revision={revision} selezione={selezione} onChange={setSelezione} />}
             </div>
             {justCreated && (
               <div style={{ border: `1px solid ${C.maroon}`, borderRadius: 12, padding: 14, marginBottom: 16 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: C.black, marginBottom: 6 }}>Link per {justCreated.impresa} pronto</div>
                 <div style={{ fontSize: 12, color: C.darkGray, wordBreak: 'break-all', marginBottom: 4 }}>{justCreated.url}</div>
-                <div style={{ fontSize: 13, color: C.black, marginBottom: 10 }}>PIN: <b style={{ letterSpacing: '0.15em' }}>{justCreated.pin}</b></div>
+                <div style={{ fontSize: 13, color: C.black, marginBottom: justCreated.filtro?.parziale ? 4 : 10 }}>PIN: <b style={{ letterSpacing: '0.15em' }}>{justCreated.pin}</b></div>
+                {justCreated.filtro?.parziale && <div style={{ fontSize: 12, color: C.darkGray, marginBottom: 10 }}>{offertaFiltroLabel(justCreated.filtro)}</div>}
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <button onClick={() => copy(shareText(justCreated.impresa, justCreated.url, justCreated.pin))} style={{ border: 'none', background: C.black, color: C.white, borderRadius: 999, padding: '7px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Copia messaggio con link e PIN</button>
                   <button onClick={() => copy(justCreated.url)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '7px 14px', fontSize: 12, cursor: 'pointer' }}>Copia solo link</button>
@@ -9257,6 +9408,7 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
                     <div style={{ flex: '1 1 200px', minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: C.black }}>{l.impresa_nome}</div>
                       <div style={{ fontSize: 11.5, color: C.gray }}>{l.revision_label} · PIN {l.pin} · {l.active ? 'attivo' : 'disattivato'}</div>
+                      <div style={{ fontSize: 11.5, color: C.darkGray }}>{l.snapshot?.filtro?.parziale ? offertaFiltroLabel(l.snapshot.filtro) : 'Computo completo'}</div>
                     </div>
                     <button onClick={() => copy(shareText(l.impresa_nome, offertaUrl(l.token), l.pin))} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '5px 11px', fontSize: 11.5, cursor: 'pointer' }}>Copia link e PIN</button>
                     <button onClick={() => toggleLink(l)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '5px 11px', fontSize: 11.5, cursor: 'pointer', color: l.active ? C.maroon : C.black }}>{l.active ? 'Disattiva' : 'Riattiva'}</button>
@@ -9275,8 +9427,12 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
 // Dettaglio di un'offerta: confronto voce per voce con il prezzo impresa della revisione di partenza, poi
 // accetta (crea la revisione con il nome dell'impresa) o rifiuta.
 function OffertaDettaglioModal({ offerta, link, project, busy, onBack, onAccept, onReject }) {
-  const [clienteMode, setClienteMode] = useState('mantieni'); // 'mantieni' | 'ricarico'
+  const [clienteMode, setClienteMode] = useState('ricarico'); // 'impresa' | 'ricarico'
   const [ricarico, setRicarico] = useState('10');
+  // Revisione creata da un'accettazione precedente (se esiste ancora): si può sostituire riaccettando.
+  const prevRev = offerta.revision_created ? (project.revisions || []).find((r) => String(r.id) === String(offerta.revision_created)) : null;
+  const [replacePrev, setReplacePrev] = useState(true);
+  const [reaccept, setReaccept] = useState(false);
   const snapshot = link?.snapshot || { sections: [] };
   const prezzi = new Map((offerta.prezzi || []).map((p) => [String(p.id), p]));
   const sourceRev = (project.revisions || []).find((r) => String(r.id) === String(link?.revision_id));
@@ -9357,27 +9513,47 @@ function OffertaDettaglioModal({ offerta, link, project, busy, onBack, onAccept,
           </table>
         </div>
 
-        {offerta.status === 'pending' ? (
-          <div style={{ marginTop: 14, display: 'flex', gap: 14, alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 12.5, color: C.darkGray }}>
-              <div style={{ fontWeight: 600, color: C.black, marginBottom: 6 }}>Prezzi cliente nella nuova revisione</div>
-              <label style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 4, cursor: 'pointer' }}>
-                <input type="radio" checked={clienteMode === 'mantieni'} onChange={() => setClienteMode('mantieni')} style={{ accentColor: C.maroon }} /> Mantieni i prezzi cliente attuali
-              </label>
-              <label style={{ display: 'flex', gap: 6, alignItems: 'center', cursor: 'pointer' }}>
-                <input type="radio" checked={clienteMode === 'ricarico'} onChange={() => setClienteMode('ricarico')} style={{ accentColor: C.maroon }} /> Prezzo offerto +
-                <input value={ricarico} onChange={(e) => { setRicarico(e.target.value); setClienteMode('ricarico'); }} style={{ width: 52, border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '4px 6px', fontSize: 12.5, textAlign: 'right' }} /> % di ricarico
-              </label>
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button disabled={busy} onClick={onReject} style={{ border: `1px solid ${C.paleGray}`, background: C.white, color: C.maroon, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Rifiuta</button>
-              <button disabled={busy} onClick={() => onAccept(clienteMode, parseEuro(ricarico))} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{busy ? 'Un attimo…' : `Accetta e crea revisione "${offerta.impresa_nome}"`}</button>
-            </div>
+        {offerta.status !== 'pending' && !reaccept ? (
+          <div style={{ marginTop: 12, display: 'flex', gap: 12, alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <p style={{ fontSize: 12.5, color: C.gray, margin: 0 }}>
+              {offerta.status === 'accepted'
+                ? <>Offerta accettata{prevRev ? <>: revisione <b style={{ color: C.black }}>{prevRev.customName || prevRev.label}</b> ({prevRev.label}){prevRev.offerta?.prezziCliente ? ` · prezzi cliente: ${prevRev.offerta.prezziCliente}` : ''}.</> : ' (la revisione creata è stata eliminata).'}</>
+                : 'Offerta rifiutata.'}
+            </p>
+            <button disabled={busy} onClick={() => setReaccept(true)} style={{ border: `1px solid ${C.maroon}`, background: C.white, color: C.maroon, borderRadius: 999, padding: '9px 16px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Accetta di nuovo</button>
           </div>
         ) : (
-          <p style={{ fontSize: 12.5, color: C.gray, margin: '12px 0 0' }}>
-            Offerta {offerta.status === 'accepted' ? 'accettata: è stata creata la revisione con il nome dell\'impresa.' : 'rifiutata.'}
-          </p>
+          <div style={{ marginTop: 14, display: 'flex', gap: 14, alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, color: C.darkGray }}>
+              <div style={{ fontWeight: 600, color: C.black, marginBottom: 6 }}>Prezzi cliente nella nuova revisione</div>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, cursor: 'pointer' }}>
+                <input type="radio" checked={clienteMode === 'impresa'} onChange={() => setClienteMode('impresa')} style={{ accentColor: C.maroon, width: 17, height: 17 }} /> Uguali ai prezzi dell'impresa
+              </label>
+              <label style={{ display: 'flex', gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+                <input type="radio" checked={clienteMode === 'ricarico'} onChange={() => setClienteMode('ricarico')} style={{ accentColor: C.maroon, width: 17, height: 17 }} /> Prezzi dell'impresa +
+                <input value={ricarico} onChange={(e) => { setRicarico(e.target.value); setClienteMode('ricarico'); }} style={{ width: 56, border: `1px solid ${C.paleGray}`, borderRadius: 8, padding: '5px 6px', fontSize: 13, textAlign: 'right' }} /> %
+              </label>
+              <div style={{ fontSize: 12, color: C.gray, marginTop: 6 }}>
+                Totale cliente delle voci quotate: <b style={{ color: C.black }}>{formatEuro(clienteMode === 'ricarico' ? totOfferta * (1 + (parseEuro(ricarico) || 0) / 100) : totOfferta)}</b> + IVA
+              </div>
+              {offerta.status === 'accepted' && prevRev && (
+                <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10, cursor: 'pointer', color: C.black }}>
+                  <input type="checkbox" checked={replacePrev} onChange={(e) => setReplacePrev(e.target.checked)} style={{ accentColor: C.maroon, width: 17, height: 17 }} />
+                  Elimina la revisione creata prima ({prevRev.customName || prevRev.label} · {prevRev.label}) e sostituiscila
+                </label>
+              )}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {offerta.status === 'pending'
+                ? <button disabled={busy} onClick={onReject} style={{ border: `1px solid ${C.paleGray}`, background: C.white, color: C.maroon, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Rifiuta</button>
+                : <button disabled={busy} onClick={() => setReaccept(false)} style={{ border: `1px solid ${C.paleGray}`, background: C.white, color: C.darkGray, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 500, cursor: 'pointer' }}>Annulla</button>}
+              <button disabled={busy} onClick={() => {
+                const replaceId = offerta.status === 'accepted' && prevRev && replacePrev ? prevRev.id : null;
+                if (replaceId && !confirm(`La revisione "${prevRev.customName || prevRev.label}" (${prevRev.label}) verrà eliminata e sostituita da quella nuova. Continuare?`)) return;
+                onAccept(clienteMode, parseEuro(ricarico), replaceId);
+              }} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>{busy ? 'Un attimo…' : `Accetta e crea revisione "${offerta.impresa_nome}"`}</button>
+            </div>
+          </div>
         )}
       </div>
     </div>,
