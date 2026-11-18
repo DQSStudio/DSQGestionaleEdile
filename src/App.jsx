@@ -9333,7 +9333,7 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
 
   return createPortal(
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: 720, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: tab === 'confronto' ? 1280 : 720, maxWidth: '100%', maxHeight: '92vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
           <div>
             <h2 style={{ fontFamily: FONT, fontSize: 19, fontWeight: 600, margin: 0, color: C.black }}>Offerte imprese</h2>
@@ -9343,8 +9343,14 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
         </div>
         <div style={{ display: 'inline-flex', gap: 4, background: '#F4F0EA', borderRadius: 999, padding: 4, marginBottom: 16 }}>
           {tabBtn('offerte', `Offerte ricevute${pendingCount ? ` (${pendingCount})` : ''}`)}
+          {tabBtn('confronto', 'Confronta offerte')}
           {tabBtn('link', 'Invia a un\'impresa')}
         </div>
+
+        {tab === 'confronto' && (
+          offerte === null ? <p style={{ fontSize: 13, color: C.gray }}>Caricamento…</p>
+          : <OfferteConfronto offerte={offerte} linkOf={linkOf} project={project} onOpen={setOpened} />
+        )}
 
         {tab === 'offerte' && (
           offerte === null ? <p style={{ fontSize: 13, color: C.gray }}>Caricamento…</p>
@@ -9421,6 +9427,315 @@ function OfferteImpreseModal({ project, revision, onClose, onAcceptOffer }) {
       </div>
     </div>,
     document.body
+  );
+}
+
+// --- Confronto tra le offerte delle imprese ---
+// Voci allineate per id (la stessa voce del computo in tutte le offerte), raggruppate per sezione e categoria
+// come nel link inviato. Per ogni voce, sezione e totale: importo di ogni impresa e differenza % rispetto al
+// riferimento scelto (la più bassa, oppure un'impresa precisa). Rosso = più cara, verde = più bassa.
+const CONF_RED = { color: '#A3261B', background: '#FBE9E7' };
+const CONF_GREEN = { color: '#226B42', background: '#E5F3EA' };
+function OfferteConfronto({ offerte, linkOf, project, onOpen }) {
+  const usable = offerte.filter((o) => linkOf(o.link_id)?.snapshot?.sections);
+  const [selIds, setSelIds] = useState(() => {
+    const notRejected = usable.filter((o) => o.status !== 'rejected');
+    return new Set((notRejected.length >= 2 ? notRejected : usable).map((o) => o.id));
+  });
+  const [refMode, setRefMode] = useState('min'); // 'min' | id offerta
+  const [showStudio, setShowStudio] = useState(false);
+  const [openSec, setOpenSec] = useState({}); // sezioni chiuse (true = chiusa)
+  const [onlyCommon, setOnlyCommon] = useState(true); // totali solo sulle voci quotate da tutte le imprese
+
+  if (usable.length < 2) {
+    return (
+      <div style={{ border: `1px dashed ${C.paleGray}`, borderRadius: 12, padding: 18, fontSize: 13.5, color: C.gray, textAlign: 'center' }}>
+        Per confrontare servono almeno due offerte ricevute. {usable.length === 1 ? 'Per ora ne è arrivata una sola.' : ''}
+      </div>
+    );
+  }
+
+  // Nome visibile: se la stessa impresa ha mandato più offerte, aggiungo la data.
+  const nameCount = {};
+  usable.forEach((o) => { nameCount[o.impresa_nome] = (nameCount[o.impresa_nome] || 0) + 1; });
+  const dateShort = (d) => new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' });
+  const labelOf = (o) => (nameCount[o.impresa_nome] > 1 ? `${o.impresa_nome} (${dateShort(o.submitted_at)})` : o.impresa_nome);
+
+  const sel = usable.filter((o) => selIds.has(o.id));
+  // Colonna opzionale con il prezzo impresa del computo dello studio (revisione da cui è partito il link).
+  const studioCol = showStudio ? [{ id: '__studio__', studio: true }] : [];
+  const cols = [...studioCol, ...sel];
+
+  // Struttura unificata: sezione → categoria → voce, nell'ordine in cui compaiono.
+  const sections = [];
+  const secIdx = new Map();
+  const cell = new Map(); // `${colId}|${itemId}` → { price, amount, note }
+  const studioItems = new Map();
+  sel.forEach((o) => {
+    const link = linkOf(o.link_id);
+    const src = (project.revisions || []).find((r) => String(r.id) === String(link?.revision_id));
+    const prezzi = new Map((o.prezzi || []).map((pz) => [String(pz.id), pz]));
+    link.snapshot.sections.forEach((sec) => {
+      if (!secIdx.has(sec.name)) { secIdx.set(sec.name, sections.length); sections.push({ name: sec.name, cats: [], catIdx: new Map() }); }
+      const S = sections[secIdx.get(sec.name)];
+      sec.categorie.forEach((cat) => {
+        if (!S.catIdx.has(cat.name)) { S.catIdx.set(cat.name, S.cats.length); S.cats.push({ name: cat.name, items: [], ids: new Set() }); }
+        const K = S.cats[S.catIdx.get(cat.name)];
+        cat.items.forEach((it) => {
+          if (!K.ids.has(it.id)) { K.ids.add(it.id); K.items.push(it); }
+          const qty = parseEuro(it.qty);
+          const pz = prezzi.get(String(it.id));
+          if (pz) cell.set(`${o.id}|${it.id}`, { price: Number(pz.price) || 0, amount: (Number(pz.price) || 0) * qty, note: pz.note || '' });
+          if (src && !studioItems.has(it.id)) {
+            const si = (src.items || []).find((x) => String(x.id) === String(it.id));
+            if (si) studioItems.set(it.id, { price: parseEuro(si.unitPriceImpresa), amount: parseEuro(si.unitPriceImpresa) * parseEuro(si.qty) });
+          }
+        });
+      });
+    });
+  });
+  if (showStudio) studioItems.forEach((v, id) => cell.set(`__studio__|${id}`, v));
+
+  const refOf = (vals) => {
+    // vals: Map colId → importo (solo imprese, la stima studio non fa da riferimento "più bassa")
+    if (refMode === 'min') {
+      const offerVals = sel.map((o) => vals.get(o.id)).filter((v) => v != null);
+      return offerVals.length ? Math.min(...offerVals) : null;
+    }
+    return vals.get(refMode) ?? null;
+  };
+  const pct = (v, ref) => (ref ? ((v - ref) / ref) * 100 : null);
+  const tone = (v, ref, isRefCol) => {
+    if (v == null || ref == null || isRefCol) return {};
+    if (Math.abs(v - ref) < 0.005) return refMode === 'min' ? CONF_GREEN : {};
+    return v > ref ? CONF_RED : CONF_GREEN;
+  };
+  const pctLabel = (v, ref, isRefCol) => {
+    if (v == null) return '';
+    if (isRefCol) return 'riferimento';
+    const d = pct(v, ref);
+    if (d == null) return '';
+    if (Math.abs(d) < 0.05) return refMode === 'min' ? 'più bassa' : '= rif.';
+    return `${d > 0 ? '+' : ''}${itNum(d, 1)}%`;
+  };
+
+  // Totali: per sezione e generale. "Confronto alla pari": le voci quotate da tutte le imprese selezionate.
+  const allItems = sections.flatMap((S) => S.cats.flatMap((K) => K.items));
+  const sumFor = (colId, items) => items.reduce((n, it) => n + (cell.get(`${colId}|${it.id}`)?.amount || 0), 0);
+  const quotedBy = (colId, items) => items.filter((it) => cell.has(`${colId}|${it.id}`)).length;
+  const missingFor = (o) => allItems.length - quotedBy(o.id, allItems);
+  // Se un'impresa non ha quotato qualche voce, il suo totale sembrerebbe più basso: per un confronto alla pari
+  // i totali (di sezione e generale) si possono calcolare solo sulle voci quotate da tutte le imprese scelte.
+  const isCommon = (it) => sel.every((o) => cell.has(`${o.id}|${it.id}`));
+  const someMissing = allItems.some((it) => !isCommon(it));
+  const forTotals = (items) => (onlyCommon ? items.filter(isCommon) : items);
+  const commonCount = allItems.filter(isCommon).length;
+
+  const totals = new Map(cols.map((c) => [c.id, sumFor(c.id, forTotals(allItems))]));
+  const totRef = refOf(totals);
+  const ranking = [...sel].sort((a, b) => totals.get(a.id) - totals.get(b.id));
+
+  const th = { textAlign: 'right', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.3, color: C.gray, fontWeight: 600, padding: '6px 8px', borderBottom: `1.5px solid ${C.black}`, background: C.white, position: 'sticky', top: 0, zIndex: 1 };
+  const td = { padding: '7px 8px', fontSize: 12.5, borderBottom: `1px solid ${C.paleGray}`, verticalAlign: 'top' };
+  const numTd = { ...td, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' };
+  const colW = 150;
+
+  const valueCell = (colId, v, sub, ref, key, bold) => {
+    const isRefCol = refMode !== 'min' && colId === refMode;
+    const isStudio = colId === '__studio__';
+    const t = isStudio ? { color: C.gray } : tone(v, ref, isRefCol);
+    return (
+      <td key={key} style={{ ...numTd, ...t, borderLeft: `1px solid ${C.paleGray}`, fontWeight: bold ? 700 : 500 }}>
+        {v == null ? <span style={{ color: C.gray }}>—</span> : (
+          <>
+            <div>{formatEuro(v)}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, opacity: 0.9 }}>{isStudio ? (ref ? `${pctLabel(v, ref, false)} vs rif.` : '') : pctLabel(v, ref, isRefCol)}</div>
+            {sub && <div style={{ fontSize: 10.5, color: C.gray, fontWeight: 400 }}>{sub}</div>}
+          </>
+        )}
+      </td>
+    );
+  };
+
+  const exportExcel = async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Confronto offerte');
+    const heads = ['Codice', 'Descrizione', 'Q.tà', 'U.M.', ...cols.flatMap((c) => { const n = c.studio ? 'Computo studio' : labelOf(c); return [`${n} — prezzo`, `${n} — importo`, `${n} — diff. %`]; })];
+    ws.addRow([`Confronto offerte — ${project.name}`]).font = { bold: true, size: 14 };
+    ws.addRow([refMode === 'min' ? 'Differenze rispetto all’offerta più bassa' : `Differenze rispetto a ${labelOf(sel.find((o) => o.id === refMode) || {})}`]);
+    ws.addRow([]);
+    const hr = ws.addRow(heads); hr.font = { bold: true }; hr.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1ECE6' } }; c.alignment = { wrapText: true, vertical: 'middle' }; });
+    const RED = 'FFFBE9E7'; const GREEN = 'FFE5F3EA';
+    const addVals = (base, getV, bold) => {
+      const vals = new Map(cols.map((c) => [c.id, getV(c.id)]));
+      const ref = refOf(vals);
+      const row = ws.addRow([...base, ...cols.flatMap((c) => { const v = vals.get(c.id); const d = v != null && ref ? pct(v, ref) / 100 : null; return [null, v ?? null, d]; })]);
+      cols.forEach((c, ci) => {
+        const v = vals.get(c.id); const isRefCol = refMode !== 'min' && c.id === refMode;
+        const t = c.studio ? {} : tone(v, ref, isRefCol);
+        [5 + ci * 3, 6 + ci * 3, 7 + ci * 3].forEach((col) => {
+          const x = row.getCell(col);
+          if (t.background) x.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: t === CONF_RED ? RED : GREEN } };
+          if (bold) x.font = { bold: true };
+        });
+        row.getCell(6 + ci * 3).numFmt = '#,##0.00 €';
+        row.getCell(7 + ci * 3).numFmt = '+0.0%;-0.0%;0.0%';
+      });
+      if (bold) row.font = { bold: true };
+      return row;
+    };
+    sections.forEach((S) => {
+      const sr = ws.addRow([S.name.toUpperCase()]); sr.font = { bold: true, color: { argb: 'FF7A2A2A' } };
+      S.cats.forEach((K) => {
+        ws.addRow(['', K.name]).font = { bold: true, italic: true };
+        K.items.forEach((it) => {
+          const row = addVals([it.code, it.desc, parseEuro(it.qty), it.unit], (colId) => cell.get(`${colId}|${it.id}`)?.amount ?? null, false);
+          cols.forEach((c, ci) => { const v = cell.get(`${c.id}|${it.id}`); if (v) { row.getCell(5 + ci * 3).value = v.price; row.getCell(5 + ci * 3).numFmt = '#,##0.00 €'; } });
+        });
+      });
+      const items = forTotals(S.cats.flatMap((K) => K.items));
+      addVals(['', `Totale ${S.name}`, '', ''], (colId) => (quotedBy(colId, items) ? sumFor(colId, items) : null), true);
+      ws.addRow([]);
+    });
+    addVals(['', `TOTALE GENERALE (IVA esclusa)${onlyCommon && someMissing ? ' — solo voci quotate da tutte' : ''}`, '', ''], (colId) => totals.get(colId), true);
+    ws.columns.forEach((c, i) => { c.width = i === 1 ? 50 : i < 4 ? 10 : 15; });
+    ws.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
+    const buf = await wb.xlsx.writeBuffer();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    a.download = `Confronto offerte - ${project.name}.xlsx`;
+    a.click();
+  };
+
+  const chip = (on) => ({ border: `1px solid ${on ? C.maroon : C.paleGray}`, background: on ? C.maroon : C.white, color: on ? C.white : C.darkGray, borderRadius: 999, padding: '7px 13px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT });
+  const toggleSel = (id) => { if (refMode === id) setRefMode('min'); setSelIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16, alignItems: 'flex-end', marginBottom: 14 }}>
+        <div style={{ flex: '1 1 420px' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.black, marginBottom: 6 }}>Offerte da confrontare</div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {usable.map((o) => (
+              <button key={o.id} onClick={() => toggleSel(o.id)} style={chip(selIds.has(o.id))}>
+                {selIds.has(o.id) ? '✓ ' : ''}{labelOf(o)}{o.status === 'rejected' ? ' · rifiutata' : o.status === 'accepted' ? ' · accettata' : ''}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: C.black, marginBottom: 6 }}>Differenze rispetto a</div>
+          <select value={refMode} onChange={(e) => setRefMode(e.target.value)} style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '8px 10px', fontSize: 13, fontFamily: FONT, background: C.white }}>
+            <option value="min">L'offerta più bassa (voce per voce)</option>
+            {sel.map((o) => <option key={o.id} value={o.id}>{labelOf(o)}</option>)}
+          </select>
+        </div>
+        <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13, color: C.darkGray, cursor: 'pointer', paddingBottom: 8 }}>
+          <input type="checkbox" checked={showStudio} onChange={(e) => setShowStudio(e.target.checked)} style={{ accentColor: C.maroon, width: 17, height: 17 }} /> Mostra il computo dello studio
+        </label>
+        <button onClick={exportExcel} disabled={sel.length < 1} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginBottom: 2 }}>Scarica Excel</button>
+      </div>
+
+      {sel.length < 2 ? (
+        <p style={{ fontSize: 13, color: C.maroon }}>Seleziona almeno due offerte.</p>
+      ) : (
+        <>
+          {someMissing && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', background: '#FAF8F4', border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '9px 12px', marginBottom: 12, fontSize: 12.5, color: C.darkGray }}>
+              <span>Non tutte le imprese hanno quotato tutte le voci.</span>
+              <label style={{ display: 'flex', gap: 7, alignItems: 'center', cursor: 'pointer', color: C.black, fontWeight: 500 }}>
+                <input type="checkbox" checked={onlyCommon} onChange={(e) => setOnlyCommon(e.target.checked)} style={{ accentColor: C.maroon, width: 17, height: 17 }} />
+                Calcola i totali solo sulle voci quotate da tutte ({commonCount} su {allItems.length})
+              </label>
+            </div>
+          )}
+          {/* Riepilogo: classifica per totale */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 10, marginBottom: 14 }}>
+            {ranking.map((o, i) => {
+              const v = totals.get(o.id);
+              const isRefCol = refMode !== 'min' && o.id === refMode;
+              const t = tone(v, totRef, isRefCol);
+              const miss = missingFor(o);
+              return (
+                <div key={o.id} style={{ border: `1px solid ${i === 0 ? '#9CCBAE' : C.paleGray}`, borderRadius: 12, padding: '11px 13px', background: i === 0 ? '#F3FAF5' : C.white }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                    <span style={{ fontSize: 13.5, fontWeight: 600, color: C.black, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i + 1}. {labelOf(o)}</span>
+                    <button onClick={() => onOpen(o)} style={{ border: 'none', background: 'transparent', color: C.maroon, fontSize: 12, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Apri</button>
+                  </div>
+                  <div style={{ fontSize: 20, fontWeight: 600, color: C.black, marginTop: 2 }}>{formatEuro(v)}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
+                    <span style={{ ...t, fontSize: 12, fontWeight: 600, borderRadius: 999, padding: t.background ? '2px 8px' : 0 }}>{pctLabel(v, totRef, isRefCol)}</span>
+                    {i > 0 && <span style={{ fontSize: 12, color: C.gray }}>+{formatEuro(v - totals.get(ranking[0].id))} sulla più bassa</span>}
+                  </div>
+                  {miss > 0 && <div style={{ fontSize: 11.5, color: C.maroon, marginTop: 4 }}>{miss} {miss === 1 ? 'voce non quotata' : 'voci non quotate'}{onlyCommon ? '' : ': il totale non è completo'}</div>}
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 14, fontSize: 12, color: C.darkGray, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+            <span><span style={{ ...CONF_RED, padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>rosso</span> più cara del riferimento</span>
+            <span><span style={{ ...CONF_GREEN, padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>verde</span> {refMode === 'min' ? 'la più bassa' : 'più bassa del riferimento'}</span>
+            <span>— voce non quotata</span>
+          </div>
+
+          <div style={{ overflow: 'auto', maxHeight: '58vh', border: `1px solid ${C.paleGray}`, borderRadius: 12 }}>
+            <table style={{ borderCollapse: 'separate', borderSpacing: 0, minWidth: 520 + cols.length * colW, width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ ...th, textAlign: 'left', width: 80 }}>Codice</th>
+                  <th style={{ ...th, textAlign: 'left', minWidth: 260 }}>Descrizione</th>
+                  <th style={{ ...th, width: 90 }}>Q.tà</th>
+                  {cols.map((c) => <th key={c.id} style={{ ...th, width: colW, borderLeft: `1px solid ${C.paleGray}`, color: c.studio ? C.gray : C.black }}>{c.studio ? 'Computo studio' : labelOf(c)}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {sections.map((S) => {
+                  const items = forTotals(S.cats.flatMap((K) => K.items));
+                  const secVals = new Map(cols.map((c) => [c.id, quotedBy(c.id, items) ? sumFor(c.id, items) : null]));
+                  const secRef = refOf(secVals);
+                  const closed = !!openSec[S.name];
+                  return (
+                    <React.Fragment key={S.name}>
+                      <tr onClick={() => setOpenSec((o) => ({ ...o, [S.name]: !closed }))} style={{ cursor: 'pointer' }}>
+                        <td colSpan={3} style={{ ...td, background: '#F4EAEA', color: C.maroon, fontWeight: 700, textTransform: 'uppercase', fontSize: 12 }}>{closed ? '▸' : '▾'} {S.name}</td>
+                        {cols.map((c) => valueCell(c.id, secVals.get(c.id), null, secRef, c.id, true))}
+                      </tr>
+                      {!closed && S.cats.map((K) => (
+                        <React.Fragment key={K.name}>
+                          <tr><td colSpan={3 + cols.length} style={{ ...td, background: '#F8F5F0', fontWeight: 600, fontSize: 12 }}>{K.name}</td></tr>
+                          {K.items.map((it) => {
+                            const vals = new Map(cols.map((c) => [c.id, cell.get(`${c.id}|${it.id}`)?.amount ?? null]));
+                            const ref = refOf(vals);
+                            return (
+                              <tr key={it.id}>
+                                <td style={{ ...td, color: C.gray, fontSize: 11.5 }}>{it.code}</td>
+                                <td style={td}>{it.desc}</td>
+                                <td style={numTd}>{it.qty} {it.unit}</td>
+                                {cols.map((c) => {
+                                  const x = cell.get(`${c.id}|${it.id}`);
+                                  return valueCell(c.id, x?.amount ?? null, x ? `${formatEuro(x.price)}/${it.unit || 'u'}${x.note ? ' · nota' : ''}` : null, ref, c.id, false);
+                                })}
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
+                    </React.Fragment>
+                  );
+                })}
+                <tr>
+                  <td colSpan={3} style={{ ...td, fontWeight: 700, fontSize: 13.5, textAlign: 'right', borderTop: `1.5px solid ${C.black}` }}>Totale generale IVA esclusa{someMissing && onlyCommon ? <div style={{ fontSize: 11, fontWeight: 400, color: C.gray }}>solo voci quotate da tutte</div> : null}</td>
+                  {cols.map((c) => valueCell(c.id, totals.get(c.id), null, totRef, c.id, true))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p style={{ fontSize: 11.5, color: C.gray, margin: '8px 0 0' }}>Clicca sul nome di una sezione per chiuderla o aprirla. {someMissing && onlyCommon ? `I totali sommano solo le ${commonCount} voci quotate da tutte le imprese scelte.` : 'I totali sommano le voci quotate da ciascuna impresa.'}</p>
+        </>
+      )}
+    </div>
   );
 }
 
