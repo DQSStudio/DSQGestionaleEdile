@@ -2844,6 +2844,8 @@ async function exportComputoExcel(project, revision, mode) {
   if (mode === 'riepilogo') return exportComputoRiepilogoExcel(project, revision);
   const ExcelJS = (await import('exceljs')).default;
   const muto = mode === 'muto';
+  // 'impresa' = solo prezzi impresa: stessa impaginazione della versione cliente, con i costi impresa.
+  const soloImpresa = mode === 'impresa';
   const clientOnly = !!mode;
   const groups = buildComputoGroups(revision);
   const econ = computeEconomics(revision);
@@ -2862,6 +2864,8 @@ async function exportComputoExcel(project, revision, mode) {
   // Colonne: le coppie prezzo/totale dipendono dalla versione
   const pairs = muto
     ? [{ key: 'm', price: 'Prezzo unitario', total: 'Importo', color: INK }]
+    : soloImpresa
+      ? [{ key: 'i', price: 'Prezzo impresa', total: 'Totale impresa', color: ACC }]
     : clientOnly
       ? [{ key: 'c', price: 'Prezzo cliente', total: 'Totale cliente', color: ACC }]
       : [{ key: 'i', price: 'Prezzo impresa', total: 'Totale impresa', color: INK }, { key: 'c', price: 'Prezzo cliente', total: 'Totale cliente', color: ACC }];
@@ -2907,10 +2911,10 @@ async function exportComputoExcel(project, revision, mode) {
   };
 
   // --- Intestazione del documento ---
-  const title = muto ? 'Computo metrico — senza prezzi' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico';
+  const title = muto ? 'Computo metrico — senza prezzi' : soloImpresa ? 'Computo metrico — versione impresa' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico';
   mergedText(title, { font: { size: 16, bold: true, color: { argb: INK } }, height: 26 });
   const meta = [['Progetto', project.name]];
-  if (!muto && project.client) meta.push(['Cliente', project.client]);
+  if (!muto && !soloImpresa && project.client) meta.push(['Cliente', project.client]);
   if (project.header?.ubicazione) meta.push(['Ubicazione', project.header.ubicazione]);
   meta.push(['Versione', revision.customName || revision.label]);
   meta.push(['Data', revision.dateModified]);
@@ -3090,13 +3094,13 @@ async function exportComputoExcel(project, revision, mode) {
     totalsRow('Totale generale IVA esclusa', sectionTotalCells.length ? { [p.totCol]: { formula: sectionTotalCells.join('+'), result: 0 } } : {}, { bold: true, topLine: 'medium', fill: 'FFF4EAEA', height: 22 });
   } else {
     const pick = (kI, kC) => Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? econ[kI] : econ[kC]]));
-    if (econ.extras.length) {
+    if (econ.extras.length && !soloImpresa) {
       const cliCol = pairs.find((p) => p.key === 'c')?.totCol;
       totalsRow('Totale lavori IVA esclusa', pick('netImpresa', 'worksNetCliente'), { topLine: 'thin' });
       econ.extras.forEach((x) => totalsRow(extraChargeLabel(x), { [cliCol]: x.amount }, {}));
     }
     totalsRow('Totale generale IVA esclusa', pick('netImpresa', 'netCliente'), { bold: true, topLine: 'medium', fill: clientOnly ? 'FFF4EAEA' : 'FFFAF8F4', color: clientOnly ? ACC : INK, height: 22 });
-    econ.breakdown.forEach((b) => totalsRow(b.label, Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? b.ivaImpresa : b.ivaCliente])), {}));
+    econ.breakdown.filter((b) => !soloImpresa || b.works).forEach((b) => totalsRow(b.label, Object.fromEntries(pairs.map((p) => [p.totCol, p.key === 'i' ? b.ivaImpresa : b.ivaCliente])), {}));
     totalsRow('Totale generale IVA inclusa', pick('totImpresa', 'totCliente'), { bold: !clientOnly, topLine: 'thin', height: 20 });
   }
 
@@ -3117,7 +3121,7 @@ async function exportComputoExcel(project, revision, mode) {
 
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const suffix = muto ? '_senza_prezzi' : clientOnly ? '_cliente' : '';
+  const suffix = muto ? '_senza_prezzi' : soloImpresa ? '_impresa' : clientOnly ? '_cliente' : '';
   const filename = `${String(project.name || 'computo').replace(/[^a-z0-9]+/gi, '_')}_${String(revision.customName || revision.label || '').replace(/[^a-z0-9]+/gi, '_')}${suffix}.xlsx`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -3264,7 +3268,12 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
   const noPrices = clientOnlyProp === 'muto';
   // 'riepilogo' = versione semplificata per il cliente: niente singole voci, solo sezioni, categorie e totali.
   const riepilogo = clientOnlyProp === 'riepilogo';
+  // 'impresa' = solo prezzi impresa (niente prezzi cliente né dati del cliente): impaginazione della versione
+  // cliente, con i costi impresa al posto di quelli cliente.
+  const soloImpresa = clientOnlyProp === 'impresa';
   const clientOnly = !!clientOnlyProp;
+  const unitP = (it) => parseEuro(soloImpresa ? it.unitPriceImpresa : it.unitPriceCliente);
+  const W = soloImpresa ? 'Impresa' : 'Cliente'; // suffisso dei campi di computeEconomics da mostrare
   const groups = buildComputoGroups(revision);
   const realItems = (revision.items || []).filter((it) => it.type !== 'subtotal');
   const header = project.header || {};
@@ -3361,14 +3370,14 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
         <tbody>
           <tr><td style={{ padding: `16px ${PAGE_SIDE}px` }}>
 
-      <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{noPrices ? 'Computo metrico — senza prezzi' : riepilogo ? 'Computo metrico — riepilogo' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
-      <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Progetto: {project.name}{!noPrices && <> — Cliente: {project.client}</>}</p>
+      <h1 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1A1A1A' }}>{noPrices ? 'Computo metrico — senza prezzi' : riepilogo ? 'Computo metrico — riepilogo' : soloImpresa ? 'Computo metrico — versione impresa' : clientOnly ? 'Computo metrico — versione cliente' : 'Computo metrico'}</h1>
+      <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Progetto: {project.name}{!noPrices && !soloImpresa && <> — Cliente: {project.client}</>}</p>
       <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>Versione: {revision.customName || revision.label} — Modificata il {revision.dateModified}</p>
       {(header.descrizione || header.ubicazione) && (
         <p style={{ fontSize: 10.5, margin: '2px 0', color: '#5A5A5A' }}>{header.descrizione} {header.ubicazione && `— ${header.ubicazione}`}</p>
       )}
       {/* Nel computo senza prezzi (destinato a un'impresa) i recapiti del cliente non compaiono. */}
-      {project.clientSheet && !noPrices && (
+      {project.clientSheet && !noPrices && !soloImpresa && (
         <div style={{ marginTop: 14, padding: '12px 14px', border: '1px solid #E5E2DA', borderRadius: 8, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
           <p style={{ fontSize: 10, fontWeight: 600, margin: '0 0 5px', color: '#1A1A1A', textTransform: 'uppercase', letterSpacing: 0.5 }}>Scheda cliente</p>
           <p style={{ fontSize: 10.5, margin: '2px 0' }}>{project.clientSheet.name}{project.clientSheet.type && ` — ${project.clientSheet.type}`}</p>
@@ -3470,8 +3479,8 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
                 <th style={thStyle}>U.M.</th>
                 {!clientOnly && <th style={{ ...thStyle, textAlign: 'right' }}>Prezzo impresa</th>}
                 {!clientOnly && <th style={{ ...thStyle, textAlign: 'right' }}>Totale impresa</th>}
-                <th style={{ ...thStyle, textAlign: 'right' }}>{noPrices ? 'Prezzo unitario' : 'Prezzo cliente'}</th>
-                <th style={{ ...thStyle, textAlign: 'right' }}>{noPrices ? 'Importo' : 'Totale cliente'}</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>{noPrices ? 'Prezzo unitario' : soloImpresa ? 'Prezzo impresa' : 'Prezzo cliente'}</th>
+                <th style={{ ...thStyle, textAlign: 'right' }}>{noPrices ? 'Importo' : soloImpresa ? 'Totale impresa' : 'Totale cliente'}</th>
               </tr>
             </thead>
             <tbody>
@@ -3482,7 +3491,7 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
                   </tr>
                   {cat.items.map((it, ii) => {
                     runI += parseEuro(it.unitPriceImpresa) * parseEuro(it.qty);
-                    runC += parseEuro(it.unitPriceCliente) * parseEuro(it.qty);
+                    runC += unitP(it) * parseEuro(it.qty);
                     return (
                     <tr key={ii} style={{ breakInside: 'avoid', pageBreakInside: 'avoid', borderBottom: '1px solid #F0EEE8' }}>
                       <td style={{ padding: '5px 4px', color: '#5A5A5A', fontSize: 8.5, overflowWrap: 'anywhere' }}>{it.code}</td>
@@ -3505,8 +3514,8 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
                         </>
                       ) : (
                         <>
-                          <td style={{ ...numCell, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente))}</td>
-                          <td style={{ ...numCell, fontWeight: 600, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
+                          <td style={{ ...numCell, color: C.maroon }}>{formatEuro(unitP(it))}</td>
+                          <td style={{ ...numCell, fontWeight: 600, color: C.maroon }}>{formatEuro(unitP(it) * parseEuro(it.qty))}</td>
                         </>
                       )}
                     </tr>
@@ -3574,7 +3583,7 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
               <div style={{ display: 'flex', gap: 24, justifyContent: 'flex-end', marginTop: 8, breakInside: 'avoid', pageBreakInside: 'avoid' }}>
                 <div style={{ display: 'flex', gap: 24, width: clientOnly ? 300 : 620, maxWidth: '100%' }}>
                   {!clientOnly && block(' (impresa)', s.grossImpresa, s.netImpresa, s.ivaImpresa, s.totImpresa, '#1A1A1A')}
-                  {block(clientOnly ? '' : ' (cliente)', s.grossCliente, s.netCliente, s.ivaCliente, s.totCliente, C.maroon)}
+                  {block(clientOnly ? '' : ' (cliente)', s[`gross${W}`], s[`net${W}`], s[`iva${W}`], s[`tot${W}`], C.maroon)}
                 </div>
               </div>
             );
@@ -3600,7 +3609,7 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
                   <tr key={p.name} style={{ borderBottom: '1px solid #F0EEE8' }}>
                     <td style={{ padding: '4px 6px' }}>{p.label}</td>
                     {!clientOnly && <td style={cellR}>{formatEuro(p.netImpresa)}</td>}
-                    <td style={{ ...cellR, color: C.maroon, fontWeight: 600 }}>{formatEuro(p.netCliente)}</td>
+                    <td style={{ ...cellR, color: C.maroon, fontWeight: 600 }}>{formatEuro(soloImpresa ? p.netImpresa : p.netCliente)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -3626,10 +3635,11 @@ function PrintableComputo({ project, revision, clientOnly: clientOnlyProp, studi
         {noPrices ? null : clientOnly ? (
           <>
             {/* Versione cliente: in evidenza il totale generale IVA esclusa; IVA e totale IVA inclusa restano righe normali. */}
-            <ExtrasLines econ={econ} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', gap: 12, color: '#3A3A3A', margin: '4px 0' }} />
-            <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '0 0 8px', paddingBottom: 6, borderBottom: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA esclusa</span><span>{formatEuro(econ.netCliente)}</span></p>
-            {econ.breakdown.map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b.ivaCliente)}</span></p>)}
-            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA inclusa</span><span>{formatEuro(econ.totCliente)}</span></p>
+            {/* Le voci aggiuntive (spese di progetto, pratiche…) riguardano il cliente: non compaiono nella versione impresa. */}
+            {!soloImpresa && <ExtrasLines econ={econ} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', gap: 12, color: '#3A3A3A', margin: '4px 0' }} />}
+            <p style={{ fontSize: 13, display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: C.maroon, margin: '0 0 8px', paddingBottom: 6, borderBottom: `1.5px solid ${C.maroon}` }}><span>Totale generale IVA esclusa</span><span>{formatEuro(econ[`net${W}`])}</span></p>
+            {econ.breakdown.filter((b) => !soloImpresa || b.works).map((b, i) => <p key={i} style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>{b.label}</span><span>{formatEuro(b[`iva${W}`])}</span></p>)}
+            <p style={{ fontSize: 10.5, display: 'flex', justifyContent: 'space-between', color: '#5A5A5A', margin: '4px 0' }}><span>Totale generale IVA inclusa</span><span>{formatEuro(econ[`tot${W}`])}</span></p>
           </>
         ) : (
           <>
@@ -4742,6 +4752,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                 items={[
                   { label: 'Versione cliente', desc: 'Tutte le voci con i prezzi cliente', onClick: () => requestPdf(project, selectedRevision, true) },
                   { label: 'Riepilogo cliente', desc: 'Versione semplificata: solo categorie e totali', onClick: () => requestPdf(project, selectedRevision, 'riepilogo') },
+                  { label: 'Versione impresa', desc: 'Tutte le voci con i soli prezzi impresa', onClick: () => requestPdf(project, selectedRevision, 'impresa') },
                   { label: 'Completo impresa + cliente', desc: 'Uso interno, con i costi impresa', onClick: () => requestPdf(project, selectedRevision, false) },
                   { label: 'Senza prezzi', desc: "Voci e quantità da far quotare a un'impresa", onClick: () => requestPdf(project, selectedRevision, 'muto') },
                 ]}
@@ -4751,6 +4762,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                 items={[
                   { label: 'Versione cliente', desc: 'Tutte le voci con i prezzi cliente', onClick: () => exportComputoExcel(project, selectedRevision, true) },
                   { label: 'Riepilogo cliente', desc: 'Versione semplificata: solo categorie e totali', onClick: () => exportComputoExcel(project, selectedRevision, 'riepilogo') },
+                  { label: 'Versione impresa', desc: 'Tutte le voci con i soli prezzi impresa', onClick: () => exportComputoExcel(project, selectedRevision, 'impresa') },
                   { label: 'Completo impresa + cliente', desc: 'Uso interno, con i costi impresa', onClick: () => exportComputoExcel(project, selectedRevision, false) },
                   { label: 'Senza prezzi', desc: 'Con le formule pronte per i prezzi', onClick: () => exportComputoExcelSenzaPrezzi(project, selectedRevision) },
                 ]}
