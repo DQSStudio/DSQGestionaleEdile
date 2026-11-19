@@ -363,7 +363,7 @@ function addItemToProjectRevision(project, revisionId, newItem) {
       value: total,
     };
   }
-  const newRev = { ...target, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: newItems, total, totalCliente };
+  const newRev = { ...target, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: target.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: newItems, total, totalCliente };
   return { ...project, revisions: [...revisions, newRev], value: total };
 }
 
@@ -1966,7 +1966,7 @@ function addListinoVoceToProject(project, revisionId, item) {
     return { project: { ...project, revisions: revisions.map((r) => (r === target ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r)), value: total }, label: target.customName || target.label, forked: false };
   }
   const label = `Revisione ${revisions.length + 1}`;
-  const newRev = { ...target, id: Date.now() + 1, label, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: nextItems, total, totalCliente };
+  const newRev = { ...target, id: Date.now() + 1, label, customName: target.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: nextItems, total, totalCliente };
   return { project: { ...project, revisions: [...revisions, newRev], value: total }, label, forked: true };
 }
 
@@ -3940,7 +3940,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
       const updatedRevisions = revisions.map((r) => (r === selectedRevision ? { ...r, ...patchWithCodes, dateModified: nowLabel(), modifiedBy: myBookmarkName, total, totalCliente } : r));
       onUpdateProject({ ...project, revisions: updatedRevisions, value: total });
     } else {
-      const newRev = { ...selectedRevision, ...patchWithCodes, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0], total, totalCliente };
+      const newRev = { ...selectedRevision, ...patchWithCodes, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: selectedRevision.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0], total, totalCliente };
       onUpdateProject({ ...project, revisions: [...revisions, newRev], value: total });
       setSelectedRevisionId(newRev.id);
       setForkNotice(`${selectedRevision.customName || selectedRevision.label} è ${isRevisionEditable(selectedRevision) ? 'una versione precedente' : `"${selectedRevision.status}"`} e resta intatta: la modifica è stata salvata nella nuova ${newRev.label}.`);
@@ -5867,7 +5867,7 @@ const rowBtnStyle = { border: `1px solid ${C.paleGray}`, background: C.white, bo
 // Copia l'ultima revisione (approvata) in una nuova revisione "In attesa di approvazione" su cui lavorare.
 function forkRevisionForEdit(revisions) {
   const src = revisions[revisions.length - 1];
-  const newRev = { ...structuredClone(src), id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0] };
+  const newRev = { ...structuredClone(src), id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: src.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], forkedFrom: src.id };
   return [...revisions, newRev];
 }
 
@@ -5917,9 +5917,10 @@ function incrementComputoItemQty(project, itemId, deltaNum, info = {}) {
       unitaCalcolo = defaultCalcForUnit(it.unit) || 'nr';
       rows = parseEuro(it.qty) ? [{ segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(parseEuro(it.qty)), descr: 'Quantità già presente (inserita a mano)' }] : [];
     }
-    const newRow = { segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(deltaNum), descr: info.label || 'Misura dal rilievo planimetrico', rilievoRef: info.ref ?? null };
+    const oggi = itDate(isoToday());
+    const newRow = { segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(deltaNum), descr: `${info.label || 'Misura dal rilievo planimetrico'} · inserita il ${oggi}`, rilievoRef: info.ref ?? null, rilievoPlan: info.plan || null, rilievoData: isoToday() };
     if (info.ref != null && rows.some((r) => r.rilievoRef === info.ref)) {
-      rows = rows.map((r) => (r.rilievoRef === info.ref ? { ...r, valore: newRow.valore, descr: newRow.descr } : r));
+      rows = rows.map((r) => (r.rilievoRef === info.ref ? { ...r, valore: newRow.valore, descr: `${info.label || 'Misura dal rilievo planimetrico'} · aggiornata il ${oggi}`, rilievoPlan: newRow.rilievoPlan, rilievoData: newRow.rilievoData } : r));
       replaced = true;
     } else {
       rows = [...rows, newRow];
@@ -5933,6 +5934,188 @@ function incrementComputoItemQty(project, itemId, deltaNum, info = {}) {
   const totalCliente = formatEuro(sumCliente(realItems));
   const updatedRevisions = revisions.map((r) => (r === latestRevision ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r));
   return { project: { ...project, revisions: updatedRevisions, value: total }, ok: true, replaced };
+}
+
+// --- Identità delle planimetrie: titolo, data di importazione e numero cronologico nel progetto ---
+// Servono a riconoscere nel computo da quale planimetria (e da quale versione) arriva ogni misura.
+const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const itDate = (iso) => { if (!iso) return ''; const [y, m, d] = String(iso).slice(0, 10).split('-'); return d && m && y ? `${d}/${m}/${y}` : String(iso); };
+const planFileTitle = (name) => String(name || 'Planimetria').replace(/\.[a-z0-9]+$/i, '').replace(/[_]+/g, ' ').trim() || 'Planimetria';
+const planLabel = (pl) => (pl ? `Planimetria n. ${pl.numero || '?'} «${pl.titolo || planFileTitle(pl.name)}»${pl.dataImport ? ` del ${itDate(pl.dataImport)}` : ''}` : 'Planimetria');
+const nextPlanNumero = (project) => Math.max(Number(project.planimetriaSeq) || 0, ...(project.planimetrie || []).map((p) => Number(p.numero) || 0)) + 1;
+// Planimetrie importate prima di questa funzione: titolo dal nome del file, data dal momento del caricamento
+// (l'id è il timestamp di creazione) e numero in ordine di caricamento. Restituisce lo stesso oggetto se non
+// c'è niente da completare.
+function normalizePlanimetrie(project) {
+  const list = project?.planimetrie || [];
+  if (!list.some((p) => !p.titolo || !p.numero || p.dataImport === undefined)) return project;
+  let seq = Math.max(Number(project.planimetriaSeq) || 0, ...list.map((p) => Number(p.numero) || 0));
+  const ordered = [...list].sort((a, b) => (Number(a.id) || 0) - (Number(b.id) || 0));
+  const numeri = new Map();
+  ordered.forEach((p) => { if (!p.numero) { seq += 1; numeri.set(p.id, seq); } });
+  const planimetrie = list.map((p) => {
+    const ts = Number(p.id);
+    const fromId = ts > 1500000000000 && ts < 4100000000000 ? new Date(Math.floor(ts)) : null;
+    const dataImport = p.dataImport !== undefined ? p.dataImport : (fromId ? `${fromId.getFullYear()}-${String(fromId.getMonth() + 1).padStart(2, '0')}-${String(fromId.getDate()).padStart(2, '0')}` : '');
+    return { ...p, titolo: p.titolo || planFileTitle(p.name), numero: p.numero || numeri.get(p.id), dataImport };
+  });
+  return { ...project, planimetrie, planimetriaSeq: seq };
+}
+
+// --- Misure del rilievo → uno o più computi (revisioni) scelti ---
+// entries: [{ ref, value, label, computoItemId, voce }] — ref = id della forma/del punto sulla planimetria;
+// computoItemId = voce del computo a cui è collegata (gli id delle voci restano uguali nelle revisioni copiate);
+// voce = voce di listino (se la misura è collegata al listino). Ogni misura diventa una riga del dettaglio
+// misurazioni con rilievoRef: se la riga c'è già viene aggiornata, mai aggiunta due volte.
+// Le revisioni approvate/in cantiere non si toccano: se ne crea una copia "In attesa di approvazione" con lo
+// stesso titolo (es. il nome dell'impresa) e il numero di revisione successivo, e si aggiorna quella.
+// opts.validRefs (Set): se presente, le righe di rilievo che puntano a forme/punti non più esistenti vengono
+// tolte (misure cancellate o rifatte), così le quantità non restano gonfiate.
+function newComputoItemFromVoce(voce, qtyNum, row) {
+  const impresaVal = voce.impresaValue !== undefined ? voce.impresaValue : parseEuro(voce.priceImpresa);
+  const clienteVal = voce.clienteValue !== undefined ? voce.clienteValue : evalClientPrice(voce.priceCliente, impresaVal);
+  const unitaCalcolo = defaultCalcForUnit(voce.unit) || 'nr';
+  const misurazioni = [{ rows: [row] }];
+  return {
+    id: Date.now() + Math.random(), listinoRef: voce.uid ? { listinoId: voce.listinoId, uid: voce.uid } : null, code: voce.code, desc: voce.desc, unit: voce.unit,
+    unitPriceImpresa: formatEuro(impresaVal).replace(' €', ''), unitPriceCliente: formatEuro(clienteVal).replace(' €', ''),
+    macro: voce.macro, section: voce.macro, ...(voce.categoria ? { categoria: voce.categoria } : {}), ...(voce.sottocategoria ? { sottocategoria: voce.sottocategoria } : {}),
+    unitaCalcolo, misurazioni, qty: String(Math.round(computeVoceQtyTotal(misurazioni, unitaCalcolo) * 100) / 100).replace('.', ','),
+  };
+}
+function applyRilievoToRevisions(project, entries, revisionIds, opts = {}) {
+  let revisions = [...(project.revisions || [])];
+  const fmt = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
+  const report = [];
+  if (!revisions.length) {
+    revisions = [{ id: Date.now(), label: 'Revisione 1', customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: [], extraSections: [], total: '0,00 €', totalCliente: '0,00 €' }];
+    revisionIds = [revisions[0].id];
+  }
+  const targets = revisionIds.map((id) => revisions.find((r) => String(r.id) === String(id))).filter(Boolean);
+  targets.forEach((src, ti) => {
+    let rev = src;
+    let forked = false;
+    if (!isRevisionEditable(src)) {
+      rev = { ...structuredClone(src), id: Date.now() + ti + 1, label: `Revisione ${revisions.length + 1}`, customName: src.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], forkedFrom: src.id };
+      delete rev.offerta;
+      revisions.push(rev);
+      forked = true;
+    }
+    let items = (rev.items || []).map((it) => it);
+    let updated = 0; let added = 0; let removed = 0; const missing = [];
+    const setRows = (it, rows) => {
+      const unitaCalcolo = it.unitaCalcolo || defaultCalcForUnit(it.unit) || 'nr';
+      const misurazioni = [{ rows }];
+      return { ...it, unitaCalcolo, misurazioni, qty: fmt(computeVoceQtyTotal(misurazioni, unitaCalcolo)) };
+    };
+    // 1) pulizia delle righe di misure che non esistono più
+    if (opts.validRefs) {
+      items = items.map((it) => {
+        if (it.type === 'subtotal' || !it.misurazioni) return it;
+        const rows = it.misurazioni.flatMap((g) => g.rows || []);
+        const keep = rows.filter((r) => r.rilievoRef == null || opts.validRefs.has(r.rilievoRef));
+        if (keep.length === rows.length) return it;
+        removed += rows.length - keep.length;
+        return setRows(it, keep);
+      });
+    }
+    // 2) misure da inserire/aggiornare
+    entries.forEach((e) => {
+      if (!e.value) return;
+      const oggi = itDate(isoToday());
+      const row = { segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(e.value), descr: `${e.label || 'Misura dal rilievo planimetrico'} · inserita il ${oggi}`, rilievoRef: e.ref, rilievoPlan: e.plan || null, rilievoData: isoToday() };
+      let idx = e.computoItemId != null ? items.findIndex((it) => it.type !== 'subtotal' && it.id === e.computoItemId) : -1;
+      if (idx < 0) idx = items.findIndex((it) => it.type !== 'subtotal' && (it.misurazioni || []).some((g) => (g.rows || []).some((r) => r.rilievoRef === e.ref)));
+      if (idx >= 0) {
+        const it = items[idx];
+        if (it.qtyLink) { missing.push(`${e.label} (voce collegata a un'altra)`); return; }
+        let rows = (it.misurazioni || []).flatMap((g) => g.rows || []);
+        if (!it.unitaCalcolo) rows = parseEuro(it.qty) ? [{ segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(parseEuro(it.qty)), descr: 'Quantità già presente (inserita a mano)' }] : [];
+        rows = rows.some((r) => r.rilievoRef === e.ref)
+          ? rows.map((r) => (r.rilievoRef === e.ref ? { ...r, valore: row.valore, descr: `${e.label || 'Misura dal rilievo planimetrico'} · aggiornata il ${oggi}`, rilievoPlan: row.rilievoPlan, rilievoData: row.rilievoData } : r))
+          : [...rows, row];
+        items = items.map((x, i) => (i === idx ? setRows(it, rows) : x));
+        updated += 1;
+      } else if (e.voce) {
+        items = [...items, newComputoItemFromVoce(e.voce, e.value, row)];
+        added += 1;
+      } else {
+        missing.push(e.label);
+      }
+    });
+    if (added) items = regenerateItemCodes(items);
+    items = resolveLinkedQuantities(items);
+    const real = items.filter((it) => it.type !== 'subtotal');
+    const next = { ...rev, items, dateModified: nowLabel(), total: formatEuro(sumImpresa(real)), totalCliente: formatEuro(sumCliente(real)) };
+    revisions = revisions.map((r) => (r === rev ? next : r));
+    report.push({ id: next.id, name: next.customName || next.label, label: next.label, forked, fromLabel: src.label, updated, added, removed, missing });
+  });
+  const last = revisions[revisions.length - 1];
+  return { project: { ...project, revisions, value: last?.total || project.value }, report };
+}
+
+// Scelta dei computi (revisioni) in cui portare le misure del rilievo.
+function RilievoComputiModal({ project, count, bulk, onCancel, onConfirm }) {
+  const revisions = project.revisions || [];
+  const [sel, setSel] = useState(() => new Set(revisions.length ? [String(revisions[revisions.length - 1].id)] : []));
+  const [cleanup, setCleanup] = useState(!!bulk);
+  const toggle = (id) => setSel((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  let nextN = revisions.length;
+  const ordered = [...revisions].reverse();
+  const forkLabel = {};
+  revisions.forEach((r) => { if (sel.has(String(r.id)) && !isRevisionEditable(r)) { nextN += 1; forkLabel[r.id] = `Revisione ${nextN}`; } });
+  return createPortal(
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: 620, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', fontFamily: FONT }}>
+        <h2 style={{ fontSize: 19, fontWeight: 600, margin: '0 0 4px', color: C.black }}>Porta nel computo</h2>
+        <p style={{ fontSize: 13, color: C.gray, margin: '0 0 14px' }}>
+          {count === 1 ? '1 misura' : `${count} misure`} di <b style={{ color: C.black }}>{project.name}</b>. Scegli in quali computi inserirle: le misure già presenti vengono aggiornate, non aggiunte di nuovo.
+        </p>
+        {revisions.length === 0 ? (
+          <p style={{ fontSize: 13.5, color: C.darkGray }}>Il progetto non ha ancora un computo: verrà creata la <b>Revisione 1</b>.</p>
+        ) : (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>Computi del progetto</span>
+              <span style={{ display: 'flex', gap: 14 }}>
+                <button onClick={() => setSel(new Set(revisions.map((r) => String(r.id))))} style={{ border: 'none', background: 'transparent', color: C.maroon, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Tutti</button>
+                <button onClick={() => setSel(new Set())} style={{ border: 'none', background: 'transparent', color: C.maroon, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Nessuno</button>
+              </span>
+            </div>
+            <div style={{ border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
+              {ordered.map((r, i) => {
+                const id = String(r.id);
+                const on = sel.has(id);
+                const locked = !isRevisionEditable(r);
+                return (
+                  <label key={id} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: '11px 14px', borderTop: i ? `1px solid ${C.paleGray}` : 'none', cursor: 'pointer', background: on ? '#FBF7F2' : C.white }}>
+                    <input type="checkbox" checked={on} onChange={() => toggle(id)} style={{ width: 19, height: 19, accentColor: C.maroon, marginTop: 1, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: C.black }}>{r.customName || r.label}{r.customName ? <span style={{ fontWeight: 400, color: C.gray }}> · {r.label}</span> : null}{i === 0 && <span style={{ fontSize: 11, fontWeight: 600, color: C.maroon, marginLeft: 8 }}>ULTIMA</span>}</div>
+                      <div style={{ fontSize: 12, color: C.gray }}>{r.status || STATUS_OPTIONS[0]} · {r.total || '0,00 €'} · modificata il {r.dateModified}</div>
+                      {locked && on && <div style={{ fontSize: 12, color: C.maroon, marginTop: 3 }}>Bloccata: verrà creata una nuova revisione «{r.customName || r.label}» ({forkLabel[r.id]}) con le misure aggiornate.</div>}
+                      {locked && !on && <div style={{ fontSize: 11.5, color: C.gray, marginTop: 2 }}>🔒 {r.status}: se la scegli ne verrà creata una nuova revisione</div>}
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </>
+        )}
+        <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 14, fontSize: 13, color: C.black, cursor: 'pointer' }}>
+          <input type="checkbox" checked={cleanup} onChange={(e) => setCleanup(e.target.checked)} style={{ width: 18, height: 18, accentColor: C.maroon, flexShrink: 0 }} />
+          <span>Togli dai computi scelti le misure che non esistono più sulle planimetrie<br /><span style={{ fontSize: 12, color: C.gray }}>Utile se hai cancellato e rifatto le misurazioni: le righe vecchie non restano a gonfiare le quantità.</span></span>
+        </label>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+          <button onClick={onCancel} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, cursor: 'pointer' }}>Annulla</button>
+          <button disabled={revisions.length > 0 && sel.size === 0} onClick={() => onConfirm([...sel], cleanup)} style={{ border: 'none', background: revisions.length > 0 && sel.size === 0 ? C.paleGray : C.maroon, color: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+            {revisions.length === 0 ? 'Crea il computo' : `Aggiorna ${sel.size} ${sel.size === 1 ? 'computo' : 'computi'}`}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 // --- Matematica del rilievo (scala/area/lunghezza/volume), a livello di modulo e non più chiusa dentro
@@ -6143,6 +6326,11 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     return 0;
   });
   const project = projects[projectIdx] || projects[0];
+  // Completa titolo/data/numero delle planimetrie già importate (una volta sola: poi restano salvati).
+  useEffect(() => {
+    if (!projects || !projects.some((p) => normalizePlanimetrie(p) !== p)) return;
+    setProjects(projects.map((p) => normalizePlanimetrie(p)));
+  }, [projects]);
   const [listinoId, setListinoId] = useState(listini[0]?.id);
   const activeListino = listini.find((l) => l.id === listinoId) || listini[0];
   // Voci già presenti nell'ultima revisione del computo di questo progetto (se esiste): servono alla
@@ -6279,12 +6467,21 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   const uploadPlanimetria = (file) => {
     const reader = new FileReader();
     reader.onload = () => {
-      const planimetria = { id: Date.now(), name: file.name, image: reader.result, markers: [], shapes: [], scale: null, naturalWidth: null, naturalHeight: null };
-      onUpdateProject({ ...project, planimetrie: [...(project.planimetrie || []), planimetria] });
+      const base = normalizePlanimetrie(project);
+      const numero = nextPlanNumero(base);
+      const typed = window.prompt(`Titolo della planimetria n. ${numero} (es. "Stato di fatto", "Progetto v2 — piano terra"):`, planFileTitle(file.name));
+      const titolo = (typed || '').trim() || planFileTitle(file.name);
+      const planimetria = { id: Date.now(), name: file.name, titolo, numero, dataImport: isoToday(), image: reader.result, markers: [], shapes: [], scale: null, naturalWidth: null, naturalHeight: null };
+      onUpdateProject({ ...base, planimetriaSeq: numero, planimetrie: [...(base.planimetrie || []), planimetria] });
     };
     reader.readAsDataURL(file);
   };
 
+  const renamePlanimetria = (pl) => {
+    const typed = window.prompt(`Titolo della planimetria n. ${pl.numero || '?'}:`, pl.titolo || planFileTitle(pl.name));
+    if (typed == null || !typed.trim()) return;
+    onUpdateProject({ ...project, planimetrie: (project.planimetrie || []).map((p) => (p.id === pl.id ? { ...p, titolo: typed.trim() } : p)) });
+  };
   const removePlanimetria = (id) => {
     if (!confirm('Eliminare questa planimetria e tutti i suoi punti?')) return;
     onUpdateProject({ ...project, planimetrie: (project.planimetrie || []).filter((p) => p.id !== id) });
@@ -6415,13 +6612,38 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
 
   // Forma collegata a una voce di LISTINO: aggiunge una nuova riga al computo (creando la prima
   // revisione in automatico se il progetto non ne ha ancora una).
+  // Misure → computi: si apre la scelta dei computi (anche più di uno, anche approvati) e si applica
+  // applyRilievoToRevisions. computoTarget = { entries, bulk } mentre la scelta è aperta.
+  const [computoTarget, setComputoTarget] = useState(null);
+  const shapeEntry = (shape) => {
+    const voce = shape.code ? flattenListino(activeListino).find((v) => v.code === shape.code) : null;
+    const pl = (project.planimetrie || []).find((x) => (x.shapes || []).some((y) => y.id === shape.id));
+    return { ref: shape.id, value: shape.value, label: rilievoLabel(shape), computoItemId: shape.computoItemId ?? null, voce, plan: pl ? { id: pl.id, numero: pl.numero, titolo: pl.titolo, data: pl.dataImport } : null };
+  };
   const addShapeToComputo = (shape) => {
-    const catalogItems = flattenListino(activeListino);
-    const voce = catalogItems.find((v) => v.code === shape.code);
-    if (!voce) { alert('Voce di listino non trovata nel listino attivo.'); return; }
-    const { project: withItem, ok } = addComputoItemToProject(project, voce, shape.value.toFixed(2).replace('.', ','));
-    if (!ok) { alert('Non sono riuscito ad aggiungere la misura al computo.'); return; }
-    onUpdateProject(withItem);
+    const e = shapeEntry(shape);
+    if (!e.voce && e.computoItemId == null) { alert('Voce di listino non trovata nel listino attivo.'); return; }
+    setComputoTarget({ entries: [e], bulk: false });
+  };
+  const sendPlanimetriaToComputo = (pl) => {
+    const entries = (pl.shapes || []).filter((sh) => sh.computoItemId != null || sh.code).map(shapeEntry).filter((e) => e.voce || e.computoItemId != null);
+    if (!entries.length) { alert('Nessuna misura di questa planimetria è collegata a una voce del computo o del listino.'); return; }
+    setComputoTarget({ entries, bulk: true });
+  };
+  const confirmComputoTarget = (revIds, cleanup) => {
+    const validRefs = cleanup ? new Set((project.planimetrie || []).flatMap((p) => [...(p.shapes || []).map((x) => x.id), ...(p.markers || []).map((x) => x.id)])) : null;
+    const { project: next, report } = applyRilievoToRevisions(project, computoTarget.entries, revIds, { validRefs });
+    onUpdateProject(next);
+    setComputoTarget(null);
+    const lines = report.map((r) => {
+      const parts = [];
+      if (r.updated) parts.push(`${r.updated} aggiornat${r.updated === 1 ? 'a' : 'e'}`);
+      if (r.added) parts.push(`${r.added} nuov${r.added === 1 ? 'a voce' : 'e voci'}`);
+      if (r.removed) parts.push(`${r.removed} misur${r.removed === 1 ? 'a vecchia tolta' : 'e vecchie tolte'}`);
+      if (r.missing.length) parts.push(`${r.missing.length} non inserit${r.missing.length === 1 ? 'a' : 'e'} (voce non presente)`);
+      return `• ${r.name}${r.forked ? ` — nuova ${r.label} (copia di ${r.fromLabel}, bloccata)` : ` (${r.label})`}: ${parts.join(', ') || 'nessuna modifica'}`;
+    });
+    alert(`Computi aggiornati:\n${lines.join('\n')}`);
   };
 
   // Forma collegata a una voce GIÀ ESISTENTE nel computo: somma il valore della misura alla quantità
@@ -6430,15 +6652,10 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     const pl = (project.planimetrie || []).find((p) => (p.shapes || []).some((x) => x.id === shape.id) || (p.markers || []).some((x) => x.id === shape.id));
     const what = shape.type === 'area' ? 'area' : 'lunghezza';
     const n = pl ? (pl.shapes || []).filter((x) => x.type === shape.type).findIndex((x) => x.id === shape.id) + 1 : 0;
-    return `Rilievo${pl?.name ? ` · ${String(pl.name).replace(/\.[a-z0-9]+$/i, '')}` : ''} · ${what}${n > 0 ? ` n. ${n}` : ''}${shapeHeightLabel(shape)}`;
+    return `Rilievo · ${planLabel(pl)} · ${what}${n > 0 ? ` n. ${n}` : ''}${shapeHeightLabel(shape)}`;
   };
   const linkedFailMsg = 'Questa voce prende la quantità da un\'altra voce (è "collegata"): non le si possono aggiungere misure. Collega la misura alla voce di origine, oppure scollega la voce dal computo.';
-  const updateShapeInComputo = (shape) => {
-    const { project: withItem, ok, reason, replaced } = incrementComputoItemQty(project, shape.computoItemId, shape.value, { ref: shape.id, label: rilievoLabel(shape) });
-    if (!ok) { alert(reason === 'linked' ? linkedFailMsg : 'Non sono riuscito ad aggiornare la voce scelta nel computo: potrebbe essere stata rimossa o rinominata.'); return; }
-    onUpdateProject(withItem);
-    if (replaced) alert('Questa misura era già nel dettaglio della voce: la riga è stata aggiornata con il valore attuale, non aggiunta una seconda volta.');
-  };
+  const updateShapeInComputo = (shape) => addShapeToComputo(shape);
 
   const shapeHeightLabel = (s) => {
     if (s.heightMin == null) return '';
@@ -6461,7 +6678,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
       if (!existingItem) { closeModal(); return; }
       markerId = Date.now() + Math.random();
       const pl = (project.planimetrie || []).find((p) => p.id === plId);
-      const result = incrementComputoItemQty(project, computoItemId, parseEuro(qty || '0'), { ref: markerId, label: `Rilievo${pl?.name ? ` · ${String(pl.name).replace(/\.[a-z0-9]+$/i, '')}` : ''} · punto (${qty || '0'} pz)` });
+      const result = incrementComputoItemQty(project, computoItemId, parseEuro(qty || '0'), { ref: markerId, label: `Rilievo · ${planLabel(pl)} · punto (${qty || '0'} pz)`, plan: pl ? { id: pl.id, numero: pl.numero, titolo: pl.titolo, data: pl.dataImport } : null });
       withItem = result.project; ok = result.ok;
       if (result.reason === 'linked') { alert(linkedFailMsg); closeModal(); return; }
       linkComputoItemId = computoItemId; linkDesc = existingItem.desc;
@@ -6679,8 +6896,15 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
           return (
             <div key={pl.id} style={{ marginBottom: 18, border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: C.surfaceSubtle }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>{pl.name}</span>
-                <button onClick={() => removePlanimetria(pl.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap', minWidth: 0 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: C.white, background: C.maroon, borderRadius: 999, padding: '2px 9px', whiteSpace: 'nowrap' }}>N. {pl.numero || '?'}</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: C.black }}>{pl.titolo || planFileTitle(pl.name)}</span>
+                  <span style={{ fontSize: 12, color: C.gray }}>{pl.dataImport ? `importata il ${itDate(pl.dataImport)}` : ''}{pl.name ? ` · file ${pl.name}` : ''}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                  <button onClick={() => renamePlanimetria(pl)} style={rowBtnStyle} title="Cambia il titolo della planimetria">✏️ Titolo</button>
+                  <button onClick={() => removePlanimetria(pl.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
+                </div>
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', padding: '8px 12px', borderBottom: `1px solid ${C.paleGray}` }}>
@@ -6916,7 +7140,10 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                 <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.paleGray}` }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: C.black }}>Misure rilevate su questa planimetria</span>
-                    <button onClick={() => setCollapsedGroups((c) => { const n = { ...c }; groups.forEach((g) => { n[`${pl.id}|${g.key}`] = allOpen; }); return n; })} style={rowBtnStyle}>{allOpen ? '▸ Chiudi tutto' : '▾ Apri tutto'}</button>
+                    <span style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      <button onClick={() => sendPlanimetriaToComputo(pl)} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, border: 'none', fontSize: 12, padding: '7px 12px' }} title="Porta tutte le misure collegate di questa planimetria nei computi che scegli">Porta tutte le misure nel computo…</button>
+                      <button onClick={() => setCollapsedGroups((c) => { const n = { ...c }; groups.forEach((g) => { n[`${pl.id}|${g.key}`] = allOpen; }); return n; })} style={rowBtnStyle}>{allOpen ? '▸ Chiudi tutto' : '▾ Apri tutto'}</button>
+                    </span>
                   </div>
                   {groups.map((g, gi) => {
                     const isClosed = !!collapsedGroups[`${pl.id}|${g.key}`];
@@ -6958,9 +7185,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                         <button onClick={() => startEditShape(pl, s)} style={rowBtnStyle}>✏️ Forma</button>
                         <button onClick={() => duplicatePlanShape(pl.id, s)} title="Duplica questa misura per collegarla anche a un'altra voce di listino" style={rowBtnStyle}>⧉ Duplica</button>
                         {s.computoItemId ? (
-                          <button onClick={() => updateShapeInComputo(s)} style={rowBtnStyle} title="Aggiunge questa misura come riga nel dettaglio della voce del computo (se c'è già, la aggiorna)">✎ Aggiorna computo</button>
+                          <button onClick={() => updateShapeInComputo(s)} style={rowBtnStyle} title="Inserisce o aggiorna questa misura nel dettaglio della voce, nei computi che scegli">✎ Aggiorna computo…</button>
                         ) : s.code && (
-                          <button onClick={() => addShapeToComputo(s)} style={rowBtnStyle} title="Crea una nuova riga nel computo con il valore di questa misura">+ Al computo</button>
+                          <button onClick={() => addShapeToComputo(s)} style={rowBtnStyle} title="Porta questa misura nei computi che scegli (se c'è già, la aggiorna)">+ Al computo…</button>
                         )}
                         <button onClick={() => removePlanShape(pl.id, s.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
                       </div>
@@ -6977,6 +7204,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
         })}
       </div>
 
+      {computoTarget && (
+        <RilievoComputiModal project={project} count={computoTarget.entries.length} bulk={computoTarget.bulk} onCancel={() => setComputoTarget(null)} onConfirm={confirmComputoTarget} />
+      )}
       {planModal && modalProps && (
         <PlanLinkModal
           {...modalProps}
