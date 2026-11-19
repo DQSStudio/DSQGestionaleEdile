@@ -9888,6 +9888,121 @@ function OffertaDettaglioModal({ offerta, link, project, busy, onBack, onAccept,
   );
 }
 
+// PDF dell'offerta compilata dall'impresa (bozza o versione inviata), generato nel browser e scaricato subito.
+// stato: 'bozza' | 'inviata'. jsPDF si carica solo quando serve.
+async function downloadOffertaPdf({ data, priceOf, notes, referente, email, telefono, notaGenerale, stato, sentAt }) {
+  const { jsPDF } = await import('jspdf');
+  const autoTable = (await import('jspdf-autotable')).default;
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const M = 14;
+  const W = doc.internal.pageSize.getWidth();
+  const INK = [43, 35, 33]; const ACC = [134, 45, 45]; const GRAY = [139, 129, 120];
+  const sections = data?.snapshot?.sections || [];
+  const allItems = sections.flatMap((sec) => sec.categorie.flatMap((c) => c.items));
+  const amount = (it) => { const pz = priceOf(it.id); return pz === null ? null : pz * parseEuro(it.qty); };
+  const secTotal = (sec) => sec.categorie.reduce((n, c) => n + c.items.reduce((m, it) => m + (amount(it) || 0), 0), 0);
+  const total = sections.reduce((n, sec) => n + secTotal(sec), 0);
+  const filled = allItems.filter((it) => priceOf(it.id) !== null).length;
+  const eur = (n) => formatEuro(n).replace(/ /g, ' ');
+  const today = new Date().toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+  // Intestazione
+  let y = M + 2;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(16); doc.setTextColor(...INK);
+  doc.text('Offerta per computo metrico', M, y);
+  doc.setFontSize(9); doc.setFont('helvetica', 'bold');
+  if (stato === 'inviata') { doc.setTextColor(47, 93, 69); doc.text(`INVIATA ALLO STUDIO${sentAt ? ` IL ${sentAt}` : ''}`, W - M, y, { align: 'right' }); }
+  else { doc.setTextColor(...ACC); doc.text('BOZZA - NON ANCORA INVIATA', W - M, y, { align: 'right' }); }
+  y += 7;
+  const meta = [
+    ['Progetto', data.projectName],
+    ['Studio', data.studioNome],
+    ['Impresa', data.impresaNome],
+    ['Ubicazione', data.snapshot?.ubicazione],
+    ['Referente', [referente, email, telefono].map((x) => (x || '').trim()).filter(Boolean).join(' - ')],
+    ['Data documento', today],
+  ].filter(([, v]) => (v || '').toString().trim());
+  doc.setFontSize(9.5);
+  meta.forEach(([k, v]) => {
+    doc.setFont('helvetica', 'normal'); doc.setTextColor(...GRAY); doc.text(k, M, y);
+    doc.setTextColor(...INK); doc.text(doc.splitTextToSize(String(v), W - 2 * M - 32), M + 32, y);
+    y += 5;
+  });
+  y += 2;
+  const noteBlock = (title, text) => {
+    const t = (text || '').trim(); if (!t) return;
+    const lines = doc.splitTextToSize(t, W - 2 * M - 6);
+    if (y + lines.length * 4.2 + 8 > doc.internal.pageSize.getHeight() - 16) { doc.addPage(); y = M; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...GRAY); doc.text(title.toUpperCase(), M, y); y += 4;
+    doc.setDrawColor(...ACC); doc.setLineWidth(0.8); doc.line(M, y - 2.5, M, y - 2.5 + lines.length * 4.2);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...INK); doc.text(lines, M + 4, y); y += lines.length * 4.2 + 4;
+  };
+  noteBlock('Note dello studio', data.snapshot?.noteInizio);
+
+  // Tabella voci
+  const body = [];
+  sections.forEach((sec) => {
+    body.push([{ content: sec.name.toUpperCase(), colSpan: 6, styles: { fillColor: INK, textColor: 255, fontStyle: 'bold', fontSize: 9 } }]);
+    sec.categorie.forEach((c) => {
+      body.push([{ content: c.name, colSpan: 6, styles: { fillColor: [246, 243, 238], fontStyle: 'bold', textColor: INK } }]);
+      c.items.forEach((it) => {
+        const pz = priceOf(it.id);
+        const a = amount(it);
+        let desc = it.desc || '';
+        if (it.note) desc += `\nNota studio: ${it.note}`;
+        if ((notes[it.id] || '').trim()) desc += `\nNota impresa: ${notes[it.id].trim()}`;
+        body.push([it.code || '', desc, it.qty || '', it.unit || '', pz === null ? '-' : eur(pz), a === null ? 'non quotata' : eur(a)]);
+      });
+    });
+    body.push([{ content: `Totale ${sec.name} IVA esclusa`, colSpan: 5, styles: { halign: 'right', fontStyle: 'bold' } }, { content: eur(secTotal(sec)), styles: { halign: 'right', fontStyle: 'bold', textColor: ACC } }]);
+  });
+  autoTable(doc, {
+    startY: y,
+    margin: { left: M, right: M, bottom: 16 },
+    head: [['Codice', 'Descrizione', 'Q.tà', 'U.M.', 'Prezzo unit.', 'Importo']],
+    body,
+    rowPageBreak: 'avoid',
+    theme: 'plain',
+    styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: INK, lineColor: [237, 230, 219], lineWidth: { bottom: 0.2 }, valign: 'top', overflow: 'linebreak' },
+    headStyles: { fontStyle: 'bold', fontSize: 7.5, textColor: GRAY, lineWidth: { bottom: 0.5 }, lineColor: INK },
+    columnStyles: { 0: { cellWidth: 20, fontSize: 7.5, textColor: GRAY }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 16, halign: 'right' }, 3: { cellWidth: 12 }, 4: { cellWidth: 24, halign: 'right' }, 5: { cellWidth: 26, halign: 'right', fontStyle: 'bold' } },
+    didParseCell: (h) => { if (h.section === 'head' && h.column.index >= 4) h.cell.styles.halign = 'right'; if (h.section === 'head' && h.column.index === 2) h.cell.styles.halign = 'right'; },
+  });
+  y = doc.lastAutoTable.finalY + 6;
+
+  // Riepilogo
+  autoTable(doc, {
+    startY: y,
+    margin: { left: W / 2 - 10, right: M, bottom: 16 },
+    body: [
+      ...sections.map((sec) => [sec.name, eur(secTotal(sec))]),
+      [{ content: 'TOTALE OFFERTA IVA ESCLUSA', styles: { fontStyle: 'bold', fontSize: 10.5, textColor: ACC } }, { content: eur(total), styles: { fontStyle: 'bold', fontSize: 10.5, textColor: ACC } }],
+      [{ content: `Voci quotate: ${filled} su ${allItems.length}`, colSpan: 2, styles: { textColor: filled < allItems.length ? ACC : GRAY, fontSize: 8 } }],
+    ],
+    theme: 'plain',
+    styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.6, textColor: INK, lineColor: [237, 230, 219], lineWidth: { bottom: 0.2 } },
+    columnStyles: { 1: { halign: 'right', cellWidth: 34 } },
+    rowPageBreak: 'avoid',
+  });
+  y = doc.lastAutoTable.finalY + 8;
+  noteBlock("Note dell'impresa", notaGenerale);
+  noteBlock('Note finali dello studio', data.snapshot?.noteFine);
+
+  // Piè di pagina
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRAY);
+    const h = doc.internal.pageSize.getHeight();
+    doc.text(`${data.projectName || ''} - offerta ${data.impresaNome || ''}${stato === 'bozza' ? ' (bozza)' : ''}`, M, h - 8);
+    doc.text(`Pagina ${i} di ${n}`, W - M, h - 8, { align: 'right' });
+  }
+  const safe = (x) => String(x || '').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '');
+  const d = new Date();
+  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}_${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+  doc.save(`Offerta_${safe(data.impresaNome)}_${safe(data.projectName)}_${stato === 'inviata' ? 'inviata' : 'bozza'}_${stamp}.pdf`);
+}
+
 // Vista pubblica per l'impresa (link + PIN, nessun account): computo senza prezzi da compilare e inviare.
 function OffertaImpresaView({ token }) {
   const [pin, setPin] = useState('');
@@ -9903,6 +10018,15 @@ function OffertaImpresaView({ token }) {
   const [notaGenerale, setNotaGenerale] = useState('');
   const [sending, setSending] = useState(false);
   const [sentAt, setSentAt] = useState(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [draftRestored, setDraftRestored] = useState(false);
+  // Bozza salvata su questo dispositivo mentre l'impresa compila: se chiude la pagina e la riapre, ritrova i
+  // prezzi non ancora inviati. Non va al database: resta solo nel browser.
+  const draftKey = `quant_offerta_bozza_${token}`;
+  React.useEffect(() => {
+    if (!data) return;
+    try { localStorage.setItem(draftKey, JSON.stringify({ prices, notes, referente, email, telefono, notaGenerale, savedAt: Date.now() })); } catch (e) { /* storage non disponibile */ }
+  }, [data, prices, notes, referente, email, telefono, notaGenerale]);
 
   const unlock = async () => {
     if (!pin.trim() || checking) return;
@@ -9918,6 +10042,27 @@ function OffertaImpresaView({ token }) {
       setReferente(result.pending.referente || ''); setEmail(result.pending.email || ''); setTelefono(result.pending.telefono || '');
       setNotaGenerale(result.pending.note || '');
     }
+    let draft = null;
+    try { draft = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch (e) { draft = null; }
+    if (draft && (Object.keys(draft.prices || {}).some((k) => String(draft.prices[k]).trim() !== '') || (draft.notaGenerale || '').trim())) {
+      setPrices(draft.prices || {}); setNotes(draft.notes || {});
+      if (draft.referente) setReferente(draft.referente);
+      if (draft.email) setEmail(draft.email);
+      if (draft.telefono) setTelefono(draft.telefono);
+      if (draft.notaGenerale) setNotaGenerale(draft.notaGenerale);
+      setDraftRestored(true);
+    }
+  };
+
+  const downloadPdf = async (stato, when) => {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      await downloadOffertaPdf({ data, priceOf, notes, referente, email, telefono, notaGenerale, stato, sentAt: when });
+    } catch (e) {
+      alert('Non sono riuscito a creare il PDF: ' + (e?.message || e));
+    }
+    setPdfBusy(false);
   };
 
   const sections = data?.snapshot?.sections || [];
@@ -9939,8 +10084,12 @@ function OffertaImpresaView({ token }) {
     });
     setSending(false);
     if (err || (esito && esito.errore)) { alert('Invio non riuscito: ' + (err ? err.message : esito.errore)); return; }
-    setSentAt(nowLabel());
+    const when = nowLabel();
+    setSentAt(when);
+    setDraftRestored(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Copia per l'impresa: parte da sola il download del PDF con l'offerta appena inviata.
+    downloadPdf('inviata', when);
   };
 
   const field = { width: '100%', boxSizing: 'border-box', border: '1px solid #E3D9CC', borderRadius: 10, padding: '9px 11px', fontSize: 13.5, fontFamily: FONT, background: '#fff', color: '#2B2321' };
@@ -9979,7 +10128,15 @@ function OffertaImpresaView({ token }) {
       <main style={{ maxWidth: 1060, margin: '0 auto', padding: '20px 16px 120px' }}>
         {sentAt && (
           <div style={{ background: '#E7F0EA', border: '1px solid #B9D3C2', color: '#2F5D45', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13.5 }}>
-            <b>Offerta inviata allo studio</b> ({sentAt}). Puoi ancora correggerla e inviarla di nuovo finché lo studio non l'ha valutata.
+            <b>Offerta inviata allo studio</b> ({sentAt}). Il PDF dell'offerta inviata si è scaricato sul tuo dispositivo. Puoi ancora correggerla e inviarla di nuovo finché lo studio non l'ha valutata.
+            <div style={{ marginTop: 8 }}>
+              <button disabled={pdfBusy} onClick={() => downloadPdf('inviata', sentAt)} style={{ border: '1px solid #8FB59D', background: '#fff', color: '#2F5D45', borderRadius: 999, padding: '7px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}>{pdfBusy ? 'Creo il PDF…' : 'Scarica di nuovo il PDF inviato'}</button>
+            </div>
+          </div>
+        )}
+        {draftRestored && !sentAt && (
+          <div style={{ background: '#FFFBEA', border: '1px solid #EADFA8', borderRadius: 14, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#4A403C' }}>
+            Abbiamo ripristinato i prezzi che stavi compilando su questo dispositivo. <b>Non sono ancora stati inviati allo studio.</b>
           </div>
         )}
         {!sentAt && data.pending && (
@@ -9988,7 +10145,7 @@ function OffertaImpresaView({ token }) {
           </div>
         )}
         <div style={{ background: '#fff', border: '1px solid #E3D9CC', borderRadius: 14, padding: '14px 16px', marginBottom: 16, fontSize: 13, color: '#4A403C', lineHeight: 1.55 }}>
-          Per ogni voce indica il tuo <b>prezzo unitario</b> (IVA esclusa): l'importo si calcola da solo. Puoi aggiungere una nota alla singola voce. Quando hai finito clicca <b>Invia allo studio</b> in basso.
+          Per ogni voce indica il tuo <b>prezzo unitario</b> (IVA esclusa): l'importo si calcola da solo. Puoi aggiungere una nota alla singola voce. Con <b>Scarica PDF</b> puoi scaricare in qualsiasi momento il computo con i prezzi inseriti finora. Quando hai finito clicca <b>Invia allo studio</b> in basso: riceverai anche il PDF dell'offerta inviata.
           {data.snapshot?.ubicazione && <div style={{ marginTop: 6, color: '#8B8178' }}>Ubicazione: {data.snapshot.ubicazione}</div>}
         </div>
         {(data.snapshot?.noteInizio || '').trim() && (
@@ -10060,9 +10217,14 @@ function OffertaImpresaView({ token }) {
       <div style={{ position: 'fixed', left: 0, right: 0, bottom: 0, background: '#fff', borderTop: '1px solid #E3D9CC', padding: '12px 16px', zIndex: 20 }}>
         <div style={{ maxWidth: 1060, margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 12.5, color: '#8B8178' }}>{filled} di {allItems.length} voci compilate · <b style={{ color: '#2B2321' }}>Totale {formatEuro(total)}</b> IVA esclusa</div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button disabled={pdfBusy} onClick={() => downloadPdf('bozza')} title="Scarica il PDF con i prezzi inseriti finora (anche se non hai finito)" style={{ background: '#fff', color: '#2B2321', border: '1px solid #E3D9CC', borderRadius: 999, padding: '12px 20px', fontSize: 14, fontWeight: 500, cursor: pdfBusy ? 'default' : 'pointer', fontFamily: FONT }}>
+            {pdfBusy ? 'Creo il PDF…' : 'Scarica PDF'}
+          </button>
           <button disabled={sending} onClick={submit} style={{ background: '#862D2D', color: '#fff', border: 'none', borderRadius: 999, padding: '12px 26px', fontSize: 14, fontWeight: 500, cursor: sending ? 'default' : 'pointer', fontFamily: FONT }}>
             {sending ? 'Invio…' : sentAt ? 'Invia di nuovo' : 'Invia allo studio'}
           </button>
+          </div>
         </div>
       </div>
     </div>
