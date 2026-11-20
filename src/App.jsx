@@ -3801,6 +3801,30 @@ function ComputoNoteField({ label, hint, value, onSave, placeholder }) {
   );
 }
 
+// Titolo di una revisione (es. "Edil Rossi", "Variante cucina"): il numero "Revisione N", le date e lo stato
+// restano com'erano. Il titolo si può cambiare anche su una revisione approvata (non tocca voci né prezzi).
+function RevisionTitleModal({ rev, onSave, onCancel }) {
+  const [titolo, setTitolo] = useState(rev?.customName || '');
+  if (!rev) return null;
+  const save = () => onSave(titolo.trim() || null);
+  return createPortal(
+    <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: 460, maxWidth: '100%', fontFamily: FONT }}>
+        <h2 style={{ fontSize: 19, fontWeight: 600, margin: '0 0 4px', color: C.black }}>Titolo della revisione</h2>
+        <p style={{ fontSize: 13, color: C.gray, margin: '0 0 14px' }}>{rev.label} · {rev.status || STATUS_OPTIONS[0]} · modificata il {rev.dateModified}. Numero, date, voci e prezzi restano invariati.</p>
+        <input autoFocus value={titolo} onChange={(e) => setTitolo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') onCancel(); }} placeholder={`Es. "Edil Rossi", "Variante bagno" (vuoto = ${rev.label})`}
+          style={{ width: '100%', boxSizing: 'border-box', border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '11px 12px', fontSize: 15, fontFamily: FONT }} />
+        <p style={{ fontSize: 12.5, color: C.darkGray, margin: '8px 0 0' }}>Comparirà come: <b>{titolo.trim() ? `${titolo.trim()} · ${rev.label}` : rev.label}</b></p>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
+          <button onClick={onCancel} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, cursor: 'pointer' }}>Annulla</button>
+          <button onClick={save} style={{ border: 'none', background: C.maroon, color: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>Salva titolo</button>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdateListini, fornitoriCatalog, initialRevisionId, requestPdf, onOpenRilievo, profile }) {
   const revisions = project.revisions;
   // Identità di chi sta leggendo/modificando ora, per i segnalibri personali nel computo: una persona per
@@ -4492,11 +4516,13 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     onUpdateProject({ ...project, revisions: revisions.map((r) => (r.id === id ? { ...r, status } : r)) });
   };
 
-  const renameRevision = (id) => {
-    const rev = revisions.find((r) => r.id === id);
-    const newName = prompt('Nuovo nome del computo (data di modifica e numero revisione restano invariati):', rev.customName || rev.label);
-    if (!newName) return;
-    onUpdateProject({ ...project, revisions: revisions.map((r) => (r.id === id ? { ...r, customName: newName } : r)) });
+  const [titleRev, setTitleRev] = useState(null); // revisione di cui si sta cambiando il titolo
+  const renameRevision = (id) => setTitleRev(revisions.find((r) => r.id === id) || null);
+  const saveRevisionTitle = (titolo) => {
+    const target = titleRev;
+    setTitleRev(null);
+    if (!target) return;
+    onUpdateProject({ ...project, revisions: revisions.map((r) => (r === target ? { ...r, customName: titolo } : r)) });
   };
 
   const uploadDocuments = (fileList) => {
@@ -4694,8 +4720,10 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
           <div style={{ ...card, marginBottom: 18, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
             <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Versione aperta</label>
             <select value={selectedRevisionId} onChange={(e) => setSelectedRevisionId(revisions.find((r) => String(r.id) === e.target.value)?.id ?? selectedRevisionId)} style={{ fontSize: 13, fontWeight: 600, padding: '8px 12px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
-              {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · modificata il {r.dateModified}</option>)}
+              {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName ? `${r.customName} · ${r.label}` : r.label} · modificata il {r.dateModified}</option>)}
             </select>
+            <button onClick={() => setTitleRev(selectedRevision)} title="Cambia il titolo di questa revisione" style={{ ...rowBtnStyle, fontSize: 12, padding: '8px 12px' }}>✏️ Titolo</button>
+            {titleRev && <RevisionTitleModal rev={titleRev} onSave={saveRevisionTitle} onCancel={() => setTitleRev(null)} />}
             {!isRevisionEditable(selectedRevision) ? (
               <span style={{ fontSize: 12.5, color: C.white, background: C.maroon, padding: '7px 12px', borderRadius: 10, lineHeight: 1.4 }}>
                 🔒 Versione <b>{selectedRevision.status}</b>: è bloccata e non viene modificata. Qualunque modifica crea automaticamente una nuova revisione in attesa di approvazione.
@@ -5554,7 +5582,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                   {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
                 </select>
                 <button onClick={() => openRevision(r.id)} style={rowBtnStyle}>Apri</button>
-                <button onClick={() => renameRevision(r.id)} style={rowBtnStyle}>✎ Rinomina</button>
+                <button onClick={() => setTitleRev(r)} style={rowBtnStyle}>✏️ Titolo</button>
                 <button onClick={() => exportComputoExcel(project, r, false)} style={rowBtnStyle}>Excel</button>
                 <button onClick={() => requestPdf(project, r, false)} style={rowBtnStyle}>PDF</button>
                 <button onClick={() => deleteRevision(r.id)} style={{ ...rowBtnStyle, color: C.maroon }}>🗑</button>
@@ -7020,30 +7048,36 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                               <polyline points={ptsAttr} fill="none" stroke={s.color} strokeWidth={isEditingThis ? 0.9 : 0.6} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
                             </>
                           )}
-                          {isEditingThis && pts.map((p, i) => (
-                            <React.Fragment key={i}>
-                              {/* Bersaglio di trascinamento più largo (invisibile) del pallino visibile sotto:
-                                  il pallino vero si è rimpicciolito per ancorarsi con più precisione (non
-                                  nasconde più il punto esatto sotto il cursore), ma resta facile da afferrare. */}
-                              <circle
-                                cx={p.x} cy={p.y} r={3} fill="transparent"
-                                vectorEffect="non-scaling-stroke" style={{ cursor: 'move', pointerEvents: 'auto' }}
-                                onMouseDown={(e) => startDragHandle(e, pl.id, i)}
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <circle cx={p.x} cy={p.y} r={1} fill={C.white} stroke={s.color} strokeWidth={0.4} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
-                            </React.Fragment>
-                          ))}
                         </React.Fragment>
                       );
                     })}
                     {draft.length > 0 && (
                       <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" style={{ stroke: C.maroon }} strokeWidth={0.5} strokeDasharray="1.5,1" vectorEffect="non-scaling-stroke" />
                     )}
-                    {draft.map((p, i) => (
-                      <circle key={i} cx={p.x} cy={p.y} r={0.5} style={{ fill: C.maroon }} stroke="white" strokeWidth={0.25} vectorEffect="non-scaling-stroke" />
-                    ))}
                   </svg>
+
+                  {/* Pallini dei punti (quelli appena cliccati e quelli della forma in modifica): elementi HTML con
+                      dimensione fissa in pixel a schermo — la scala inversa annulla lo zoom della vista — così
+                      restano piccoli e precisi qualunque siano la dimensione della planimetria e lo zoom. Il
+                      centro del pallino è esattamente il punto. */}
+                  {draft.map((p, i) => (
+                    <div key={`d${i}`} style={{ position: 'absolute', left: `${p.x}%`, top: `${p.y}%`, width: 10, height: 10, marginLeft: -5, marginTop: -5, transform: `scale(${1 / view.scale})`, borderRadius: 999, background: C.maroon, border: '2px solid #fff', boxShadow: '0 0 0 1px rgba(0,0,0,0.3)', boxSizing: 'border-box', pointerEvents: 'none', zIndex: 4 }} />
+                  ))}
+                  {editingShape && editingShape.plId === pl.id && (() => {
+                    const es = (pl.shapes || []).find((x) => x.id === editingShape.shapeId);
+                    if (!es) return null;
+                    return editingShape.points.map((p, i) => (
+                      <div
+                        key={`h${i}`}
+                        onMouseDown={(e) => startDragHandle(e, pl.id, i)}
+                        onClick={(e) => e.stopPropagation()}
+                        title="Trascina per spostare il punto"
+                        style={{ position: 'absolute', left: `${p.x}%`, top: `${p.y}%`, width: 26, height: 26, marginLeft: -13, marginTop: -13, transform: `scale(${1 / view.scale})`, cursor: 'move', zIndex: 5, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'auto' }}
+                      >
+                        <span style={{ width: 11, height: 11, borderRadius: 999, background: '#fff', border: `2px solid ${es.color}`, boxSizing: 'border-box', boxShadow: '0 0 0 1px rgba(0,0,0,0.2)' }} />
+                      </div>
+                    ));
+                  })()}
 
                   {shapePreview && shapePreview.plId === pl.id && (() => {
                     const previewShape = (pl.shapes || []).find((s) => s.id === shapePreview.shapeId);
@@ -7081,7 +7115,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                       onClick={(e) => { e.stopPropagation(); if (confirm(`Rimuovere il punto "${m.desc}"?`)) removePunto(pl.id, m.id); }}
                       title={`${m.code ? m.code + ' — ' : ''}${m.desc} (clicca per rimuovere)`}
                       style={{
-                        position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: 'translate(-50%, -50%)',
+                        position: 'absolute', left: `${m.x}%`, top: `${m.y}%`, transform: `translate(-50%, -50%) scale(${1 / view.scale})`,
                         width: 22, height: 22, borderRadius: 999, background: C.maroon, color: C.white,
                         display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700,
                         border: '2px solid white', boxShadow: '0 1px 3px rgba(0,0,0,0.3)', cursor: 'pointer', pointerEvents: 'auto',
@@ -7276,11 +7310,13 @@ function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, req
     if (!confirm(msg)) return;
     updateProject(proj, { ...proj, revisions: proj.revisions.filter((r) => r.id !== revId) });
   };
-  const renameRevision = (proj, revId) => {
-    const rev = proj.revisions.find((r) => r.id === revId);
-    const newName = prompt('Nuovo nome del computo (data di modifica e numero revisione restano invariati):', rev.customName || rev.label);
-    if (!newName) return;
-    updateProject(proj, { ...proj, revisions: proj.revisions.map((r) => (r.id === revId ? { ...r, customName: newName } : r)) });
+  const [titleTarget, setTitleTarget] = useState(null); // { proj, rev }
+  const renameRevision = (proj, revId) => setTitleTarget({ proj, rev: proj.revisions.find((r) => r.id === revId) });
+  const saveRevisionTitle = (titolo) => {
+    const t = titleTarget;
+    setTitleTarget(null);
+    if (!t?.rev) return;
+    updateProject(t.proj, { ...t.proj, revisions: t.proj.revisions.map((r) => (r === t.rev ? { ...r, customName: titolo } : r)) });
   };
 
   const ghostPillBtn = { border: `1px solid ${C.paleGray}`, background: C.white, color: '#2B2321', fontSize: 11.5, fontWeight: 400, padding: '6px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: FONT, whiteSpace: 'nowrap' };
@@ -7307,7 +7343,7 @@ function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, req
           {STATUS_OPTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <button onClick={() => onOpenRevision(proj.id, r.id)} style={ghostPillBtn}>Apri e modifica</button>
-        <button onClick={() => renameRevision(proj, r.id)} style={ghostPillBtn}>✎ Rinomina</button>
+        <button onClick={() => setTitleTarget({ proj, rev: r })} style={ghostPillBtn}>✏️ Titolo</button>
         <button onClick={() => exportComputoExcel(proj, r, false)} style={ghostPillBtn}>Excel</button>
         <button onClick={() => requestPdf(proj, r, false)} style={ghostPillBtn}>PDF</button>
         <button onClick={() => deleteRevision(proj, r.id)} style={{ border: 'none', background: 'transparent', color: '#8B8178', cursor: 'pointer', fontSize: 14, marginLeft: 4 }}>🗑️</button>
@@ -7317,6 +7353,7 @@ function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, req
 
   return (
     <div>
+      {titleTarget?.rev && <RevisionTitleModal rev={titleTarget.rev} onSave={saveRevisionTitle} onCancel={() => setTitleTarget(null)} />}
       <p style={{ fontSize: 12, color: '#9A8F86', margin: '0 0 6px' }}>Gestionale / Computi</p>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6, flexWrap: 'wrap', justifyContent: 'space-between' }}>
         <h1 style={{ margin: 0, fontFamily: FONT, fontSize: 'clamp(28px, 4vw, 38px)', fontWeight: 200, letterSpacing: '-.03em', color: C.black }}>Computi</h1>
