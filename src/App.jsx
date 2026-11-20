@@ -5946,6 +5946,68 @@ function incrementComputoItemQty(project, itemId, deltaNum, info = {}) {
   return { project: { ...project, revisions: updatedRevisions, value: total }, ok: true, replaced };
 }
 
+// --- Immagini delle planimetrie nello Storage della suite (non più dentro i dati salvati) ---
+// Prima l'immagine stava nel documento unico dei dati come testo (data URL): ogni planimetria aggiungeva
+// 1-3 MB a OGNI salvataggio, fino a superare il tempo massimo del database (salvataggi falliti, dati persi
+// ricaricando). Ora il file va nel bucket privato "suite", cartella dello studio: <org>/quant/planimetrie/…,
+// e nei dati resta solo il percorso (imagePath). Le planimetrie vecchie vengono spostate da sole.
+const PLAN_BUCKET = 'suite';
+const planSignedCache = new Map(); // percorso → { url, exp }
+async function planImageUrl(path) {
+  const hit = planSignedCache.get(path);
+  if (hit && hit.exp > Date.now() + 60000) return hit.url;
+  const { data, error } = await supabase.storage.from(PLAN_BUCKET).createSignedUrl(path, 60 * 60 * 6);
+  if (error || !data?.signedUrl) throw error || new Error('URL non disponibile');
+  planSignedCache.set(path, { url: data.signedUrl, exp: Date.now() + 60 * 60 * 6 * 1000 });
+  return data.signedUrl;
+}
+// Riduce l'immagine (lato lungo massimo maxSide px) e sceglie il formato più leggero tra PNG e JPEG.
+function loadImageEl(src) {
+  return new Promise((resolve, reject) => { const im = new Image(); im.onload = () => resolve(im); im.onerror = () => reject(new Error('Immagine non leggibile')); im.src = src; });
+}
+async function compressPlanImage(src, maxSide = 4000) {
+  const im = await loadImageEl(src);
+  const k = Math.min(1, maxSide / Math.max(im.naturalWidth, im.naturalHeight));
+  const w = Math.max(1, Math.round(im.naturalWidth * k));
+  const h = Math.max(1, Math.round(im.naturalHeight * k));
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, w, h);
+  ctx.drawImage(im, 0, 0, w, h);
+  const toBlob = (type, q) => new Promise((res) => cv.toBlob((b) => res(b), type, q));
+  const [png, jpg] = await Promise.all([toBlob('image/png'), toBlob('image/jpeg', 0.88)]);
+  const blob = png && jpg ? (png.size <= jpg.size ? png : jpg) : (png || jpg);
+  return { blob, width: w, height: h, ext: blob && blob.type === 'image/png' ? 'png' : 'jpg' };
+}
+const blobToDataUrl = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(blob); });
+async function uploadPlanBlob(orgId, projectId, planId, blob, ext) {
+  const safe = (x) => String(x).replace(/[^a-z0-9_-]+/gi, '_');
+  const path = `${orgId}/quant/planimetrie/${safe(projectId)}/${safe(planId)}-${Date.now()}.${ext}`;
+  const { error } = await supabase.storage.from(PLAN_BUCKET).upload(path, blob, { contentType: blob.type, upsert: false });
+  if (error) throw error;
+  return path;
+}
+// Sorgenti da mostrare per le planimetrie: data URL (vecchie/di riserva) oppure URL firmato dello Storage.
+// Restituisce { [id]: { src, error } }.
+function usePlanImageSrcs(planimetrie) {
+  const [urls, setUrls] = useState({});
+  const key = (planimetrie || []).map((p) => `${p.id}:${p.imagePath || ''}:${p.image ? 'd' : ''}`).join('|');
+  React.useEffect(() => {
+    let off = false;
+    (planimetrie || []).forEach((pl) => {
+      if (pl.image || !pl.imagePath) return;
+      planImageUrl(pl.imagePath)
+        .then((u) => { if (!off) setUrls((m) => ({ ...m, [pl.id]: { src: u, error: '' } })); })
+        .catch((e) => { if (!off) setUrls((m) => ({ ...m, [pl.id]: { src: null, error: e?.message || 'errore' } })); });
+    });
+    return () => { off = true; };
+  }, [key]);
+  const out = {};
+  (planimetrie || []).forEach((pl) => { out[pl.id] = pl.image ? { src: pl.image, error: '' } : (urls[pl.id] || { src: null, error: '' }); });
+  return out;
+}
+
 // --- Identità delle planimetrie: titolo, data di importazione e numero cronologico nel progetto ---
 // Servono a riconoscere nel computo da quale planimetria (e da quale versione) arriva ogni misura.
 const isoToday = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -5972,6 +6034,46 @@ function normalizePlanimetrie(project) {
   return { ...project, planimetrie, planimetriaSeq: seq };
 }
 
+// --- Protezione delle revisioni bloccate (Approvato / In fase di cantiere) ---
+// Ultima rete di sicurezza, applicata a OGNI salvataggio dei progetti: se una modifica toccasse il contenuto
+// di una revisione bloccata (voci, quantità, prezzi, note, sconti, IVA, voci aggiuntive, parti), la revisione
+// bloccata viene ripristinata com'era e la modifica finisce in una copia "In attesa di approvazione" con lo
+// stesso titolo e il numero di revisione successivo. Titolo, stato e segnalibri si possono sempre cambiare.
+const LOCKED_CONTENT_KEYS = ['items', 'extraSections', 'sectionVat', 'sectionDiscounts', 'noteInizio', 'noteFine', 'extraCharges', 'parti', 'macroOrder', 'categorieOrder', 'categorieDefinite'];
+function guardLockedRevisions(prevProjects, nextProjects) {
+  if (!Array.isArray(prevProjects) || !Array.isArray(nextProjects) || prevProjects === nextProjects) return { projects: nextProjects, forks: [] };
+  const forks = [];
+  const sameLen = prevProjects.length === nextProjects.length;
+  const out = nextProjects.map((np, pi) => {
+    if (!np || !Array.isArray(np.revisions)) return np;
+    let pp = sameLen && prevProjects[pi] && prevProjects[pi].id === np.id ? prevProjects[pi] : null;
+    if (!pp) { const c = prevProjects.filter((x) => x && x.id === np.id); pp = c.length === 1 ? c[0] : null; }
+    if (!pp || pp === np || !Array.isArray(pp.revisions) || pp.revisions === np.revisions) return np;
+    let revisions = np.revisions;
+    let changed = false;
+    pp.revisions.forEach((prevRev, ri) => {
+      if (!prevRev || isRevisionEditable(prevRev)) return;
+      const cands = revisions.filter((r) => r && String(r.id) === String(prevRev.id));
+      const nextRev = cands.length === 1 ? cands[0] : (revisions[ri] && String(revisions[ri].id) === String(prevRev.id) ? revisions[ri] : null);
+      if (!nextRev || nextRev === prevRev) return;
+      if (isRevisionEditable(nextRev)) return; // stato riportato "in attesa": sblocco voluto
+      const touched = LOCKED_CONTENT_KEYS.some((k) => nextRev[k] !== prevRev[k] && JSON.stringify(nextRev[k] ?? null) !== JSON.stringify(prevRev[k] ?? null));
+      if (!touched) return;
+      // ripristina il contenuto bloccato e sposta la modifica in una copia
+      const restored = { ...nextRev };
+      LOCKED_CONTENT_KEYS.forEach((k) => { if (k in prevRev) restored[k] = prevRev[k]; else delete restored[k]; });
+      restored.total = prevRev.total; restored.totalCliente = prevRev.totalCliente; restored.dateModified = prevRev.dateModified;
+      const copy = { ...nextRev, id: Date.now() + forks.length + 1, label: `Revisione ${revisions.length + 1}`, customName: prevRev.customName || null, status: STATUS_OPTIONS[0], dateCreated: nowLabel(), dateModified: nowLabel(), forkedFrom: prevRev.id };
+      delete copy.offerta;
+      revisions = [...revisions.map((r) => (r === nextRev ? restored : r)), copy];
+      changed = true;
+      forks.push({ project: np.name, from: prevRev.customName || prevRev.label, status: prevRev.status, label: copy.label });
+    });
+    return changed ? { ...np, revisions, value: revisions[revisions.length - 1]?.total || np.value } : np;
+  });
+  return { projects: forks.length ? out : nextProjects, forks };
+}
+
 // --- Misure del rilievo → uno o più computi (revisioni) scelti ---
 // entries: [{ ref, value, label, computoItemId, voce }] — ref = id della forma/del punto sulla planimetria;
 // computoItemId = voce del computo a cui è collegata (gli id delle voci restano uguali nelle revisioni copiate);
@@ -5993,26 +6095,40 @@ function newComputoItemFromVoce(voce, qtyNum, row) {
     unitaCalcolo, misurazioni, qty: String(Math.round(computeVoceQtyTotal(misurazioni, unitaCalcolo) * 100) / 100).replace('.', ','),
   };
 }
-function applyRilievoToRevisions(project, entries, revisionIds, opts = {}) {
+// Copia "in attesa" già creata in precedenza da una revisione bloccata (per non fare una copia nuova ogni volta).
+const pendingCopyOf = (revisions, src) => [...revisions].reverse().find((r) => r !== src && r.forkedFrom != null && String(r.forkedFrom) === String(src.id) && isRevisionEditable(r)) || null;
+// revisionIdx: posizioni delle revisioni scelte (non gli id, che nei dati vecchi possono ripetersi).
+// opts.replaceManual: nelle voci che ricevono misure dal rilievo si tolgono le righe inserite a mano.
+function applyRilievoToRevisions(project, entries, revisionIdx, opts = {}) {
   let revisions = [...(project.revisions || [])];
   const fmt = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
   const report = [];
   if (!revisions.length) {
     revisions = [{ id: Date.now(), label: 'Revisione 1', customName: null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: [], extraSections: [], total: '0,00 €', totalCliente: '0,00 €' }];
-    revisionIds = [revisions[0].id];
+    revisionIdx = [0];
   }
-  const targets = revisionIds.map((id) => revisions.find((r) => String(r.id) === String(id))).filter(Boolean);
+  const targets = [];
+  revisionIdx.map((i) => revisions[Number(i)]).filter(Boolean).forEach((src) => { if (!targets.includes(src)) targets.push(src); });
+  const done = new Set();
   targets.forEach((src, ti) => {
     let rev = src;
     let forked = false;
+    let reused = false;
+    // Una revisione approvata / in cantiere non si modifica MAI: si lavora su una sua copia "in attesa".
     if (!isRevisionEditable(src)) {
-      rev = { ...structuredClone(src), id: Date.now() + ti + 1, label: `Revisione ${revisions.length + 1}`, customName: src.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], forkedFrom: src.id };
-      delete rev.offerta;
-      revisions.push(rev);
-      forked = true;
+      const existing = pendingCopyOf(revisions, src);
+      if (existing) { rev = existing; reused = true; }
+      else {
+        rev = { ...structuredClone(src), id: Date.now() + ti + 1, label: `Revisione ${revisions.length + 1}`, customName: src.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], forkedFrom: src.id };
+        delete rev.offerta;
+        revisions.push(rev);
+        forked = true;
+      }
     }
+    if (done.has(rev)) return;
+    done.add(rev);
     let items = (rev.items || []).map((it) => it);
-    let updated = 0; let added = 0; let removed = 0; const missing = [];
+    let updated = 0; let added = 0; let removed = 0; let manualRemoved = 0; const missing = [];
     const setRows = (it, rows) => {
       const unitaCalcolo = it.unitaCalcolo || defaultCalcForUnit(it.unit) || 'nr';
       const misurazioni = [{ rows }];
@@ -6040,7 +6156,13 @@ function applyRilievoToRevisions(project, entries, revisionIds, opts = {}) {
         const it = items[idx];
         if (it.qtyLink) { missing.push(`${e.label} (voce collegata a un'altra)`); return; }
         let rows = (it.misurazioni || []).flatMap((g) => g.rows || []);
-        if (!it.unitaCalcolo) rows = parseEuro(it.qty) ? [{ segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(parseEuro(it.qty)), descr: 'Quantità già presente (inserita a mano)' }] : [];
+        if (!it.unitaCalcolo && opts.replaceManual && parseEuro(it.qty)) manualRemoved += 1;
+        if (!it.unitaCalcolo) rows = parseEuro(it.qty) && !opts.replaceManual ? [{ segno: '+', parUg: '', lung: '', larg: '', hPeso: '', valore: fmt(parseEuro(it.qty)), descr: 'Quantità già presente (inserita a mano)' }] : [];
+        if (opts.replaceManual) {
+          const before = rows.length;
+          rows = rows.filter((r) => r.rilievoRef != null);
+          manualRemoved += before - rows.length;
+        }
         rows = rows.some((r) => r.rilievoRef === e.ref)
           ? rows.map((r) => (r.rilievoRef === e.ref ? { ...r, valore: row.valore, descr: `${e.label || 'Misura dal rilievo planimetrico'} · aggiornata il ${oggi}`, rilievoPlan: row.rilievoPlan, rilievoData: row.rilievoData } : r))
           : [...rows, row];
@@ -6058,7 +6180,7 @@ function applyRilievoToRevisions(project, entries, revisionIds, opts = {}) {
     const real = items.filter((it) => it.type !== 'subtotal');
     const next = { ...rev, items, dateModified: nowLabel(), total: formatEuro(sumImpresa(real)), totalCliente: formatEuro(sumCliente(real)) };
     revisions = revisions.map((r) => (r === rev ? next : r));
-    report.push({ id: next.id, name: next.customName || next.label, label: next.label, forked, fromLabel: src.label, updated, added, removed, missing });
+    report.push({ id: next.id, name: next.customName || next.label, label: next.label, forked, reused, fromLabel: src.label, updated, added, removed, manualRemoved, missing });
   });
   const last = revisions[revisions.length - 1];
   return { project: { ...project, revisions, value: last?.total || project.value }, report };
@@ -6067,13 +6189,19 @@ function applyRilievoToRevisions(project, entries, revisionIds, opts = {}) {
 // Scelta dei computi (revisioni) in cui portare le misure del rilievo.
 function RilievoComputiModal({ project, count, bulk, onCancel, onConfirm }) {
   const revisions = project.revisions || [];
-  const [sel, setSel] = useState(() => new Set(revisions.length ? [String(revisions[revisions.length - 1].id)] : []));
+  const [sel, setSel] = useState(() => new Set(revisions.length ? [String(revisions.length - 1)] : []));
   const [cleanup, setCleanup] = useState(!!bulk);
+  const [replaceManual, setReplaceManual] = useState(false);
   const toggle = (id) => setSel((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   let nextN = revisions.length;
-  const ordered = [...revisions].reverse();
+  const ordered = revisions.map((r, i) => ({ r, i })).reverse();
   const forkLabel = {};
-  revisions.forEach((r) => { if (sel.has(String(r.id)) && !isRevisionEditable(r)) { nextN += 1; forkLabel[r.id] = `Revisione ${nextN}`; } });
+  revisions.forEach((r, i) => {
+    if (!sel.has(String(i)) || isRevisionEditable(r)) return;
+    const copy = pendingCopyOf(revisions, r);
+    if (copy) forkLabel[i] = { reuse: true, label: copy.label };
+    else { nextN += 1; forkLabel[i] = { reuse: false, label: `Revisione ${nextN}` }; }
+  });
   return createPortal(
     <div onClick={onCancel} style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: C.white, borderRadius: 16, padding: 22, width: 620, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto', fontFamily: FONT }}>
@@ -6088,13 +6216,13 @@ function RilievoComputiModal({ project, count, bulk, onCancel, onConfirm }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
               <span style={{ fontSize: 12, fontWeight: 600, color: C.black }}>Computi del progetto</span>
               <span style={{ display: 'flex', gap: 14 }}>
-                <button onClick={() => setSel(new Set(revisions.map((r) => String(r.id))))} style={{ border: 'none', background: 'transparent', color: C.maroon, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Tutti</button>
+                <button onClick={() => setSel(new Set(revisions.map((r, i) => String(i))))} style={{ border: 'none', background: 'transparent', color: C.maroon, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Tutti</button>
                 <button onClick={() => setSel(new Set())} style={{ border: 'none', background: 'transparent', color: C.maroon, fontSize: 12.5, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Nessuno</button>
               </span>
             </div>
             <div style={{ border: `1px solid ${C.paleGray}`, borderRadius: 12, overflow: 'hidden' }}>
-              {ordered.map((r, i) => {
-                const id = String(r.id);
+              {ordered.map(({ r, i: idx }, i) => {
+                const id = String(idx);
                 const on = sel.has(id);
                 const locked = !isRevisionEditable(r);
                 return (
@@ -6103,7 +6231,7 @@ function RilievoComputiModal({ project, count, bulk, onCancel, onConfirm }) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: C.black }}>{r.customName || r.label}{r.customName ? <span style={{ fontWeight: 400, color: C.gray }}> · {r.label}</span> : null}{i === 0 && <span style={{ fontSize: 11, fontWeight: 600, color: C.maroon, marginLeft: 8 }}>ULTIMA</span>}</div>
                       <div style={{ fontSize: 12, color: C.gray }}>{r.status || STATUS_OPTIONS[0]} · {r.total || '0,00 €'} · modificata il {r.dateModified}</div>
-                      {locked && on && <div style={{ fontSize: 12, color: C.maroon, marginTop: 3 }}>Bloccata: verrà creata una nuova revisione «{r.customName || r.label}» ({forkLabel[r.id]}) con le misure aggiornate.</div>}
+                      {locked && on && <div style={{ fontSize: 12, color: C.maroon, marginTop: 3 }}>🔒 Bloccata: non verrà toccata. {forkLabel[idx]?.reuse ? `Le misure andranno nella sua copia già creata «${r.customName || r.label}» (${forkLabel[idx].label}).` : `Verrà creata una copia «${r.customName || r.label}» (${forkLabel[idx]?.label}) con le misure aggiornate.`}</div>}
                       {locked && !on && <div style={{ fontSize: 11.5, color: C.gray, marginTop: 2 }}>🔒 {r.status}: se la scegli ne verrà creata una nuova revisione</div>}
                     </div>
                   </label>
@@ -6116,9 +6244,13 @@ function RilievoComputiModal({ project, count, bulk, onCancel, onConfirm }) {
           <input type="checkbox" checked={cleanup} onChange={(e) => setCleanup(e.target.checked)} style={{ width: 18, height: 18, accentColor: C.maroon, flexShrink: 0 }} />
           <span>Togli dai computi scelti le misure che non esistono più sulle planimetrie<br /><span style={{ fontSize: 12, color: C.gray }}>Utile se hai cancellato e rifatto le misurazioni: le righe vecchie non restano a gonfiare le quantità.</span></span>
         </label>
+        <label style={{ display: 'flex', gap: 9, alignItems: 'flex-start', marginTop: 10, fontSize: 13, color: C.black, cursor: 'pointer' }}>
+          <input type="checkbox" checked={replaceManual} onChange={(e) => setReplaceManual(e.target.checked)} style={{ width: 18, height: 18, accentColor: C.maroon, flexShrink: 0 }} />
+          <span>Nelle voci che ricevono queste misure, togli le quantità inserite a mano<br /><span style={{ fontSize: 12, color: C.gray }}>La voce resterà composta solo dalle misure prese dalle planimetrie (le righe a mano e la "quantità già presente" vengono eliminate).</span></span>
+        </label>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 18 }}>
           <button onClick={onCancel} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, cursor: 'pointer' }}>Annulla</button>
-          <button disabled={revisions.length > 0 && sel.size === 0} onClick={() => onConfirm([...sel], cleanup)} style={{ border: 'none', background: revisions.length > 0 && sel.size === 0 ? C.paleGray : C.maroon, color: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+          <button disabled={revisions.length > 0 && sel.size === 0} onClick={() => onConfirm([...sel].map(Number), cleanup, replaceManual)} style={{ border: 'none', background: revisions.length > 0 && sel.size === 0 ? C.paleGray : C.maroon, color: C.white, borderRadius: 999, padding: '10px 18px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
             {revisions.length === 0 ? 'Crea il computo' : `Aggiorna ${sel.size} ${sel.size === 1 ? 'computo' : 'computi'}`}
           </button>
         </div>
@@ -6323,7 +6455,7 @@ function PlanLinkModal({ mode, listino, computoItems, initialCode, initialComput
 // (zoom/pan) per lavorare sui dettagli; le voci di listino si scelgono da un menu a tendina con ricerca
 // invece di scrivere il codice a mano, e le aree/lunghezze già disegnate si possono ricollegare a un'altra
 // voce o modificare trascinando i punti già tracciati.
-function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
+function RilievoPage({ projects, setProjects, listini, initialProjectId, orgId }) {
   // Il progetto scelto si tiene per INDICE nell'array (non per "id"): così la selezione funziona anche se,
   // nei dati reali, due progetti finissero per condividere lo stesso id (es. importati/creati in blocco) —
   // un confronto per id in quel caso troverebbe sempre il primo progetto con quell'id, indipendentemente
@@ -6407,6 +6539,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   // Immagine della planimetria come appare a schermo (con zoom e spostamento già applicati): clic, punti e
   // lente si calcolano tutti dal suo riquadro reale, così coincidono sempre al pixel.
   const imgElsRef = useRef({});
+  const planSrcs = usePlanImageSrcs(project?.planimetrie);
   const [panDragState, setPanDragState] = useState(null);
   const [draggingHandle, setDraggingHandle] = useState(null);
   // Modifica forma: copia di lavoro dei punti di una forma già salvata, mentre si trascinano i vertici
@@ -6479,17 +6612,36 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   // lo stesso id, un confronto per id aggiornerebbe entrambi insieme invece che solo quello scelto qui.
   const onUpdateProject = (updated) => setProjects(projects.map((p, i) => (i === projectIdx ? updated : p)));
 
-  const uploadPlanimetria = (file) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const base = normalizePlanimetrie(project);
-      const numero = nextPlanNumero(base);
-      const typed = window.prompt(`Titolo della planimetria n. ${numero} (es. "Stato di fatto", "Progetto v2 — piano terra"):`, planFileTitle(file.name));
-      const titolo = (typed || '').trim() || planFileTitle(file.name);
-      const planimetria = { id: Date.now(), name: file.name, titolo, numero, dataImport: isoToday(), image: reader.result, markers: [], shapes: [], scale: null, naturalWidth: null, naturalHeight: null };
-      onUpdateProject({ ...base, planimetriaSeq: numero, planimetrie: [...(base.planimetrie || []), planimetria] });
-    };
-    reader.readAsDataURL(file);
+  const [uploadingPlan, setUploadingPlan] = useState('');
+  const uploadPlanimetria = async (file) => {
+    const base = normalizePlanimetrie(project);
+    const numero = nextPlanNumero(base);
+    const typed = window.prompt(`Titolo della planimetria n. ${numero} (es. "Stato di fatto", "Progetto v2 — piano terra"):`, planFileTitle(file.name));
+    const titolo = (typed || '').trim() || planFileTitle(file.name);
+    const planId = Date.now();
+    setUploadingPlan(`Carico la planimetria «${titolo}»…`);
+    try {
+      const srcUrl = URL.createObjectURL(file);
+      const { blob, width: w0, height: h0, ext } = await compressPlanImage(srcUrl, 4000);
+      URL.revokeObjectURL(srcUrl);
+      let imagePath = null; let image = null; let width = w0; let height = h0;
+      try {
+        if (!orgId) throw new Error('studio non riconosciuto');
+        imagePath = await uploadPlanBlob(orgId, project.id, planId, blob, ext);
+      } catch (e) {
+        // Riserva: se lo Storage non è disponibile si tiene una versione ridotta dentro i dati.
+        console.warn('Upload planimetria nello Storage non riuscito, uso una copia ridotta:', e?.message || e);
+        const small = await compressPlanImage(await blobToDataUrl(blob), 2200);
+        image = await blobToDataUrl(small.blob);
+        width = small.width; height = small.height;
+      }
+      const planimetria = { id: planId, name: file.name, titolo, numero, dataImport: isoToday(), image, imagePath, markers: [], shapes: [], scale: null, naturalWidth: width, naturalHeight: height };
+      // aggiornamento "funzionale": l'upload è asincrono e nel frattempo il progetto può essere cambiato
+      setProjects((prev) => prev.map((p) => (p.id === project.id && (p === project || p.name === project.name) ? { ...normalizePlanimetrie(p), planimetriaSeq: Math.max(numero, Number(p.planimetriaSeq) || 0), planimetrie: [...(normalizePlanimetrie(p).planimetrie || []), planimetria] } : p)));
+    } catch (e) {
+      alert('Non sono riuscito a caricare la planimetria: ' + (e?.message || e));
+    }
+    setUploadingPlan('');
   };
 
   const renamePlanimetria = (pl) => {
@@ -6499,6 +6651,8 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   };
   const removePlanimetria = (id) => {
     if (!confirm('Eliminare questa planimetria e tutti i suoi punti?')) return;
+    const gone = (project.planimetrie || []).find((p) => p.id === id);
+    if (gone?.imagePath) supabase.storage.from(PLAN_BUCKET).remove([gone.imagePath]).catch(() => {});
     onUpdateProject({ ...project, planimetrie: (project.planimetrie || []).filter((p) => p.id !== id) });
   };
 
@@ -6643,9 +6797,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     if (!entries.length) { alert('Nessuna misura di questa planimetria è collegata a una voce del computo o del listino.'); return; }
     setComputoTarget({ entries, bulk: true });
   };
-  const confirmComputoTarget = (revIds, cleanup) => {
+  const confirmComputoTarget = (revIdx, cleanup, replaceManual) => {
     const validRefs = cleanup ? new Set((project.planimetrie || []).flatMap((p) => [...(p.shapes || []).map((x) => x.id), ...(p.markers || []).map((x) => x.id)])) : null;
-    const { project: next, report } = applyRilievoToRevisions(project, computoTarget.entries, revIds, { validRefs });
+    const { project: next, report } = applyRilievoToRevisions(project, computoTarget.entries, revIdx, { validRefs, replaceManual });
     onUpdateProject(next);
     setComputoTarget(null);
     const lines = report.map((r) => {
@@ -6653,8 +6807,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
       if (r.updated) parts.push(`${r.updated} aggiornat${r.updated === 1 ? 'a' : 'e'}`);
       if (r.added) parts.push(`${r.added} nuov${r.added === 1 ? 'a voce' : 'e voci'}`);
       if (r.removed) parts.push(`${r.removed} misur${r.removed === 1 ? 'a vecchia tolta' : 'e vecchie tolte'}`);
+      if (r.manualRemoved) parts.push(`${r.manualRemoved} quantità a mano tolt${r.manualRemoved === 1 ? 'a' : 'e'}`);
       if (r.missing.length) parts.push(`${r.missing.length} non inserit${r.missing.length === 1 ? 'a' : 'e'} (voce non presente)`);
-      return `• ${r.name}${r.forked ? ` — nuova ${r.label} (copia di ${r.fromLabel}, bloccata)` : ` (${r.label})`}: ${parts.join(', ') || 'nessuna modifica'}`;
+      return `• ${r.name}${r.forked ? ` — nuova ${r.label} (copia di ${r.fromLabel}, che resta bloccata e invariata)` : r.reused ? ` — ${r.label} (copia di ${r.fromLabel}, che resta bloccata e invariata)` : ` (${r.label})`}: ${parts.join(', ') || 'nessuna modifica'}`;
     });
     alert(`Computi aggiornati:\n${lines.join('\n')}`);
   };
@@ -6878,8 +7033,8 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
             <p style={{ fontSize: 11.5, color: '#8B8178', margin: '2px 0 0' }}>Carica una planimetria: aggiungi punti (es. punti luce), oppure calibra la scala e disegna aree (m²/m³) e lunghezze (ml) collegate al listino — finiscono in automatico nel computo.</p>
           </div>
           <label style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 16px', fontSize: 12.5, fontWeight: 400, fontFamily: FONT, cursor: 'pointer' }}>
-            + Carica planimetria
-            <input type="file" accept="image/*" style={{ display: 'none' }} onChange={(e) => { if (e.target.files[0]) uploadPlanimetria(e.target.files[0]); e.target.value = ''; }} />
+            {uploadingPlan || '+ Carica planimetria'}
+            <input type="file" accept="image/*" style={{ display: 'none' }} disabled={!!uploadingPlan} onChange={(e) => { if (e.target.files[0]) uploadPlanimetria(e.target.files[0]); e.target.value = ''; }} />
           </label>
         </div>
         {(!project.planimetrie || project.planimetrie.length === 0) && (
@@ -7011,10 +7166,15 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                 <div style={{ position: 'relative', width: '100%', transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`, transformOrigin: '0 0' }}>
                   <img
                     ref={(el) => { imgElsRef.current[pl.id] = el; }}
-                    src={pl.image} alt={pl.name} draggable={false}
-                    style={{ width: '100%', display: 'block', pointerEvents: 'none', userSelect: 'none' }}
+                    src={planSrcs[pl.id]?.src || undefined} alt={pl.name} draggable={false}
+                    style={{ width: '100%', display: 'block', pointerEvents: 'none', userSelect: 'none', background: '#F4EFE8', aspectRatio: pl.naturalWidth && pl.naturalHeight ? `${pl.naturalWidth} / ${pl.naturalHeight}` : undefined, minHeight: planSrcs[pl.id]?.src ? undefined : 120 }}
                     onLoad={(e) => { if (!pl.naturalWidth) backfillNaturalSize(pl.id, e.target.naturalWidth, e.target.naturalHeight); }}
                   />
+                  {!planSrcs[pl.id]?.src && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: planSrcs[pl.id]?.error ? C.maroon : '#8B8178', pointerEvents: 'none' }}>
+                      {planSrcs[pl.id]?.error ? `Immagine non disponibile (${planSrcs[pl.id].error})` : 'Caricamento della planimetria…'}
+                    </div>
+                  )}
 
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }}>
                     {(pl.shapes || []).map((s) => {
@@ -7138,7 +7298,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                       // LOUPE_SIZE e il centro dell'immagine ingrandita coincide con il mirino.
                       border: 'none', boxShadow: `0 0 0 3px ${C.maroon}, 0 4px 14px rgba(0,0,0,0.35)`,
                       backgroundColor: C.white,
-                      backgroundImage: `url(${pl.image})`, backgroundRepeat: 'no-repeat',
+                      backgroundImage: `url(${planSrcs[pl.id]?.src || ''})`, backgroundRepeat: 'no-repeat',
                       backgroundSize: `${magnifier.bgWidth}px ${magnifier.bgHeight}px`,
                       backgroundPosition: `${magnifier.bgPosX}px ${magnifier.bgPosY}px`,
                       pointerEvents: 'none', zIndex: 8,
@@ -10964,7 +11124,21 @@ export default function GestionaleEdilePreview() {
   }
 
   const [page, setPage] = useState('dashboard');
-  const [projects, setProjects] = useState(PROJECTS);
+  const [projects, setProjectsState] = useState(PROJECTS);
+  const [lockNotice, setLockNotice] = useState('');
+  // Ogni modifica ai progetti passa dalla protezione delle revisioni bloccate (vedi guardLockedRevisions).
+  const setProjects = (nextOrFn) => setProjectsState((prev) => {
+    const next = typeof nextOrFn === 'function' ? nextOrFn(prev) : nextOrFn;
+    const { projects: safe, forks } = guardLockedRevisions(prev, next);
+    if (forks.length) {
+      const f = forks[0];
+      setTimeout(() => {
+        setLockNotice(`«${f.from}» è "${f.status}" e resta invariata: la modifica è stata salvata nella nuova ${f.label}${forks.length > 1 ? ` (e in altre ${forks.length - 1} copie)` : ''}.`);
+        setTimeout(() => setLockNotice(''), 8000);
+      }, 0);
+    }
+    return safe;
+  });
   const [priceNotice, setPriceNotice] = useState(null); // avviso temporaneo dopo l'aggiornamento prezzi nei computi
   const [selectedProjectId, setSelectedProjectId] = useState(null);
   const [openRevisionId, setOpenRevisionId] = useState(null);
@@ -11022,42 +11196,108 @@ export default function GestionaleEdilePreview() {
   const [saveStatus, setSaveStatus] = useState('ok'); // 'ok' | 'saving' | 'error'
   const saveTimer = React.useRef(null);
 
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   React.useEffect(() => {
     if (!profile || profile.status !== 'Attivo') return;
+    setLoadError('');
     supabase.rpc('quant_carica').then(({ data: r, error }) => {
-      if (error) { console.error(error); setDataLoaded(true); return; }
+      // Se il caricamento fallisce NON si abilita il salvataggio: altrimenti i dati di esempio in memoria
+      // sovrascriverebbero quelli veri dello studio. Si mostra un errore con "Riprova".
+      if (error) { console.error(error); setLoadError(error.message || 'errore di rete'); return; }
       const saved = (r && r.dati) || {};
       const ORG_STORICA = 'd0000000-0000-4000-8000-0000000000d5'; // lo studio che arriva dal vecchio Gestionale
       const nuovoStudio = (!saved.projects || !saved.projects.length) && profile.org_id && profile.org_id !== ORG_STORICA;
       if (nuovoStudio) {
         // uno studio nuovo parte da zero: niente dati di esempio e niente importazione
-        setProjects([]);
+        setProjectsState([]);
         setListini([{ id: 1, name: 'Listino standard', macros: [] }]);
         setActiveListinoId(1);
         setFornitoriCatalog([]);
       } else if (!saved.projects || !saved.projects.length || /[?&]importa=1/.test(window.location.search)) setNeedsImport(true);
-      if (saved.projects) setProjects(saved.projects);
+      if (saved.projects) setProjectsState(saved.projects);
       if (saved.listini) setListini(ensureVoceUids(saved.listini));
       if (saved.activeListinoId) setActiveListinoId(saved.activeListinoId);
       if (saved.fornitoriCatalog) setFornitoriCatalog(migrateFornitoriCatalog(saved.fornitoriCatalog));
       if (saved.studioSettings) setStudioSettings({ ...DEFAULT_STUDIO_SETTINGS, ...saved.studioSettings });
       setDataLoaded(true);
     });
-  }, [profile?.id, profile?.status]);
+  }, [profile?.id, profile?.status, loadAttempt]);
 
+  // Salvataggio: un solo invio alla volta (se arrivano modifiche durante un invio, si rimanda l'ultima
+  // versione appena finisce) e nuovo tentativo automatico dopo un errore.
+  const [saveRetry, setSaveRetry] = useState(0);
+  const saveInFlight = React.useRef(false);
+  const savePending = React.useRef(false);
+  const retryDelay = React.useRef(5000);
   React.useEffect(() => {
     if (!dataLoaded || needsImport || !profile || profile.status !== 'Attivo') return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     setSaveStatus('saving');
     saveTimer.current = setTimeout(() => {
+      if (saveInFlight.current) { savePending.current = true; return; }
+      saveInFlight.current = true;
       supabase.rpc('quant_salva', {
         p_dati: { projects, listini, activeListinoId, fornitoriCatalog, studioSettings },
       }).then(({ data: r, error }) => {
-        if (error) { console.error('Salvataggio fallito:', error.message); setSaveStatus('error'); } else { if (r && r.proiezione_errore) console.warn('Riallineamento tabelle suite:', r.proiezione_errore); setSaveStatus('ok'); }
+        saveInFlight.current = false;
+        if (error) {
+          console.error('Salvataggio fallito:', error.message);
+          setSaveStatus('error');
+          const d = retryDelay.current;
+          retryDelay.current = Math.min(d * 2, 60000);
+          setTimeout(() => setSaveRetry((n) => n + 1), d);
+        } else {
+          if (r && r.proiezione_errore) console.warn('Riallineamento tabelle suite:', r.proiezione_errore);
+          retryDelay.current = 5000;
+          if (savePending.current) { savePending.current = false; setSaveRetry((n) => n + 1); } else setSaveStatus('ok');
+        }
       });
     }, 900);
     return () => clearTimeout(saveTimer.current);
-  }, [projects, listini, activeListinoId, fornitoriCatalog, studioSettings, dataLoaded, needsImport]);
+  }, [projects, listini, activeListinoId, fornitoriCatalog, studioSettings, dataLoaded, needsImport, saveRetry]);
+
+  // Avviso se si chiude o ricarica la pagina mentre ci sono modifiche non ancora salvate.
+  React.useEffect(() => {
+    const onBefore = (e) => { if (saveStatus !== 'ok') { e.preventDefault(); e.returnValue = ''; } };
+    window.addEventListener('beforeunload', onBefore);
+    return () => window.removeEventListener('beforeunload', onBefore);
+  }, [saveStatus]);
+
+  // Planimetrie vecchie salvate come testo dentro i dati: si spostano una volta nello Storage della suite,
+  // così il documento dei dati torna leggero (salvataggi veloci, niente più tempi scaduti).
+  const migratingPlans = React.useRef(false);
+  React.useEffect(() => {
+    if (!dataLoaded || needsImport || !profile?.org_id || migratingPlans.current) return;
+    const todo = [];
+    projects.forEach((p) => (p.planimetrie || []).forEach((pl) => { if (typeof pl.image === 'string' && pl.image.startsWith('data:')) todo.push({ projectId: p.id, pl }); }));
+    if (!todo.length) return;
+    migratingPlans.current = true;
+    (async () => {
+      const moved = new Map();
+      for (const { projectId, pl } of todo) {
+        try {
+          const { blob, width, height, ext } = await compressPlanImage(pl.image, 4000);
+          const path = await uploadPlanBlob(profile.org_id, projectId, pl.id, blob, ext);
+          moved.set(pl.id, { path, width, height, image: pl.image });
+        } catch (e) {
+          // Storage non disponibile: almeno si riduce l'immagine che resta dentro i dati.
+          console.warn('Spostamento planimetria nello Storage non riuscito, la riduco nei dati:', e?.message || e);
+          try {
+            const small = await compressPlanImage(pl.image, 2200);
+            const dataUrl = await blobToDataUrl(small.blob);
+            if (dataUrl.length < pl.image.length * 0.7) moved.set(pl.id, { path: null, inline: dataUrl, width: small.width, height: small.height, image: pl.image });
+          } catch (e2) { /* lascio com'è */ }
+        }
+      }
+      if (moved.size) {
+        setProjects((prev) => prev.map((p) => (p.planimetrie || []).some((pl) => moved.has(pl.id))
+          ? { ...p, planimetrie: p.planimetrie.map((pl) => { const m = moved.get(pl.id); return m && pl.image === m.image ? { ...pl, image: m.inline || null, imagePath: m.path, naturalWidth: m.width, naturalHeight: m.height } : pl; }) }
+          : p));
+      }
+      migratingPlans.current = false;
+    })();
+  }, [dataLoaded, needsImport, profile?.org_id]);
 
   // Ogni modifica ai listini passa da qui: se cambiano i prezzi di qualche voce, li si riporta nei computi
   // in attesa di approvazione (vedi propagateListinoPrices) e si avvisa quante voci sono state aggiornate.
@@ -11132,6 +11372,23 @@ export default function GestionaleEdilePreview() {
     );
   }
 
+  if (profile && profile.status === 'Attivo' && !dataLoaded) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#F4EFE8', fontFamily: FONT, padding: 16 }}>
+        <div style={{ background: '#fff', borderRadius: 18, padding: 28, maxWidth: 440, textAlign: 'center', boxShadow: '0 8px 24px rgba(33,26,22,0.08)' }}>
+          {loadError ? (
+            <>
+              <p style={{ fontSize: 17, fontWeight: 600, color: '#2B2321', margin: '0 0 8px' }}>Non riesco a caricare i dati dello studio</p>
+              <p style={{ fontSize: 14, color: '#6F655F', margin: '0 0 18px', lineHeight: 1.5 }}>Il server non ha risposto in tempo ({loadError}). I tuoi dati sono al sicuro: niente viene salvato finché il caricamento non riesce.</p>
+              <button onClick={() => setLoadAttempt((n) => n + 1)} style={{ background: C.maroon, color: '#fff', border: 'none', borderRadius: 999, padding: '12px 24px', fontSize: 15, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}>Riprova</button>
+            </>
+          ) : (
+            <p style={{ fontSize: 15, color: '#6F655F', margin: 0 }}>Caricamento dei dati dello studio…</p>
+          )}
+        </div>
+      </div>
+    );
+  }
   if (needsImport && dataLoaded) {
     return <ImportaDaVecchioGestionale isAdmin={profile.role === 'Admin'} onDone={() => window.location.reload()} onSkip={() => setNeedsImport(false)} />;
   }
@@ -11256,6 +11513,11 @@ export default function GestionaleEdilePreview() {
       )}
       <div className="no-print app-shell" style={{ display: 'flex', minHeight: '100vh', fontFamily: FONT, background: '#F4EFE8' }}>
       <div className={`sidebar-backdrop${mobileNavOpen ? ' open' : ''}`} onClick={() => setMobileNavOpen(false)} />
+      {lockNotice && (
+        <div role="status" onClick={() => setLockNotice('')} style={{ position: 'fixed', left: '50%', transform: 'translateX(-50%)', bottom: 24, zIndex: 310, maxWidth: 520, background: C.maroon, color: '#fff', borderRadius: 12, padding: '13px 18px', fontSize: 14, lineHeight: 1.45, boxShadow: '0 10px 30px rgba(0,0,0,.2)', cursor: 'pointer' }}>
+          🔒 {lockNotice}
+        </div>
+      )}
       {priceNotice && (
         <div role="status" onClick={() => setPriceNotice(null)} style={{ position: 'fixed', right: 24, bottom: 24, zIndex: 300, maxWidth: 380, background: '#2B2321', color: '#fff', borderRadius: 12, padding: '12px 16px', fontSize: 13, fontWeight: 300, lineHeight: 1.45, boxShadow: '0 10px 30px rgba(0,0,0,.18)', cursor: 'pointer' }}>
           {priceNotice}
@@ -11403,7 +11665,7 @@ export default function GestionaleEdilePreview() {
           )}
           {page === 'computi' && <ComputiPage projects={projects} setProjects={setProjects} onOpenProject={openProject} onOpenRevision={openRevisionInProject} requestPdf={requestPdf} />}
           {page === 'confronto' && <ConfrontoPage projects={projects} />}
-          {page === 'rilievo' && <RilievoPage projects={projects} setProjects={setProjects} listini={listini} initialProjectId={rilievoProjectId} />}
+          {page === 'rilievo' && <RilievoPage projects={projects} setProjects={setProjects} listini={listini} initialProjectId={rilievoProjectId} orgId={profile?.org_id} />}
           {page === 'fornitori' &&<FornitoriPage projects={projects} setProjects={setProjects} catalog={fornitoriCatalog} setCatalog={setFornitoriCatalog} />}
           {page === 'team' && <TeamPage profile={profile} onProfileChange={setProfile} />}
           {page === 'impostazioni' && <ImpostazioniPage settings={studioSettings} onUpdate={(patch) => setStudioSettings((s) => ({ ...s, ...patch }))} />}
