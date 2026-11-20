@@ -3810,9 +3810,6 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
   const myBookmarkName = (profile?.name || profile?.email || 'Utente').trim();
   const latestRevision = revisions[revisions.length - 1];
   const [selectedRevisionId, setSelectedRevisionId] = useState(initialRevisionId || latestRevision?.id);
-  const [selRevA, setSelRevA] = useState(revisions[0]?.id);
-  const [selRevB, setSelRevB] = useState(revisions[revisions.length - 1]?.id);
-  const [showCompare, setShowCompare] = useState(false);
   const [listinoId, setListinoId] = useState(listini[0]?.id);
   // Il pannello Listino/Fornitori a sinistra del computo: due sezioni contraibili indipendentemente, così
   // chi sta cercando nei fornitori può comprimere il listino (e viceversa) per avere più spazio su quella
@@ -5567,23 +5564,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
 
           {revisions.length > 1 && (
             <div style={{ marginTop: 16, paddingTop: 16, borderTop: `1px solid ${C.paleGray}` }}>
-              <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 10px', color: C.black }}>Confronta due revisioni</p>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <select value={selRevA} onChange={(e) => setSelRevA(revisions.find((r) => String(r.id) === e.target.value)?.id ?? selRevA)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
-                  {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
-                </select>
-                <span style={{ color: C.gray }}>→</span>
-                <select value={selRevB} onChange={(e) => setSelRevB(revisions.find((r) => String(r.id) === e.target.value)?.id ?? selRevB)} style={{ fontSize: 12, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
-                  {revisions.map((r) => <option key={r.id} value={r.id}>{r.customName || r.label} · {r.dateModified}</option>)}
-                </select>
-                <button onClick={() => setShowCompare(true)} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 14px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Confronta</button>
-              </div>
-
-              {showCompare && (
-                <div style={{ marginTop: 16 }}>
-                  <DiffTable diff={computeItemsDiff(revisions.find((r) => r.id === selRevA)?.items, revisions.find((r) => r.id === selRevB)?.items)} />
-                </div>
-              )}
+              <p style={{ fontSize: 13, fontWeight: 700, margin: '0 0 10px', color: C.black }}>Confronta revisioni</p>
+              <ConfrontoMulti project={project} />
             </div>
           )}
         </div>
@@ -6394,6 +6376,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   // della trasformazione. viewportElsRef tiene i nodi DOM dei contenitori per leggerne le dimensioni reali.
   const [planView, setPlanView] = useState({});
   const viewportElsRef = useRef({});
+  // Immagine della planimetria come appare a schermo (con zoom e spostamento già applicati): clic, punti e
+  // lente si calcolano tutti dal suo riquadro reale, così coincidono sempre al pixel.
+  const imgElsRef = useRef({});
   const [panDragState, setPanDragState] = useState(null);
   const [draggingHandle, setDraggingHandle] = useState(null);
   // Modifica forma: copia di lavoro dei punti di una forma già salvata, mentre si trascinano i vertici
@@ -6410,16 +6395,17 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   // fare proprio mentre si sta tracciando).
   const [magnifier, setMagnifier] = useState(null); // { plId, loupeLeft, loupeTop, bgWidth, bgHeight, bgPosX, bgPosY }
   const LOUPE_SIZE = 140; // diametro in px della lente
-  const LOUPE_ZOOM = 3; // quanto la lente ingrandisce rispetto alla scala "naturale" (non rispetto allo zoom corrente della vista)
+  const LOUPE_ZOOM = 3; // la lente ingrandisce 3 volte quello che si vede a schermo (anche con la vista già ingrandita)
   const computeMagnifier = (pl, clientX, clientY) => {
     const el = viewportElsRef.current[pl.id];
-    if (!el || !pl.naturalWidth) return null;
+    const img = imgElsRef.current[pl.id];
+    if (!el || !img) return null;
     const rect = el.getBoundingClientRect();
-    const view = getView(pl.id);
-    const baseWidth = rect.width;
-    const baseHeight = baseWidth * (pl.naturalHeight / pl.naturalWidth);
-    const contentX = (clientX - rect.left - view.tx) / view.scale;
-    const contentY = (clientY - rect.top - view.ty) / view.scale;
+    // Riquadro reale dell'immagine a schermo: comprende già zoom e spostamento della vista.
+    const ir = img.getBoundingClientRect();
+    if (!ir.width || !ir.height) return null;
+    const contentX = clientX - ir.left;
+    const contentY = clientY - ir.top;
     const cursorLeft = clientX - rect.left;
     const cursorTop = clientY - rect.top;
     // Di default la lente sta sopra e a destra del cursore (così non ci copre sotto il dito/puntatore);
@@ -6431,8 +6417,9 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
     return {
       plId: pl.id,
       loupeLeft, loupeTop,
-      bgWidth: baseWidth * LOUPE_ZOOM,
-      bgHeight: baseHeight * LOUPE_ZOOM,
+      bgWidth: ir.width * LOUPE_ZOOM,
+      bgHeight: ir.height * LOUPE_ZOOM,
+      // Il punto sotto il cursore va esattamente al centro della lente (dove c'è il mirino).
       bgPosX: -(contentX * LOUPE_ZOOM - LOUPE_SIZE / 2),
       bgPosY: -(contentY * LOUPE_ZOOM - LOUPE_SIZE / 2),
     };
@@ -6548,16 +6535,14 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
   // (non trasformato) della planimetria — tiene conto sia dello zoom/pan correnti sia delle dimensioni
   // reali dell'immagine, usata sia per il clic che aggiunge punti/forme sia per il trascinamento dei vertici.
   const toContentPercent = (plId, clientX, clientY) => {
-    const el = viewportElsRef.current[plId];
+    const img = imgElsRef.current[plId];
     const pl = (project.planimetrie || []).find((p) => p.id === plId);
-    if (!el || !pl || !pl.naturalWidth) return null;
-    const rect = el.getBoundingClientRect();
-    const view = getView(plId);
-    const baseWidth = rect.width;
-    const baseHeight = baseWidth * (pl.naturalHeight / pl.naturalWidth);
-    const contentX = (clientX - rect.left - view.tx) / view.scale;
-    const contentY = (clientY - rect.top - view.ty) / view.scale;
-    return { xPct: clamp((contentX / baseWidth) * 100, 0, 100), yPct: clamp((contentY / baseHeight) * 100, 0, 100) };
+    if (!img || !pl || !pl.naturalWidth) return null;
+    // Percentuale calcolata sul riquadro reale dell'immagine a schermo (zoom e spostamento inclusi): è lo
+    // stesso riferimento su cui vengono disegnati punti e forme e su cui lavora la lente.
+    const ir = img.getBoundingClientRect();
+    if (!ir.width || !ir.height) return null;
+    return { xPct: clamp(((clientX - ir.left) / ir.width) * 100, 0, 100), yPct: clamp(((clientY - ir.top) / ir.height) * 100, 0, 100) };
   };
 
   const handlePlanClick = (pl, xPct, yPct) => {
@@ -6948,7 +6933,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                   // La lente segue il cursore solo mentre si sta effettivamente tracciando una nuova area/
                   // lunghezza (i click sono precisi solo se si vede bene dove si sta per cliccare), non durante
                   // lo spostamento della vista né quando si è semplicemente "a riposo".
-                  if (isDrawing && !panDragState) setMagnifier(computeMagnifier(pl, e.clientX, e.clientY));
+                  if ((isDrawing || mode === 'calibra') && !panDragState) setMagnifier(computeMagnifier(pl, e.clientX, e.clientY));
                 }}
                 onMouseLeave={() => setMagnifier((m) => (m && m.plId === pl.id ? null : m))}
                 style={{
@@ -6997,6 +6982,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
 
                 <div style={{ position: 'relative', width: '100%', transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})`, transformOrigin: '0 0' }}>
                   <img
+                    ref={(el) => { imgElsRef.current[pl.id] = el; }}
                     src={pl.image} alt={pl.name} draggable={false}
                     style={{ width: '100%', display: 'block', pointerEvents: 'none', userSelect: 'none' }}
                     onLoad={(e) => { if (!pl.naturalWidth) backfillNaturalSize(pl.id, e.target.naturalWidth, e.target.naturalHeight); }}
@@ -7114,15 +7100,27 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId }) {
                     style={{
                       position: 'absolute', left: magnifier.loupeLeft, top: magnifier.loupeTop,
                       width: LOUPE_SIZE, height: LOUPE_SIZE, borderRadius: '50%', overflow: 'hidden',
-                      border: `3px solid ${C.maroon}`, boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+                      // Bordo disegnato come ombra (non "border"): così l'area interna della lente è esattamente
+                      // LOUPE_SIZE e il centro dell'immagine ingrandita coincide con il mirino.
+                      border: 'none', boxShadow: `0 0 0 3px ${C.maroon}, 0 4px 14px rgba(0,0,0,0.35)`,
+                      backgroundColor: C.white,
                       backgroundImage: `url(${pl.image})`, backgroundRepeat: 'no-repeat',
                       backgroundSize: `${magnifier.bgWidth}px ${magnifier.bgHeight}px`,
                       backgroundPosition: `${magnifier.bgPosX}px ${magnifier.bgPosY}px`,
                       pointerEvents: 'none', zIndex: 8,
                     }}
                   >
-                    <div style={{ position: 'absolute', left: '50%', top: '50%', width: 1, height: 16, background: C.maroon, transform: 'translate(-50%, -50%)' }} />
-                    <div style={{ position: 'absolute', left: '50%', top: '50%', width: 16, height: 1, background: C.maroon, transform: 'translate(-50%, -50%)' }} />
+                    {/* Punti già cliccati (es. il primo punto della calibrazione), nella stessa posizione in cui
+                        sono sulla planimetria. */}
+                    {draft.map((pt, i) => (
+                      <div key={i} style={{ position: 'absolute', left: (pt.x / 100) * magnifier.bgWidth + magnifier.bgPosX, top: (pt.y / 100) * magnifier.bgHeight + magnifier.bgPosY, width: 8, height: 8, borderRadius: 999, background: C.maroon, border: '1.5px solid #fff', transform: 'translate(-50%, -50%)' }} />
+                    ))}
+                    {/* Mirino: il punto esatto che verrà cliccato è al centro, nel piccolo spazio tra le quattro linee. */}
+                    <div style={{ position: 'absolute', left: LOUPE_SIZE / 2 - 0.5, top: LOUPE_SIZE / 2 - 14, width: 1, height: 10, background: C.maroon }} />
+                    <div style={{ position: 'absolute', left: LOUPE_SIZE / 2 - 0.5, top: LOUPE_SIZE / 2 + 4, width: 1, height: 10, background: C.maroon }} />
+                    <div style={{ position: 'absolute', left: LOUPE_SIZE / 2 - 14, top: LOUPE_SIZE / 2 - 0.5, width: 10, height: 1, background: C.maroon }} />
+                    <div style={{ position: 'absolute', left: LOUPE_SIZE / 2 + 4, top: LOUPE_SIZE / 2 - 0.5, width: 10, height: 1, background: C.maroon }} />
+                    <div style={{ position: 'absolute', left: LOUPE_SIZE / 2 - 1, top: LOUPE_SIZE / 2 - 1, width: 2, height: 2, borderRadius: 999, background: C.maroon }} />
                   </div>
                 )}
               </div>
@@ -7399,6 +7397,328 @@ function ComputiPage({ projects, setProjects, onOpenProject, onOpenRevision, req
   );
 }
 
+// --- Confronto tra due o più computi (revisioni) dello stesso progetto ---
+// Vista "Per macrocategorie" (totali per macrosezione, apribili per categoria) oppure "Per voce" (ogni voce
+// con quantità × prezzo e importo in ogni revisione). Le differenze sono calcolate rispetto a una revisione
+// di riferimento: rosso = costa di più, verde = costa di meno.
+const CMP_RED = { color: '#A3261B', background: '#FBE9E7' };
+const CMP_GREEN = { color: '#226B42', background: '#E5F3EA' };
+const cmpItemKey = (it) => (it.autoCode || !it.code ? `id:${it.id}` : `code:${it.code}`);
+const cmpMacro = (it) => it.section || it.macro || 'Voci varie';
+const cmpCat = (it) => it.categoria || 'Generale';
+function ConfrontoMulti({ project }) {
+  const revisions = project?.revisions || [];
+  const [selIdx, setSelIdx] = useState(() => new Set(revisions.length >= 2 ? [revisions.length - 2, revisions.length - 1] : revisions.map((_, i) => i)));
+  const [refIdx, setRefIdx] = useState(null); // null = la prima scelta (la più vecchia)
+  const [view, setView] = useState('macro'); // 'macro' | 'voci'
+  const [prezzi, setPrezzi] = useState('impresa'); // 'impresa' | 'cliente'
+  const [soloDiff, setSoloDiff] = useState(false);
+  const [openMacro, setOpenMacro] = useState({});
+  React.useEffect(() => { // cambio progetto: si riparte dalle ultime due revisioni
+    setSelIdx(new Set(revisions.length >= 2 ? [revisions.length - 2, revisions.length - 1] : revisions.map((_, i) => i)));
+    setRefIdx(null); setOpenMacro({});
+  }, [project?.id, revisions.length]);
+
+  if (revisions.length < 2) {
+    return <p style={{ fontSize: 13.5, color: '#8B8178', margin: 0 }}>Servono almeno due revisioni salvate per fare un confronto.</p>;
+  }
+  const sel = [...selIdx].filter((i) => i < revisions.length).sort((a, b) => a - b);
+  const ref = refIdx != null && sel.includes(refIdx) ? refIdx : sel[0];
+  const nameOf = (i) => { const r = revisions[i]; return r.customName ? `${r.customName} · ${r.label}` : r.label; };
+  const toggle = (i) => setSelIdx((p) => { const n = new Set(p); if (n.has(i)) n.delete(i); else n.add(i); return n; });
+  const K = prezzi === 'impresa' ? 'Impresa' : 'Cliente';
+  const unitOf = (it) => parseEuro(prezzi === 'impresa' ? it.unitPriceImpresa : it.unitPriceCliente);
+  const amountOf = (it) => unitOf(it) * parseEuro(it.qty);
+
+  // Dati per revisione
+  const data = new Map(sel.map((i) => {
+    const rev = revisions[i];
+    const items = (rev.items || []).filter((it) => it.type !== 'subtotal');
+    return [i, { rev, items, byKey: new Map(items.map((it) => [cmpItemKey(it), it])), econ: computeEconomics(rev) }];
+  }));
+  // Macro e categorie nell'ordine in cui compaiono
+  const macros = [];
+  const macroIdx = new Map();
+  sel.forEach((i) => buildComputoGroups(revisions[i]).forEach((g) => {
+    if (!macroIdx.has(g.name)) { macroIdx.set(g.name, macros.length); macros.push({ name: g.name, cats: [] }); }
+    const M = macros[macroIdx.get(g.name)];
+    g.categorie.forEach((c) => { if (c.items.length && !M.cats.includes(c.name)) M.cats.push(c.name); });
+  }));
+  const macroNet = (i, m) => { const s = data.get(i).econ.sections.find((x) => x.name === m); return s ? s[`net${K}`] : null; };
+  const catGross = (i, m, c) => { const its = data.get(i).items.filter((it) => cmpMacro(it) === m && cmpCat(it) === c); return its.length ? its.reduce((n, it) => n + amountOf(it), 0) : null; };
+  const anyDiscount = sel.some((i) => data.get(i).econ.sections.some((x) => x.discountPct > 0));
+  const worksTot = (i) => (prezzi === 'impresa' ? data.get(i).econ.netImpresa : data.get(i).econ.worksNetCliente);
+  const extrasTot = (i) => (prezzi === 'cliente' ? data.get(i).econ.extrasNet : 0);
+  const hasExtras = prezzi === 'cliente' && sel.some((i) => extrasTot(i));
+  const grandTot = (i) => worksTot(i) + extrasTot(i);
+  const grandIva = (i) => (prezzi === 'impresa' ? data.get(i).econ.totImpresa : data.get(i).econ.totCliente);
+
+  // Voci (unione) raggruppate per macro → categoria
+  const rowsByMacro = new Map();
+  const seen = new Set();
+  sel.forEach((i) => data.get(i).items.forEach((it) => {
+    const k = cmpItemKey(it);
+    if (seen.has(k)) return;
+    seen.add(k);
+    const m = cmpMacro(it); const c = cmpCat(it);
+    if (!rowsByMacro.has(m)) rowsByMacro.set(m, new Map());
+    const cm = rowsByMacro.get(m);
+    if (!cm.has(c)) cm.set(c, []);
+    cm.get(c).push({ key: k, code: it.code, desc: it.desc, unit: it.unit });
+  }));
+  const itemDiffers = (k) => {
+    const r = data.get(ref).byKey.get(k);
+    return sel.some((i) => { const x = data.get(i).byKey.get(k); if (!x || !r) return x !== r; return parseEuro(x.qty) !== parseEuro(r.qty) || unitOf(x) !== unitOf(r); });
+  };
+
+  const pct = (v, r) => (r ? ((v - r) / r) * 100 : null);
+  const tone = (v, r, isRef) => (isRef || v == null || r == null || Math.abs(v - r) < 0.005 ? {} : v > r ? CMP_RED : CMP_GREEN);
+  const diffLabel = (v, r, isRef) => {
+    if (isRef) return 'riferimento';
+    if (v == null) return '';
+    if (r == null) return 'nuova';
+    const d = v - r;
+    if (Math.abs(d) < 0.005) return 'invariato';
+    const p = pct(v, r);
+    return `${d > 0 ? '+' : '−'}${formatEuro(Math.abs(d))}${p != null ? ` (${p > 0 ? '+' : ''}${itNum(p, 1)}%)` : ''}`;
+  };
+
+  const th = { textAlign: 'right', fontSize: 10.5, textTransform: 'uppercase', letterSpacing: 0.3, color: '#8B8178', fontWeight: 600, padding: '7px 8px', borderBottom: `1.5px solid ${C.black}`, background: C.white, position: 'sticky', top: 0, zIndex: 1 };
+  const td = { padding: '7px 8px', fontSize: 12.5, borderBottom: `1px solid ${C.paleGray}`, verticalAlign: 'top' };
+  const num = { ...td, textAlign: 'right', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', borderLeft: `1px solid ${C.paleGray}` };
+  const valCell = (i, v, r, opts = {}) => {
+    const isRef = i === ref;
+    const t = tone(v, r, isRef);
+    return (
+      <td key={i} style={{ ...num, ...t, fontWeight: opts.bold ? 700 : 500 }}>
+        {v == null ? <span style={{ color: '#8B8178', fontWeight: 400 }}>{opts.missing || '—'}</span> : (
+          <>
+            <div>{formatEuro(v)}</div>
+            {opts.sub && <div style={{ fontSize: 11, fontWeight: 400, color: opts.subChanged ? C.maroon : '#8B8178' }}>{opts.sub}</div>}
+            <div style={{ fontSize: 11, fontWeight: 600 }}>{diffLabel(v, r, isRef)}</div>
+          </>
+        )}
+      </td>
+    );
+  };
+
+  const exportExcel = async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(view === 'macro' ? 'Per macrocategorie' : 'Per voce');
+    const RED = 'FFFBE9E7'; const GREEN = 'FFE5F3EA';
+    ws.addRow([`Confronto computi — ${project.name}`]).font = { bold: true, size: 14 };
+    ws.addRow([`Prezzi ${prezzi}, IVA esclusa · differenze rispetto a ${nameOf(ref)}`]);
+    ws.addRow([]);
+    const lead = view === 'macro' ? ['Macrocategoria / categoria'] : ['Codice', 'Descrizione', 'U.M.'];
+    const perRev = view === 'macro' ? ['importo', 'diff. €', 'diff. %'] : ['q.tà', 'prezzo', 'importo', 'diff. %'];
+    const hr = ws.addRow([...lead, ...sel.flatMap((i) => perRev.map((h) => `${nameOf(i)} — ${h}`))]);
+    hr.font = { bold: true }; hr.eachCell((c) => { c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1ECE6' } }; c.alignment = { wrapText: true, vertical: 'middle' }; });
+    hr.height = 32;
+    const paint = (row, startCol, width, v, r, isRef, bold) => {
+      const t = tone(v, r, isRef);
+      for (let c = startCol; c < startCol + width; c++) {
+        const x = row.getCell(c);
+        if (t.background) x.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: t === CMP_RED ? RED : GREEN } };
+        if (bold) x.font = { bold: true };
+      }
+    };
+    const addMacroRow = (label, getV, bold) => {
+      const r = getV(ref);
+      const row = ws.addRow([label, ...sel.flatMap((i) => { const v = getV(i); return [v, v != null && r != null && i !== ref ? v - r : null, v != null && r && i !== ref ? (v - r) / r : null]; })]);
+      sel.forEach((i, si) => { const c0 = 2 + si * 3; row.getCell(c0).numFmt = '#,##0.00 €'; row.getCell(c0 + 1).numFmt = '+#,##0.00 €;-#,##0.00 €;0'; row.getCell(c0 + 2).numFmt = '+0.0%;-0.0%;0.0%'; paint(row, c0, 3, getV(i), r, i === ref, bold); });
+      if (bold) row.getCell(1).font = { bold: true };
+    };
+    if (view === 'macro') {
+      macros.forEach((M) => {
+        addMacroRow(M.name.toUpperCase(), (i) => macroNet(i, M.name), true);
+        M.cats.forEach((c) => addMacroRow(`   ${c}`, (i) => catGross(i, M.name, c), false));
+      });
+    } else {
+      [...rowsByMacro.entries()].forEach(([m, cm]) => {
+        ws.addRow([m.toUpperCase()]).font = { bold: true, color: { argb: 'FF7A2A2A' } };
+        [...cm.entries()].forEach(([c, rows]) => {
+          ws.addRow(['', c]).font = { bold: true, italic: true };
+          rows.filter((x) => !soloDiff || itemDiffers(x.key)).forEach((x) => {
+            const rIt = data.get(ref).byKey.get(x.key); const rv = rIt ? amountOf(rIt) : null;
+            const row = ws.addRow([x.code, x.desc, x.unit, ...sel.flatMap((i) => { const it = data.get(i).byKey.get(x.key); if (!it) return [null, null, null, null]; const v = amountOf(it); return [parseEuro(it.qty), unitOf(it), v, rv && i !== ref ? (v - rv) / rv : null]; })]);
+            sel.forEach((i, si) => { const c0 = 4 + si * 4; row.getCell(c0 + 1).numFmt = '#,##0.00 €'; row.getCell(c0 + 2).numFmt = '#,##0.00 €'; row.getCell(c0 + 3).numFmt = '+0.0%;-0.0%;0.0%'; const it = data.get(i).byKey.get(x.key); paint(row, c0, 4, it ? amountOf(it) : null, rv, i === ref, false); });
+          });
+        });
+      });
+    }
+    ws.addRow([]);
+    if (view === 'macro') {
+      if (hasExtras) { addMacroRow('Totale lavori', worksTot, true); addMacroRow('Voci aggiuntive', extrasTot, false); }
+      addMacroRow('TOTALE IVA ESCLUSA', grandTot, true);
+      addMacroRow('TOTALE IVA INCLUSA', grandIva, true);
+    } else {
+      const row = ws.addRow(['', 'TOTALE IVA ESCLUSA', '', ...sel.flatMap((i) => [null, null, grandTot(i), grandTot(ref) && i !== ref ? (grandTot(i) - grandTot(ref)) / grandTot(ref) : null])]);
+      row.font = { bold: true };
+      sel.forEach((i, si) => { const c0 = 4 + si * 4; row.getCell(c0 + 2).numFmt = '#,##0.00 €'; row.getCell(c0 + 3).numFmt = '+0.0%;-0.0%;0.0%'; paint(row, c0, 4, grandTot(i), grandTot(ref), i === ref, true); });
+    }
+    ws.columns.forEach((c, idx) => { c.width = view === 'macro' ? (idx === 0 ? 38 : 15) : (idx === 1 ? 50 : idx < 3 ? 10 : 13); });
+    const buf = await wb.xlsx.writeBuffer();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    a.download = `Confronto computi - ${project.name} - ${view === 'macro' ? 'macrocategorie' : 'voci'}.xlsx`;
+    a.click();
+  };
+
+  const chip = (on) => ({ border: `1px solid ${on ? C.maroon : C.paleGray}`, background: on ? C.maroon : C.white, color: on ? C.white : '#4A403C', borderRadius: 999, padding: '7px 13px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT });
+  const seg = (on) => ({ border: 'none', background: on ? C.black : 'transparent', color: on ? C.white : '#4A403C', borderRadius: 999, padding: '7px 14px', fontSize: 12.5, fontWeight: 500, cursor: 'pointer', fontFamily: FONT });
+  const lbl = { fontSize: 11.5, fontWeight: 600, color: '#6F655F', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.04em' };
+
+  return (
+    <div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={lbl}>Computi da confrontare (anche più di due)</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {revisions.map((r, i) => (
+            <button key={i} onClick={() => toggle(i)} style={chip(selIdx.has(i))} title={`${r.status || STATUS_OPTIONS[0]} · ${r.dateModified || ''}`}>
+              {selIdx.has(i) ? '✓ ' : ''}{nameOf(i)}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
+        <div>
+          <div style={lbl}>Vista</div>
+          <div style={{ display: 'inline-flex', gap: 4, background: '#F4F0EA', borderRadius: 999, padding: 4 }}>
+            <button onClick={() => setView('macro')} style={seg(view === 'macro')}>Per macrocategorie</button>
+            <button onClick={() => setView('voci')} style={seg(view === 'voci')}>Per voce</button>
+          </div>
+        </div>
+        <div>
+          <div style={lbl}>Prezzi</div>
+          <div style={{ display: 'inline-flex', gap: 4, background: '#F4F0EA', borderRadius: 999, padding: 4 }}>
+            <button onClick={() => setPrezzi('impresa')} style={seg(prezzi === 'impresa')}>Impresa</button>
+            <button onClick={() => setPrezzi('cliente')} style={seg(prezzi === 'cliente')}>Cliente</button>
+          </div>
+        </div>
+        <div>
+          <div style={lbl}>Differenze rispetto a</div>
+          <select value={ref ?? ''} onChange={(e) => setRefIdx(Number(e.target.value))} style={{ border: `1px solid ${C.paleGray}`, borderRadius: 10, padding: '8px 10px', fontSize: 13, fontFamily: FONT, background: C.white }}>
+            {sel.map((i) => <option key={i} value={i}>{nameOf(i)}</option>)}
+          </select>
+        </div>
+        {view === 'voci' && (
+          <label style={{ display: 'flex', gap: 7, alignItems: 'center', fontSize: 13, color: '#4A403C', cursor: 'pointer', paddingBottom: 8 }}>
+            <input type="checkbox" checked={soloDiff} onChange={(e) => setSoloDiff(e.target.checked)} style={{ accentColor: C.maroon, width: 17, height: 17 }} /> Solo voci con differenze
+          </label>
+        )}
+        <button onClick={exportExcel} disabled={sel.length < 2} style={{ border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 999, padding: '8px 14px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', marginBottom: 2, marginLeft: 'auto' }}>Scarica Excel</button>
+      </div>
+
+      {sel.length < 2 ? <p style={{ fontSize: 13, color: C.maroon }}>Seleziona almeno due computi.</p> : (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10, marginBottom: 14 }}>
+            {sel.map((i) => {
+              const v = grandTot(i); const r = grandTot(ref); const t = tone(v, r, i === ref);
+              return (
+                <div key={i} style={{ border: `1px solid ${i === ref ? C.black : C.paleGray}`, borderRadius: 12, padding: '10px 13px', background: C.white }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: C.black, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nameOf(i)}</div>
+                  <div style={{ fontSize: 11.5, color: '#8B8178' }}>{revisions[i].status || STATUS_OPTIONS[0]} · {revisions[i].dateModified}</div>
+                  <div style={{ fontSize: 19, fontWeight: 600, color: C.black, marginTop: 4 }}>{formatEuro(v)}</div>
+                  <span style={{ ...t, fontSize: 12, fontWeight: 600, borderRadius: 999, padding: t.background ? '2px 8px' : 0, color: t.color || '#8B8178' }}>{diffLabel(v, r, i === ref)}</span>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: 'flex', gap: 14, fontSize: 12, color: '#4A403C', marginBottom: 8, flexWrap: 'wrap' }}>
+            <span><span style={{ ...CMP_RED, padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>rosso</span> costa di più del riferimento</span>
+            <span><span style={{ ...CMP_GREEN, padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>verde</span> costa di meno</span>
+            <span>Prezzi {prezzi}, IVA esclusa</span>
+          </div>
+          <div style={{ overflow: 'auto', maxHeight: '65vh', border: `1px solid ${C.paleGray}`, borderRadius: 12 }}>
+            {view === 'macro' ? (
+              <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', minWidth: 300 + sel.length * 170 }}>
+                <thead><tr>
+                  <th style={{ ...th, textAlign: 'left' }}>Macrocategoria</th>
+                  {sel.map((i) => <th key={i} style={{ ...th, borderLeft: `1px solid ${C.paleGray}`, color: i === ref ? C.black : '#8B8178' }}>{nameOf(i)}</th>)}
+                </tr></thead>
+                <tbody>
+                  {macros.map((M) => {
+                    const r = macroNet(ref, M.name); const open = !!openMacro[M.name];
+                    return (
+                      <React.Fragment key={M.name}>
+                        <tr onClick={() => setOpenMacro((o) => ({ ...o, [M.name]: !open }))} style={{ cursor: 'pointer' }}>
+                          <td style={{ ...td, fontWeight: 700, color: C.maroon, textTransform: 'uppercase', fontSize: 12.5 }}>{open ? '▾' : '▸'} {M.name}</td>
+                          {sel.map((i) => valCell(i, macroNet(i, M.name), r, { bold: true, missing: 'non presente' }))}
+                        </tr>
+                        {open && M.cats.map((c) => {
+                          const rc = catGross(ref, M.name, c);
+                          return (
+                            <tr key={c} style={{ background: '#FCFAF7' }}>
+                              <td style={{ ...td, paddingLeft: 28 }}>{c}</td>
+                              {sel.map((i) => valCell(i, catGross(i, M.name, c), rc, { missing: 'non presente' }))}
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })}
+                  {hasExtras && (
+                    <>
+                      <tr><td style={{ ...td, fontWeight: 600, borderTop: `1.5px solid ${C.black}` }}>Totale lavori</td>{sel.map((i) => valCell(i, worksTot(i), worksTot(ref), { bold: true }))}</tr>
+                      <tr><td style={td}>Voci aggiuntive (spese di progetto, pratiche…)</td>{sel.map((i) => valCell(i, extrasTot(i), extrasTot(ref)))}</tr>
+                    </>
+                  )}
+                  <tr><td style={{ ...td, fontWeight: 700, fontSize: 13.5, borderTop: hasExtras ? undefined : `1.5px solid ${C.black}` }}>Totale IVA esclusa</td>{sel.map((i) => valCell(i, grandTot(i), grandTot(ref), { bold: true }))}</tr>
+                  <tr><td style={{ ...td, color: '#4A403C' }}>Totale IVA inclusa</td>{sel.map((i) => valCell(i, grandIva(i), grandIva(ref)))}</tr>
+                </tbody>
+              </table>
+            ) : (
+              <table style={{ borderCollapse: 'separate', borderSpacing: 0, width: '100%', minWidth: 420 + sel.length * 170 }}>
+                <thead><tr>
+                  <th style={{ ...th, textAlign: 'left', width: 80 }}>Codice</th>
+                  <th style={{ ...th, textAlign: 'left', minWidth: 240 }}>Descrizione</th>
+                  {sel.map((i) => <th key={i} style={{ ...th, borderLeft: `1px solid ${C.paleGray}`, color: i === ref ? C.black : '#8B8178' }}>{nameOf(i)}</th>)}
+                </tr></thead>
+                <tbody>
+                  {[...rowsByMacro.entries()].map(([m, cm]) => {
+                    const cats = [...cm.entries()].map(([c, rows]) => [c, rows.filter((x) => !soloDiff || itemDiffers(x.key))]).filter(([, rows]) => rows.length);
+                    if (!cats.length) return null;
+                    const r = macroNet(ref, m);
+                    return (
+                      <React.Fragment key={m}>
+                        <tr><td colSpan={2} style={{ ...td, background: '#F4EAEA', color: C.maroon, fontWeight: 700, textTransform: 'uppercase', fontSize: 12 }}>{m}</td>{sel.map((i) => valCell(i, macroNet(i, m), r, { bold: true, missing: 'non presente' }))}</tr>
+                        {cats.map(([c, rows]) => (
+                          <React.Fragment key={c}>
+                            <tr><td colSpan={2 + sel.length} style={{ ...td, background: '#F8F5F0', fontWeight: 600, fontSize: 12 }}>{c}</td></tr>
+                            {rows.map((x) => {
+                              const rIt = data.get(ref).byKey.get(x.key);
+                              return (
+                                <tr key={x.key}>
+                                  <td style={{ ...td, color: '#8B8178', fontSize: 11.5 }}>{x.code}</td>
+                                  <td style={td}>{x.desc}</td>
+                                  {sel.map((i) => {
+                                    const it = data.get(i).byKey.get(x.key);
+                                    const changed = it && rIt && (parseEuro(it.qty) !== parseEuro(rIt.qty) || unitOf(it) !== unitOf(rIt));
+                                    return valCell(i, it ? amountOf(it) : null, rIt ? amountOf(rIt) : null, { missing: 'non presente', sub: it ? `${it.qty} ${it.unit || ''} × ${formatEuro(unitOf(it))}` : null, subChanged: changed });
+                                  })}
+                                </tr>
+                              );
+                            })}
+                          </React.Fragment>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
+                  <tr><td colSpan={2} style={{ ...td, fontWeight: 700, fontSize: 13.5, textAlign: 'right', borderTop: `1.5px solid ${C.black}` }}>Totale IVA esclusa</td>{sel.map((i) => valCell(i, grandTot(i), grandTot(ref), { bold: true }))}</tr>
+                </tbody>
+              </table>
+            )}
+          </div>
+          <p style={{ fontSize: 11.5, color: '#8B8178', margin: '8px 0 0' }}>
+            {view === 'macro' ? `Clicca su una macrocategoria per vedere le sue categorie. Le macrocategorie sono al netto degli sconti di sezione${anyDiscount ? ', le categorie al lordo' : ''}.` : 'Sotto ogni importo: quantità × prezzo unitario (in rosso scuro se cambiano rispetto al riferimento).'}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ConfrontoPage({ projects }) {
   // Progetto e revisioni si scelgono per POSIZIONE nell'elenco (non per "id"), come nel Rilievo: nei dati
   // reali alcuni progetti possono avere lo stesso id (es. importati o creati in blocco) o id non numerici,
@@ -7407,16 +7727,7 @@ function ConfrontoPage({ projects }) {
   const [projectIdx, setProjectIdx] = useState(firstComparable);
   const project = projects[projectIdx] || projects[0];
   const revisions = project?.revisions || [];
-  const [fromIdx, setFromIdx] = useState(0);
-  const [toIdx, setToIdx] = useState(null); // null = ultima revisione
-  const fi = Math.min(fromIdx, Math.max(revisions.length - 1, 0));
-  const ti = toIdx == null || toIdx >= revisions.length ? revisions.length - 1 : toIdx;
-
-  const handleProjectChange = (idx) => {
-    setProjectIdx(idx);
-    setFromIdx(0);
-    setToIdx(null);
-  };
+  const handleProjectChange = (idx) => setProjectIdx(idx);
 
   if (!project) {
     return (
@@ -7454,31 +7765,11 @@ function ConfrontoPage({ projects }) {
           <p style={{ fontSize: 13, color: '#8B8178', margin: 0 }}>"{project.name}" ha meno di due revisioni salvate: non c'è ancora nulla da confrontare.</p>
         </div>
       ) : (
-        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16, overflowX: 'auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18, flexWrap: 'wrap' }}>
-            <select value={fi} onChange={(e) => setFromIdx(Number(e.target.value))} style={{ ...selStyle, fontSize: 14 }}>
-              {revisions.map((r, i) => <option key={i} value={i}>{r.customName || r.label} · {r.dateModified}</option>)}
-            </select>
-            <span style={{ fontSize: 15, color: '#8B8178' }}>→</span>
-            <select value={ti} onChange={(e) => setToIdx(Number(e.target.value))} style={{ ...selStyle, fontSize: 14 }}>
-              {revisions.map((r, i) => <option key={i} value={i}>{r.customName || r.label} · {r.dateModified}</option>)}
-            </select>
-          </div>
-
-          <DiffTable diff={computeItemsDiff(revisions[fi]?.items, revisions[ti]?.items)} />
+        <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px', marginBottom: 16 }}>
+          <ConfrontoMulti key={projectIdx} project={project} />
         </section>
       )}
 
-      <section style={{ background: C.white, border: `1px solid ${C.paleGray}`, borderRadius: 14, padding: '18px 22px' }}>
-        <h3 style={{ margin: '0 0 2px', fontWeight: 300, fontSize: 18, color: C.black }}>Stampa ed esportazione</h3>
-        <p style={{ fontSize: 11.5, fontWeight: 400, color: '#8B8178', margin: 0, maxWidth: 560 }}>
-          Intestazione, subtotali e sezione Extra sono sempre inclusi. Mantieni nella stampa le evidenziazioni di aggiunte, modifiche e rimozioni.
-        </p>
-        <div style={{ display: 'flex', gap: 10, marginTop: 12 }}>
-          <button onClick={() => alert('Esportazione Excel/CSV: funzione da collegare al backend reale.')} style={{ border: `1px solid ${C.paleGray}`, background: C.white, color: '#2B2321', padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 400, cursor: 'pointer', fontFamily: FONT }}>Excel / CSV</button>
-          <button onClick={() => alert('Stampa/PDF: genera il documento con le evidenziazioni delle modifiche.')} style={{ border: 'none', background: C.maroon, color: C.white, padding: '9px 16px', borderRadius: 999, fontSize: 12.5, fontWeight: 400, cursor: 'pointer', fontFamily: FONT }}>Stampa / PDF</button>
-        </div>
-      </section>
     </div>
   );
 }
