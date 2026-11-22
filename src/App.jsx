@@ -5816,6 +5816,8 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
         </p>
       </div>
 
+      <CadImportPanel project={project} onUpdateProject={onUpdateProject} listini={listini} onUpdateListini={onUpdateListini} profile={profile} />
+
       <div style={{ ...card, marginBottom: 18, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
         <div>
           <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Rilievo planimetrico</p>
@@ -5866,6 +5868,148 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
 }
 
 const rowBtnStyle = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 6, fontSize: 11, fontWeight: 600, padding: '5px 10px', cursor: 'pointer', color: C.midGray };
+
+// --- Quantità inviate da DSQ CAD (abaco, modello, gialli e rossi, impianti) ---
+// DSQ CAD scrive le righe nella tabella quant_cad_import del progetto. Qui si sceglie per ogni riga la voce
+// di listino (la scelta si ricorda nel listino, per i prossimi invii) e si aggiunge al computo: ogni riga
+// diventa una misurazione "DSQ CAD · …" della voce, con un riferimento stabile, così un nuovo invio dello
+// stesso disegno AGGIORNA la quantità invece di contarla due volte.
+const normUnit = (u) => String(u || '').toLowerCase().replace('²', '2').replace('³', '3').replace('mq', 'm2').replace('mc', 'm3').replace(/^ml$/, 'm').replace(/^(n\.?|nr|cad\.?|cadauna|pz)$/, 'n').trim();
+function applyCadRows(project, rows) {
+  let p = project; let added = 0, updated = 0;
+  for (const r of rows) {
+    if (!r.voce || !(r.qty > 0)) continue;
+    const ref = 'cad:' + r.key;
+    const rev = (p.revisions || [])[(p.revisions || []).length - 1];
+    const items = rev ? (rev.items || []) : [];
+    let target = items.find((it) => (it.misurazioni || []).some((g) => (g.rows || []).some((x) => x.rilievoRef === ref)));
+    if (!target && r.voce.uid) target = items.find((it) => it.listinoRef && it.listinoRef.uid === r.voce.uid && !it.qtyLink);
+    if (!target) {
+      const res = addComputoItemToProject(p, r.voce, '0');
+      if (!res.ok) continue;
+      p = res.project;
+      const rv = p.revisions[p.revisions.length - 1];
+      target = [...(rv.items || [])].reverse().find((it) => it.code === r.voce.code || (it.listinoRef && r.voce.uid && it.listinoRef.uid === r.voce.uid));
+      if (!target) continue;
+    }
+    const res2 = incrementComputoItemQty(p, target.id, r.qty, { ref, label: `DSQ CAD · ${r.desc}` });
+    if (res2.ok) { p = res2.project; if (res2.replaced) updated++; else added++; }
+  }
+  return { project: p, added, updated };
+}
+function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, profile }) {
+  const [imports, setImports] = useState([]);
+  const [open, setOpen] = useState(null);
+  const [listinoId, setListinoId] = useState(listini[0]?.id);
+  const [groups, setGroups] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const load = React.useCallback(() => {
+    cea.from('cad_import').select('*').eq('project_id', String(project.id)).eq('status', 'pending').order('created_at', { ascending: false })
+      .then(({ data, error }) => { if (!error) setImports(data || []); });
+  }, [project.id]);
+  useEffect(() => { load(); }, [load]);
+  const listino = listini.find((l) => l.id === listinoId) || listini[0];
+  const voci = React.useMemo(() => flattenListino(listino), [listino]);
+  const label = (v) => `${v.code} — ${v.desc}`;
+  const openImport = (imp) => {
+    const map = (listino && listino.cadMap) || {};
+    const by = new Map();
+    (imp.payload || []).forEach((r) => {
+      const mk = r.mk || r.key;
+      if (!by.has(mk)) by.set(mk, { mk, label: r.group || r.desc, unit: r.unit, qty: 0, rows: [] });
+      const g = by.get(mk); g.qty += Number(r.qty) || 0; g.rows.push(r);
+    });
+    setGroups([...by.values()].map((g) => {
+      const v = map[g.mk] ? voci.find((x) => x.uid === map[g.mk]) : null;
+      return { ...g, on: !!v, voce: v || null, text: v ? label(v) : '', exp: false };
+    }));
+    setOpen(imp);
+  };
+  useEffect(() => { if (open) openImport(open); }, [listinoId]); // eslint-disable-line
+  const setG = (i, patch) => setGroups((gs) => gs.map((g, j) => (j === i ? { ...g, ...patch } : g)));
+  const pickText = (i, t) => { const v = voci.find((x) => label(x) === t); setG(i, { text: t, voce: v || null, on: !!v }); };
+  const doAdd = async () => {
+    const chosen = groups.filter((g) => g.on && g.voce);
+    if (!chosen.length) { alert('Scegli almeno una voce di listino.'); return; }
+    setBusy(true);
+    const rows = chosen.flatMap((g) => g.rows.map((r) => ({ ...r, voce: g.voce, qty: Number(r.qty) || 0 })));
+    const res = applyCadRows(project, rows);
+    onUpdateProject(res.project);
+    const map = { ...((listino && listino.cadMap) || {}) };
+    chosen.forEach((g) => { if (g.voce.uid) map[g.mk] = g.voce.uid; });
+    if (listino) onUpdateListini(listini.map((l) => (l.id === listino.id ? { ...l, cadMap: map } : l)));
+    await cea.from('cad_import').update({ status: 'done', done_at: new Date().toISOString(), done_by: profile?.id || null }).eq('id', open.id);
+    setBusy(false); setOpen(null); load();
+    alert(`Computo aggiornato: ${res.added} righe aggiunte, ${res.updated} aggiornate.`);
+  };
+  const discard = async (imp) => {
+    if (!window.confirm('Scartare questo invio da DSQ CAD?')) return;
+    await cea.from('cad_import').update({ status: 'discarded', done_at: new Date().toISOString() }).eq('id', imp.id);
+    load();
+  };
+  if (!imports.length) return null;
+  const fmtQ = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
+  return (
+    <div style={{ ...card, marginBottom: 18, borderColor: C.maroon }}>
+      <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Quantità da DSQ CAD</p>
+      <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 10px' }}>Invii dal disegno in attesa: collega ogni lavorazione a una voce di listino e aggiungila al computo.</p>
+      {imports.map((imp) => (
+        <div key={imp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${C.paleGray}` }}>
+          <div>
+            <p style={{ fontWeight: 600, fontSize: 13, margin: 0, color: C.black }}>{imp.title || 'Disegno'}</p>
+            <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 0' }}>{(imp.payload || []).length} righe · {new Date(imp.created_at).toLocaleString('it-IT')}{imp.created_by_name ? ' · ' + imp.created_by_name : ''}</p>
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => openImport(imp)} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '7px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>Collega e aggiungi</button>
+            <button onClick={() => discard(imp)} style={rowBtnStyle}>Scarta</button>
+          </div>
+        </div>
+      ))}
+      {open && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={() => !busy && setOpen(null)}>
+          <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 980, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <h2 style={{ fontFamily: FONT, fontSize: 18, margin: 0, color: C.black }}>{open.title || 'Quantità da DSQ CAD'}</h2>
+              <label style={{ fontSize: 12, color: C.midGray }}>Listino{' '}
+                <select value={listino?.id} onChange={(e) => { const v = listini.find((l) => String(l.id) === e.target.value); if (v) setListinoId(v.id); }} style={{ fontSize: 12, padding: '5px 8px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
+                  {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </label>
+            </div>
+            <p style={{ fontSize: 11, color: C.gray, margin: '6px 0 10px' }}>Le voci scelte si ricordano per i prossimi invii. Ogni ambiente diventa una riga di misurazione della voce; se il disegno viene reinviato, le stesse righe si aggiornano senza raddoppiare.</p>
+            <datalist id="cadVoci">{voci.map((v) => <option key={v.uid || v.code} value={label(v)} />)}</datalist>
+            <div style={{ overflowY: 'auto', flex: 1, border: `1px solid ${C.paleGray}`, borderRadius: 10 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                <thead><tr style={{ background: '#f6f6f6', textAlign: 'left' }}><th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Dal disegno</th><th style={{ padding: 6, textAlign: 'right' }}>Quantità</th><th style={{ padding: 6 }}>Voce di listino</th></tr></thead>
+                <tbody>
+                  {groups.map((g, i) => (
+                    <React.Fragment key={g.mk}>
+                      <tr style={{ borderTop: `1px solid ${C.paleGray}` }}>
+                        <td style={{ padding: 6 }}><input type="checkbox" checked={!!g.on} disabled={!g.voce} onChange={(e) => setG(i, { on: e.target.checked })} /></td>
+                        <td style={{ padding: 6 }}>{g.label}{g.rows.length > 1 && <button onClick={() => setG(i, { exp: !g.exp })} style={{ marginLeft: 6, border: 'none', background: 'none', color: C.gray, cursor: 'pointer', fontSize: 11 }}>{g.exp ? '▾' : '▸'} {g.rows.length} righe</button>}</td>
+                        <td style={{ padding: 6, textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtQ(g.qty)} {g.unit}</td>
+                        <td style={{ padding: 6, minWidth: 360 }}>
+                          <input list="cadVoci" value={g.text} onChange={(e) => pickText(i, e.target.value)} placeholder="Cerca per codice o descrizione…" style={{ width: '100%', fontSize: 12, padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.paleGray}`, boxSizing: 'border-box' }} />
+                          {g.voce && normUnit(g.voce.unit) !== normUnit(g.unit) && <span style={{ fontSize: 10, color: '#b7791f' }}>⚠ unità diverse: disegno {g.unit}, listino {g.voce.unit}</span>}
+                        </td>
+                      </tr>
+                      {g.exp && g.rows.map((r) => (
+                        <tr key={r.key}><td></td><td style={{ padding: '2px 6px 2px 18px', color: C.gray }}>{r.desc}</td><td style={{ padding: '2px 6px', textAlign: 'right', color: C.gray }}>{fmtQ(Number(r.qty) || 0)} {r.unit}</td><td></td></tr>
+                      ))}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+              <button onClick={() => setOpen(null)} disabled={busy} style={rowBtnStyle}>Annulla</button>
+              <button onClick={doAdd} disabled={busy} style={{ background: C.maroon, color: C.white, border: 'none', borderRadius: 999, padding: '9px 16px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>{busy ? 'Aggiungo…' : `Aggiungi al computo (${groups.filter((g) => g.on && g.voce).length} voci)`}</button>
+            </div>
+          </div>
+        </div>, document.body)}
+    </div>
+  );
+}
 
 // Aggiunge una voce di listino alla revisione più recente di un progetto, fuori dal contesto della scheda
 // di dettaglio (usata dalla sezione "Rilievo planimetrico", che lavora su un progetto scelto dall'utente
