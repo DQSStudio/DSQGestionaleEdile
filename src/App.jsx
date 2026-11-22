@@ -1833,7 +1833,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
                           <option value="-">− si detrae</option>
                         </select>
                       </td>
-                      <td colSpan={4} style={{ padding: '3px 4px', fontSize: 12, color: C.midGray }}>{r.rilievoRef != null ? '📐 ' : ''}{r.descr || 'Valore diretto'}</td>
+                      <td colSpan={4} style={{ padding: '3px 4px', fontSize: 12, color: r.cadOrphan ? '#c92a2a' : C.midGray, background: r.cadOrphan ? '#fff1f1' : undefined }}>{r.cadOrphan ? '⚠ NON PIÙ NEL DISEGNO · ' : (r.rilievoRef != null ? '📐 ' : '')}{r.descr || 'Valore diretto'}</td>
                       <td style={{ padding: '3px 4px', textAlign: 'right' }}><input value={r.valore} onChange={(e) => updateRow(idx, 'valore', e.target.value)} title="Valore della misura" style={{ ...colStyle(true), fontWeight: 700 }} /></td>
                       <td style={{ padding: '3px 4px' }}><button onClick={() => removeRow(idx)} style={iconBtn}>🗑</button></td>
                     </tr>
@@ -5282,7 +5282,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                                     {detailRows.map((r, ri) => (r.valore != null && r.valore !== '') ? (
                                                       <tr key={ri} style={{ borderTop: `1px solid ${C.paleGray}` }}>
                                                         <td style={{ padding: '3px 6px', textAlign: 'left' }}>{r.segno === '-' ? '− si detrae' : '+ somma'}</td>
-                                                        <td colSpan={4} style={{ padding: '3px 6px', textAlign: 'left', color: C.midGray }}>{r.rilievoRef != null ? '📐 ' : ''}{r.descr || 'Valore diretto'}</td>
+                                                        <td colSpan={4} style={{ padding: '3px 6px', textAlign: 'left', color: r.cadOrphan ? '#c92a2a' : C.midGray, background: r.cadOrphan ? '#fff1f1' : undefined }}>{r.cadOrphan ? '⚠ NON PIÙ NEL DISEGNO · ' : (r.rilievoRef != null ? '📐 ' : '')}{r.descr || 'Valore diretto'}</td>
                                                         <td style={{ padding: '3px 6px', textAlign: 'right', fontWeight: 700 }}>{itNum(computeMisurazioneRowValue(r, it.unitaCalcolo), 2)}</td>
                                                       </tr>
                                                     ) : (
@@ -5875,11 +5875,75 @@ const rowBtnStyle = { border: `1px solid ${C.paleGray}`, background: C.white, bo
 // diventa una misurazione "DSQ CAD · …" della voce, con un riferimento stabile, così un nuovo invio dello
 // stesso disegno AGGIORNA la quantità invece di contarla due volte.
 const normUnit = (u) => String(u || '').toLowerCase().replace('²', '2').replace('³', '3').replace('mq', 'm2').replace('mc', 'm3').replace(/^ml$/, 'm').replace(/^(n\.?|nr|cad\.?|cadauna|pz)$/, 'n').trim();
-function applyCadRows(project, rows) {
+const isCadRef = (ref) => typeof ref === 'string' && ref.startsWith('cad:');
+const cadRefOf = (r) => 'cad:' + (r.doc ? r.doc + ':' : '') + r.key;
+// Righe del computo (revisione più recente) che arrivano da un disegno DSQ CAD: [{ item, row, ref }]
+function cadRowsInComputo(project, doc) {
+  const rev = (project.revisions || [])[(project.revisions || []).length - 1];
+  const out = [];
+  (rev ? rev.items || [] : []).forEach((it) => (it.misurazioni || []).forEach((g) => (g.rows || []).forEach((row) => {
+    if (!isCadRef(row.rilievoRef)) return;
+    if (doc && !row.rilievoRef.startsWith('cad:' + doc + ':')) return;
+    out.push({ item: it, row, ref: row.rilievoRef });
+  })));
+  return out;
+}
+const numIt = (v) => { const n = parseFloat(String(v ?? '').replace(/\./g, '').replace(',', '.')); return isFinite(n) ? n : 0; };
+// Segna (o toglie il segno) sulle righe che il disegno non contiene più: la quantità NON si azzera, la riga
+// resta evidenziata "non più nel disegno" finché qualcuno decide cosa farne.
+function markCadOrphans(project, doc, presentRefs) {
+  if (!doc) return { project, orphans: 0 };
+  let revisions = project.revisions || [];
+  if (!revisions.length) return { project, orphans: 0 };
+  const last = revisions[revisions.length - 1];
+  let need = false;
+  (last.items || []).forEach((it) => (it.misurazioni || []).forEach((g) => (g.rows || []).forEach((r) => {
+    if (!isCadRef(r.rilievoRef) || !r.rilievoRef.startsWith('cad:' + doc + ':')) return;
+    if (!!r.cadOrphan !== !presentRefs.has(r.rilievoRef)) need = true;
+  })));
+  if (!need) return { project, orphans: cadRowsInComputo(project, doc).filter((x) => x.row.cadOrphan).length };
+  if (!isRevisionEditable(last)) revisions = forkRevisionForEdit(revisions);
+  const latest = revisions[revisions.length - 1];
+  const oggi = itDate(isoToday());
+  let orphans = 0;
+  const items = (latest.items || []).map((it) => {
+    if (!it.misurazioni) return it;
+    let ch = false;
+    const misurazioni = it.misurazioni.map((g) => ({ ...g, rows: (g.rows || []).map((r) => {
+      if (!isCadRef(r.rilievoRef) || !r.rilievoRef.startsWith('cad:' + doc + ':')) return r;
+      const gone = !presentRefs.has(r.rilievoRef);
+      if (gone) orphans++;
+      if (gone && !r.cadOrphan) { ch = true; return { ...r, cadOrphan: true, cadOrphanSince: oggi }; }
+      if (!gone && r.cadOrphan) { ch = true; const { cadOrphan, cadOrphanSince, ...rest } = r; return rest; }
+      return r;
+    }) }));
+    return ch ? { ...it, misurazioni } : it;
+  });
+  revisions = revisions.map((r) => (r === latest ? { ...r, items, dateModified: nowLabel() } : r));
+  return { project: { ...project, revisions }, orphans };
+}
+function removeCadRow(project, itemId, ref) {
+  let revisions = project.revisions || [];
+  if (!revisions.length) return project;
+  if (!isRevisionEditable(revisions[revisions.length - 1])) revisions = forkRevisionForEdit(revisions);
+  const latest = revisions[revisions.length - 1];
+  const fmt = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
+  const items = (latest.items || []).map((it) => {
+    if (it.id !== itemId || !it.misurazioni) return it;
+    const misurazioni = it.misurazioni.map((g) => ({ ...g, rows: (g.rows || []).filter((r) => r.rilievoRef !== ref) }));
+    const unitaCalcolo = it.unitaCalcolo || defaultCalcForUnit(it.unit) || 'nr';
+    return { ...it, misurazioni, unitaCalcolo, qty: fmt(computeVoceQtyTotal(misurazioni, unitaCalcolo)) };
+  });
+  const real = items.filter((it) => it.type !== 'subtotal');
+  const total = formatEuro(sumImpresa(real)), totalCliente = formatEuro(sumCliente(real));
+  revisions = revisions.map((r) => (r === latest ? { ...r, items, dateModified: nowLabel(), total, totalCliente } : r));
+  return { ...project, revisions, value: total };
+}
+function applyCadRows(project, rows, all) {
   let p = project; let added = 0, updated = 0;
   for (const r of rows) {
     if (!r.voce || !(r.qty > 0)) continue;
-    const ref = 'cad:' + r.key;
+    const ref = cadRefOf(r);
     const rev = (p.revisions || [])[(p.revisions || []).length - 1];
     const items = rev ? (rev.items || []) : [];
     let target = items.find((it) => (it.misurazioni || []).some((g) => (g.rows || []).some((x) => x.rilievoRef === ref)));
@@ -5895,7 +5959,9 @@ function applyCadRows(project, rows) {
     const res2 = incrementComputoItemQty(p, target.id, r.qty, { ref, label: `DSQ CAD · ${r.desc}` });
     if (res2.ok) { p = res2.project; if (res2.replaced) updated++; else added++; }
   }
-  return { project: p, added, updated };
+  const doc = (all || rows).find((r) => r.doc)?.doc;
+  const mk = markCadOrphans(p, doc, new Set((all || rows).map(cadRefOf)));
+  return { project: mk.project, added, updated, orphans: mk.orphans };
 }
 function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, profile }) {
   const [imports, setImports] = useState([]);
@@ -5903,6 +5969,7 @@ function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, pr
   const [listinoId, setListinoId] = useState(listini[0]?.id);
   const [groups, setGroups] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [gone, setGone] = useState([]);
   const load = React.useCallback(() => {
     cea.from('cad_import').select('*').eq('project_id', String(project.id)).eq('status', 'pending').order('created_at', { ascending: false })
       .then(({ data, error }) => { if (!error) setImports(data || []); });
@@ -5919,10 +5986,16 @@ function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, pr
       if (!by.has(mk)) by.set(mk, { mk, label: r.group || r.desc, unit: r.unit, qty: 0, rows: [] });
       const g = by.get(mk); g.qty += Number(r.qty) || 0; g.rows.push(r);
     });
+    const inC = new Map(cadRowsInComputo(project).map((x) => [x.ref, numIt(x.row.valore)]));
     setGroups([...by.values()].map((g) => {
       const v = map[g.mk] ? voci.find((x) => x.uid === map[g.mk]) : null;
-      return { ...g, on: !!v, voce: v || null, text: v ? label(v) : '', exp: false };
+      const cur = g.rows.reduce((t, r) => t + (inC.get(cadRefOf(r)) || 0), 0);
+      const known = g.rows.some((r) => inC.has(cadRefOf(r)));
+      return { ...g, on: !!v, voce: v || null, text: v ? label(v) : '', exp: false, cur: known ? cur : null };
     }));
+    const doc = (imp.payload || []).find((r) => r.doc)?.doc;
+    const present = new Set((imp.payload || []).map(cadRefOf));
+    setGone(doc ? cadRowsInComputo(project, doc).filter((x) => !present.has(x.ref)) : []);
     setOpen(imp);
   };
   useEffect(() => { if (open) openImport(open); }, [listinoId]); // eslint-disable-line
@@ -5933,26 +6006,39 @@ function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, pr
     if (!chosen.length) { alert('Scegli almeno una voce di listino.'); return; }
     setBusy(true);
     const rows = chosen.flatMap((g) => g.rows.map((r) => ({ ...r, voce: g.voce, qty: Number(r.qty) || 0 })));
-    const res = applyCadRows(project, rows);
+    const res = applyCadRows(project, rows, open.payload || []);
     onUpdateProject(res.project);
     const map = { ...((listino && listino.cadMap) || {}) };
     chosen.forEach((g) => { if (g.voce.uid) map[g.mk] = g.voce.uid; });
     if (listino) onUpdateListini(listini.map((l) => (l.id === listino.id ? { ...l, cadMap: map } : l)));
     await cea.from('cad_import').update({ status: 'done', done_at: new Date().toISOString(), done_by: profile?.id || null }).eq('id', open.id);
     setBusy(false); setOpen(null); load();
-    alert(`Computo aggiornato: ${res.added} righe aggiunte, ${res.updated} aggiornate.`);
+    alert(`Computo aggiornato: ${res.added} righe aggiunte, ${res.updated} aggiornate${res.orphans ? `, ${res.orphans} non più nel disegno (evidenziate in rosso)` : ''}.`);
   };
   const discard = async (imp) => {
     if (!window.confirm('Scartare questo invio da DSQ CAD?')) return;
     await cea.from('cad_import').update({ status: 'discarded', done_at: new Date().toISOString() }).eq('id', imp.id);
     load();
   };
-  if (!imports.length) return null;
+  const orphans = cadRowsInComputo(project).filter((x) => x.row.cadOrphan);
+  if (!imports.length && !orphans.length) return null;
   const fmtQ = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
   return (
     <div style={{ ...card, marginBottom: 18, borderColor: C.maroon }}>
       <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Quantità da DSQ CAD</p>
-      <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 10px' }}>Invii dal disegno in attesa: collega ogni lavorazione a una voce di listino e aggiungila al computo.</p>
+      <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 10px' }}>{imports.length ? 'Invii dal disegno in attesa: collega ogni lavorazione a una voce di listino e aggiungila al computo.' : 'Nessun invio in attesa.'}</p>
+      {orphans.length > 0 && (
+        <div style={{ background: '#fff1f1', border: '1px solid #f3b4b4', borderRadius: 10, padding: '8px 10px', margin: '0 0 10px' }}>
+          <p style={{ fontSize: 12, fontWeight: 700, color: '#c92a2a', margin: '0 0 4px' }}>⚠ {orphans.length} righe del computo non esistono più nel disegno</p>
+          {orphans.map((x) => (
+            <div key={x.ref} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, fontSize: 12, padding: '3px 0' }}>
+              <span><strong>{x.item.desc}</strong> · {String(x.row.descr || '').replace(/ · (inserita|aggiornata) il .*/, '')} · {x.row.valore} {x.item.unit}{x.row.cadOrphanSince ? <span style={{ color: C.gray }}> (dal {x.row.cadOrphanSince})</span> : null}</span>
+              <button onClick={() => { if (window.confirm('Togliere questa riga dal computo?')) onUpdateProject(removeCadRow(project, x.item.id, x.ref)); }} style={rowBtnStyle}>Togli dal computo</button>
+            </div>
+          ))}
+          <p style={{ fontSize: 11, color: C.gray, margin: '4px 0 0' }}>La quantità resta finché non decidi: se l'ambiente torna nel disegno, la riga si aggiorna e il segno sparisce.</p>
+        </div>
+      )}
       {imports.map((imp) => (
         <div key={imp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, padding: '8px 0', borderTop: `1px solid ${C.paleGray}` }}>
           <div>
@@ -5980,23 +6066,28 @@ function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, pr
             <datalist id="cadVoci">{voci.map((v) => <option key={v.uid || v.code} value={label(v)} />)}</datalist>
             <div style={{ overflowY: 'auto', flex: 1, border: `1px solid ${C.paleGray}`, borderRadius: 10 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead><tr style={{ background: '#f6f6f6', textAlign: 'left' }}><th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Dal disegno</th><th style={{ padding: 6, textAlign: 'right' }}>Quantità</th><th style={{ padding: 6 }}>Voce di listino</th></tr></thead>
+                <thead><tr style={{ background: '#f6f6f6', textAlign: 'left' }}><th style={{ padding: 6 }}></th><th style={{ padding: 6 }}>Dal disegno</th><th style={{ padding: 6, textAlign: 'right' }}>Nel computo</th><th style={{ padding: 6, textAlign: 'right' }}>Dal disegno</th><th style={{ padding: 6 }}>Voce di listino</th></tr></thead>
                 <tbody>
                   {groups.map((g, i) => (
                     <React.Fragment key={g.mk}>
                       <tr style={{ borderTop: `1px solid ${C.paleGray}` }}>
                         <td style={{ padding: 6 }}><input type="checkbox" checked={!!g.on} disabled={!g.voce} onChange={(e) => setG(i, { on: e.target.checked })} /></td>
                         <td style={{ padding: 6 }}>{g.label}{g.rows.length > 1 && <button onClick={() => setG(i, { exp: !g.exp })} style={{ marginLeft: 6, border: 'none', background: 'none', color: C.gray, cursor: 'pointer', fontSize: 11 }}>{g.exp ? '▾' : '▸'} {g.rows.length} righe</button>}</td>
-                        <td style={{ padding: 6, textAlign: 'right', whiteSpace: 'nowrap' }}>{fmtQ(g.qty)} {g.unit}</td>
+                        <td style={{ padding: 6, textAlign: 'right', whiteSpace: 'nowrap', color: C.gray }}>{g.cur == null ? 'nuova' : `${fmtQ(g.cur)} ${g.unit}`}</td>
+                        <td style={{ padding: 6, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600, color: g.cur == null || Math.abs(g.qty - g.cur) < 0.005 ? C.black : (g.qty > g.cur ? '#2b8a3e' : '#c92a2a') }}>{g.cur != null && Math.abs(g.qty - g.cur) >= 0.005 ? (g.qty > g.cur ? '▲ ' : '▼ ') : ''}{fmtQ(g.qty)} {g.unit}</td>
                         <td style={{ padding: 6, minWidth: 360 }}>
                           <input list="cadVoci" value={g.text} onChange={(e) => pickText(i, e.target.value)} placeholder="Cerca per codice o descrizione…" style={{ width: '100%', fontSize: 12, padding: '6px 8px', borderRadius: 8, border: `1px solid ${C.paleGray}`, boxSizing: 'border-box' }} />
                           {g.voce && normUnit(g.voce.unit) !== normUnit(g.unit) && <span style={{ fontSize: 10, color: '#b7791f' }}>⚠ unità diverse: disegno {g.unit}, listino {g.voce.unit}</span>}
                         </td>
                       </tr>
                       {g.exp && g.rows.map((r) => (
-                        <tr key={r.key}><td></td><td style={{ padding: '2px 6px 2px 18px', color: C.gray }}>{r.desc}</td><td style={{ padding: '2px 6px', textAlign: 'right', color: C.gray }}>{fmtQ(Number(r.qty) || 0)} {r.unit}</td><td></td></tr>
+                        <tr key={r.key}><td></td><td style={{ padding: '2px 6px 2px 18px', color: C.gray }}>{r.desc}</td><td></td><td style={{ padding: '2px 6px', textAlign: 'right', color: C.gray }}>{fmtQ(Number(r.qty) || 0)} {r.unit}</td><td></td></tr>
                       ))}
                     </React.Fragment>
+                  ))}
+                  {gone.length > 0 && <tr><td colSpan={5} style={{ padding: '8px 6px 4px', fontWeight: 700, color: '#c92a2a' }}>Non più nel disegno: resteranno nel computo, evidenziate in rosso</td></tr>}
+                  {gone.map((x) => (
+                    <tr key={x.ref} style={{ background: '#fff1f1' }}><td></td><td style={{ padding: '3px 6px', color: '#c92a2a' }}>{x.item.desc} · {String(x.row.descr || '').replace(/ · (inserita|aggiornata) il .*/, '')}</td><td style={{ padding: '3px 6px', textAlign: 'right', color: '#c92a2a' }}>{x.row.valore} {x.item.unit}</td><td style={{ padding: '3px 6px', textAlign: 'right', color: '#c92a2a' }}>—</td><td></td></tr>
                   ))}
                 </tbody>
               </table>
@@ -6283,7 +6374,7 @@ function applyRilievoToRevisions(project, entries, revisionIdx, opts = {}) {
       items = items.map((it) => {
         if (it.type === 'subtotal' || !it.misurazioni) return it;
         const rows = it.misurazioni.flatMap((g) => g.rows || []);
-        const keep = rows.filter((r) => r.rilievoRef == null || opts.validRefs.has(r.rilievoRef));
+        const keep = rows.filter((r) => r.rilievoRef == null || isCadRef(r.rilievoRef) || opts.validRefs.has(r.rilievoRef));
         if (keep.length === rows.length) return it;
         removed += rows.length - keep.length;
         return setRows(it, keep);
