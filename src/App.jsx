@@ -5869,15 +5869,15 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
 
 const rowBtnStyle = { border: `1px solid ${C.paleGray}`, background: C.white, borderRadius: 6, fontSize: 11, fontWeight: 600, padding: '5px 10px', cursor: 'pointer', color: C.midGray };
 
-// --- Quantità inviate da DSQ CAD (abaco, modello, gialli e rossi, impianti) ---
-// DSQ CAD scrive le righe nella tabella quant_cad_import del progetto. Qui si sceglie per ogni riga la voce
+// --- Quantità inviate da desearqCAD (abaco, modello, gialli e rossi, impianti) ---
+// desearqCAD scrive le righe nella tabella quant_cad_import del progetto. Qui si sceglie per ogni riga la voce
 // di listino (la scelta si ricorda nel listino, per i prossimi invii) e si aggiunge al computo: ogni riga
-// diventa una misurazione "DSQ CAD · …" della voce, con un riferimento stabile, così un nuovo invio dello
+// diventa una misurazione "desearqCAD · …" della voce, con un riferimento stabile, così un nuovo invio dello
 // stesso disegno AGGIORNA la quantità invece di contarla due volte.
 const normUnit = (u) => String(u || '').toLowerCase().replace('²', '2').replace('³', '3').replace('mq', 'm2').replace('mc', 'm3').replace(/^ml$/, 'm').replace(/^(n\.?|nr|cad\.?|cadauna|pz)$/, 'n').trim();
 const isCadRef = (ref) => typeof ref === 'string' && ref.startsWith('cad:');
 const cadRefOf = (r) => 'cad:' + (r.doc ? r.doc + ':' : '') + r.key;
-// Righe del computo (revisione più recente) che arrivano da un disegno DSQ CAD: [{ item, row, ref }]
+// Righe del computo (revisione più recente) che arrivano da un disegno desearqCAD: [{ item, row, ref }]
 function cadRowsInComputo(project, doc) {
   const rev = (project.revisions || [])[(project.revisions || []).length - 1];
   const out = [];
@@ -5956,7 +5956,7 @@ function applyCadRows(project, rows, all) {
       target = [...(rv.items || [])].reverse().find((it) => it.code === r.voce.code || (it.listinoRef && r.voce.uid && it.listinoRef.uid === r.voce.uid));
       if (!target) continue;
     }
-    const res2 = incrementComputoItemQty(p, target.id, r.qty, { ref, label: `DSQ CAD · ${r.desc}` });
+    const res2 = incrementComputoItemQty(p, target.id, r.qty, { ref, label: `desearqCAD · ${r.desc}` });
     if (res2.ok) { p = res2.project; if (res2.replaced) updated++; else added++; }
   }
   const doc = (all || rows).find((r) => r.doc)?.doc;
@@ -6016,7 +6016,7 @@ function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, pr
     alert(`Computo aggiornato: ${res.added} righe aggiunte, ${res.updated} aggiornate${res.orphans ? `, ${res.orphans} non più nel disegno (evidenziate in rosso)` : ''}.`);
   };
   const discard = async (imp) => {
-    if (!window.confirm('Scartare questo invio da DSQ CAD?')) return;
+    if (!window.confirm('Scartare questo invio da desearqCAD?')) return;
     await cea.from('cad_import').update({ status: 'discarded', done_at: new Date().toISOString() }).eq('id', imp.id);
     load();
   };
@@ -6025,7 +6025,7 @@ function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, pr
   const fmtQ = (n) => String(Math.round(n * 100) / 100).replace('.', ',');
   return (
     <div style={{ ...card, marginBottom: 18, borderColor: C.maroon }}>
-      <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Quantità da DSQ CAD</p>
+      <p style={{ fontWeight: 700, fontSize: 18, margin: 0, color: C.black, fontFamily: FONT }}>Quantità da desearqCAD</p>
       <p style={{ fontSize: 11, color: C.gray, margin: '2px 0 10px' }}>{imports.length ? 'Invii dal disegno in attesa: collega ogni lavorazione a una voce di listino e aggiungila al computo.' : 'Nessun invio in attesa.'}</p>
       {orphans.length > 0 && (
         <div style={{ background: '#fff1f1', border: '1px solid #f3b4b4', borderRadius: 10, padding: '8px 10px', margin: '0 0 10px' }}>
@@ -6055,7 +6055,7 @@ function CadImportPanel({ project, onUpdateProject, listini, onUpdateListini, pr
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(5,5,5,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200, padding: 16 }} onClick={() => !busy && setOpen(null)}>
           <div style={{ background: C.white, borderRadius: 14, padding: 22, width: 980, maxWidth: 'calc(100vw - 32px)', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <h2 style={{ fontFamily: FONT, fontSize: 18, margin: 0, color: C.black }}>{open.title || 'Quantità da DSQ CAD'}</h2>
+              <h2 style={{ fontFamily: FONT, fontSize: 18, margin: 0, color: C.black }}>{open.title || 'Quantità da desearqCAD'}</h2>
               <label style={{ fontSize: 12, color: C.midGray }}>Listino{' '}
                 <select value={listino?.id} onChange={(e) => { const v = listini.find((l) => String(l.id) === e.target.value); if (v) setListinoId(v.id); }} style={{ fontSize: 12, padding: '5px 8px', borderRadius: 8, border: `1px solid ${C.paleGray}` }}>
                   {listini.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
