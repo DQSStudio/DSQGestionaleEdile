@@ -351,7 +351,7 @@ function addItemToProjectRevision(project, revisionId, newItem) {
   // revisionId può essere direttamente l'oggetto revisione (scelto dall'elenco per posizione): così non si
   // dipende dagli id, che nei dati reali possono ripetersi.
   const target = (revisionId && typeof revisionId === 'object' && revisions.includes(revisionId) ? revisionId : revisions.find((r) => String(r.id) === String(revisionId))) || latest;
-  const isLatest = target === latest && isRevisionEditable(target);
+  const isLatest = isRevisionEditable(target); // in attesa di approvazione: si modifica sul posto (anche se non è l'ultima)
   const newItems = [...(target.items || []), newItem];
   const realItems = newItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(realItems));
@@ -360,7 +360,7 @@ function addItemToProjectRevision(project, revisionId, newItem) {
     return {
       ...project,
       revisions: revisions.map((r) => (r === target ? { ...r, items: newItems, dateModified: nowLabel(), total, totalCliente } : r)),
-      value: total,
+      value: target === latest ? total : project.value,
     };
   }
   const newRev = { ...target, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: target.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: newItems, total, totalCliente };
@@ -1948,7 +1948,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
 }
 
 // Aggiunge una voce di listino a un computo scelto dalla pagina Listino prezzi. Se il computo scelto è
-// già approvato (o non è l'ultima versione) non viene toccato: si crea una nuova revisione in attesa di
+// già approvato (o in cantiere) non viene toccato: si crea una nuova revisione in attesa di
 // approvazione che contiene anche la nuova voce — gli approvati restano intatti.
 function addListinoVoceToProject(project, revisionId, item) {
   let revisions = project.revisions || [];
@@ -1957,13 +1957,13 @@ function addListinoVoceToProject(project, revisionId, item) {
   }
   const latest = revisions[revisions.length - 1];
   const target = (revisionId && typeof revisionId === 'object' && revisions.includes(revisionId) ? revisionId : revisions.find((r) => String(r.id) === String(revisionId))) || latest;
-  const editable = target === latest && (target.status || STATUS_OPTIONS[0]) === STATUS_OPTIONS[0];
+  const editable = isRevisionEditable(target); // la copia si crea solo se il computo è approvato / in cantiere
   const nextItems = regenerateItemCodes(resolveLinkedQuantities([...(target.items || []), item]));
   const real = nextItems.filter((it) => it.type !== 'subtotal');
   const total = formatEuro(sumImpresa(real));
   const totalCliente = formatEuro(sumCliente(real));
   if (editable) {
-    return { project: { ...project, revisions: revisions.map((r) => (r === target ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r)), value: total }, label: target.customName || target.label, forked: false };
+    return { project: { ...project, revisions: revisions.map((r) => (r === target ? { ...r, items: nextItems, dateModified: nowLabel(), total, totalCliente } : r)), value: target === latest ? total : project.value }, label: target.customName || target.label, forked: false };
   }
   const label = `Revisione ${revisions.length + 1}`;
   const newRev = { ...target, id: Date.now() + 1, label, customName: target.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), status: STATUS_OPTIONS[0], items: nextItems, total, totalCliente };
@@ -1979,7 +1979,7 @@ function ListinoAddToComputoModal({ voce, projects, onClose, onAdd }) {
   const [revIdx, setRevIdx] = useState(Math.max(0, revs.length - 1));
   const [qty, setQty] = useState('1');
   const rev = revs[revIdx] || revs[revs.length - 1];
-  const willFork = rev && ((rev.status || STATUS_OPTIONS[0]) !== STATUS_OPTIONS[0] || rev !== revs[revs.length - 1]);
+  const willFork = rev && !isRevisionEditable(rev);
   const impresa = parseEuro(voce.priceImpresa);
   const cliente = evalClientPrice(voce.priceCliente, impresa);
   const field = { width: '100%', boxSizing: 'border-box', fontSize: 12.5, padding: '8px 10px', borderRadius: 8, border: `1px solid ${C.paleGray}`, margin: '4px 0 12px', fontFamily: FONT, background: '#fff' };
@@ -2015,7 +2015,7 @@ function ListinoAddToComputoModal({ voce, projects, onClose, onAdd }) {
             )}
             {willFork && (
               <p style={{ fontSize: 11.5, color: C.maroon, margin: '-6px 0 12px' }}>
-                Questa versione è {rev.status !== STATUS_OPTIONS[0] ? 'già approvata' : 'una versione precedente'}: resterà intatta e la voce verrà aggiunta in una nuova revisione in attesa di approvazione.
+                Questa versione è "{rev.status}": resterà intatta e la voce verrà aggiunta in una nuova revisione in attesa di approvazione.
               </p>
             )}
             <label style={label}>Quantità ({voce.unit})</label>
@@ -3957,14 +3957,25 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
     const realNextItems = nextItems.filter((it) => it.type !== 'subtotal');
     const total = formatEuro(sumImpresa(realNextItems));
     const totalCliente = formatEuro(sumCliente(realNextItems));
-    if (isEditingLatest && isRevisionEditable(selectedRevision)) {
+    // Una revisione "In attesa di approvazione" si modifica SEMPRE sul posto, anche se non è l'ultima: la copia
+    // si crea solo quando la revisione è approvata o in cantiere (bloccata).
+    if (isRevisionEditable(selectedRevision)) {
       const updatedRevisions = revisions.map((r) => (r === selectedRevision ? { ...r, ...patchWithCodes, dateModified: nowLabel(), modifiedBy: myBookmarkName, total, totalCliente } : r));
-      onUpdateProject({ ...project, revisions: updatedRevisions, value: total });
+      onUpdateProject({ ...project, revisions: updatedRevisions, value: isEditingLatest ? total : (project.value ?? latestRevision?.total) });
     } else {
-      const newRev = { ...selectedRevision, ...patchWithCodes, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: selectedRevision.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0], total, totalCliente };
+      // Bloccata: se esiste già una sua copia in attesa, si propone di lavorare lì invece di farne un'altra.
+      const copy = [...revisions].reverse().find((r) => r !== selectedRevision && r.forkedFrom != null && String(r.forkedFrom) === String(selectedRevision.id) && isRevisionEditable(r));
+      if (copy && confirm(`«${selectedRevision.customName || selectedRevision.label}» è "${selectedRevision.status}" e non si può modificare.\n\nEsiste già una sua copia in attesa di approvazione (${copy.customName ? copy.customName + ' · ' : ''}${copy.label}).\n\nOK = apri la copia e fai lì la modifica\nAnnulla = crea un'altra copia con questa modifica`)) {
+        setSelectedRevisionId(copy.id);
+        setForkNotice(`Ti ho aperto la copia ${copy.label}: rifai qui la modifica.`);
+        setTimeout(() => setForkNotice(''), 7000);
+        return;
+      }
+      const newRev = { ...selectedRevision, ...patchWithCodes, id: Date.now(), label: `Revisione ${revisions.length + 1}`, customName: selectedRevision.customName || null, dateCreated: nowLabel(), dateModified: nowLabel(), createdBy: myBookmarkName, modifiedBy: myBookmarkName, status: STATUS_OPTIONS[0], total, totalCliente, forkedFrom: selectedRevision.id };
+      delete newRev.offerta;
       onUpdateProject({ ...project, revisions: [...revisions, newRev], value: total });
       setSelectedRevisionId(newRev.id);
-      setForkNotice(`${selectedRevision.customName || selectedRevision.label} è ${isRevisionEditable(selectedRevision) ? 'una versione precedente' : `"${selectedRevision.status}"`} e resta intatta: la modifica è stata salvata nella nuova ${newRev.label}.`);
+      setForkNotice(`${selectedRevision.customName || selectedRevision.label} è "${selectedRevision.status}" e resta intatta: la modifica è stata salvata nella nuova ${newRev.label}.`);
       setTimeout(() => setForkNotice(''), 7000);
     }
   };
@@ -4730,7 +4741,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
               </span>
             ) : !isEditingLatest && (
               <span style={{ fontSize: 12, color: C.darkGray, background: 'rgba(67,67,67,0.1)', padding: '6px 11px', borderRadius: 8 }}>
-                Stai visualizzando una versione precedente: la prima modifica creerà automaticamente una nuova versione, lasciando questa intatta.
+                Non è l'ultima revisione: essendo in attesa di approvazione, le modifiche vengono salvate direttamente qui.
               </span>
             )}
             {forkNotice && createPortal(
