@@ -1600,6 +1600,7 @@ function VoceModal({ locations, initialLocationIdx = 0, initialVoce = null, onCl
           Nel campo "prezzo cliente" puoi scrivere un numero fisso, oppure una formula che inizia con "=" e usa la parola <strong>impresa</strong>: es. <code>=impresa*1.3</code> (margine 30%), <code>=impresa+50</code> (fisso +50 €).
           {priceImpresa && <> Anteprima: impresa {formatEuro(previewImpresa)} → cliente {formatEuro(previewCliente)}.</>}
         </p>
+        <InvertedPriceNote impresa={previewImpresa} cliente={previewCliente} />
 
         <label style={{ fontSize: 11, fontWeight: 700, color: C.midGray }}>Note (facoltative, solo uso interno)</label>
         <textarea
@@ -1895,6 +1896,7 @@ function VoceComputoModal({ macroName, categoriaName, sottoName, initialItem, pr
               Questa è l'unica riga di Costo della voce: {priceImpresa && <>anteprima impresa {formatEuro(previewImpresa)} → cliente {formatEuro(previewCliente)}, </>}
               totale impresa {formatEuro(previewImpresa * computedQty)}.
             </p>
+            <InvertedPriceNote impresa={previewImpresa} cliente={previewCliente} />
           </>
         )}
 
@@ -2034,6 +2036,14 @@ function ListinoAddToComputoModal({ voce, projects, onClose, onAdd }) {
   , document.body);
 }
 
+// Prezzo impresa più alto del prezzo cliente: quasi sempre un errore di inserimento (o di formula).
+const isPriceInverted = (impresa, cliente) => Number(impresa) > 0.004 && Number(impresa) > Number(cliente) + 0.004;
+const InvertedPriceNote = ({ impresa, cliente }) => (isPriceInverted(impresa, cliente) ? (
+  <div style={{ background: '#FBE9E7', color: '#A3261B', border: '1px solid #F2C4BD', borderRadius: 8, padding: '7px 10px', fontSize: 12, fontWeight: 600, margin: '0 0 10px' }}>
+    ⚠ Il prezzo impresa ({formatEuro(impresa)}) è più alto del prezzo cliente ({formatEuro(cliente)}): controlla, probabilmente c'è un errore.
+  </div>
+) : null);
+
 function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }) {
   const [addToComputoVoce, setAddToComputoVoce] = useState(null); // voce di listino da aggiungere a un computo
   const [addedNotice, setAddedNotice] = useState('');
@@ -2050,9 +2060,13 @@ function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }
   // devono comparire tutte). Durante la ricerca restano visibili solo i rami che contengono voci trovate,
   // aperti in automatico, con le lettere cercate evidenziate.
   const [query, setQuery] = useState('');
+  const [onlyInverted, setOnlyInverted] = useState(false); // mostra solo le voci con prezzo impresa > cliente
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  const searching = terms.length > 0;
+  const searching = terms.length > 0 || onlyInverted;
+  const voceInverted = (v) => { const imp = parseEuro(v.priceImpresa); return isPriceInverted(imp, evalClientPrice(v.priceCliente, imp)); };
+  const invertedCount = coded.reduce((n, ma) => n + ma.categorie.reduce((n2, ca) => n2 + ca.sottocategorie.reduce((n3, so) => n3 + so.voci.filter(voceInverted).length, 0), 0), 0);
   const voceMatches = (v) => {
+    if (onlyInverted && !voceInverted(v)) return false;
     const hay = `${v.code || ''} ${v.desc || ''} ${v.note || ''}`.toLowerCase();
     return terms.every((tm) => hay.includes(tm));
   };
@@ -2064,7 +2078,7 @@ function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }
   const escRe = (x) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const hl = (text) => {
     const str = String(text || '');
-    if (!searching) return str;
+    if (!terms.length) return str;
     const parts = str.split(new RegExp(`(${terms.map(escRe).join('|')})`, 'gi'));
     return parts.map((p, i) => (terms.includes(p.toLowerCase())
       ? <mark key={i} style={{ background: C.accentSoft, color: C.maroon, fontWeight: 600, padding: 0, borderRadius: 2 }}>{p}</mark>
@@ -2199,6 +2213,11 @@ function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }
               {matchCount ? `${matchCount} vo${matchCount === 1 ? 'ce trovata' : 'ci trovate'}` : 'Nessuna voce trovata'}
             </span>
           )}
+          {invertedCount > 0 && (
+            <button onClick={() => setOnlyInverted((v) => !v)} title="Voci con prezzo impresa più alto del prezzo cliente" style={{ border: '1px solid #F2C4BD', background: onlyInverted ? '#A3261B' : '#FBE9E7', color: onlyInverted ? '#fff' : '#A3261B', borderRadius: 999, padding: '7px 13px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}>
+              ⚠ {invertedCount} vo{invertedCount === 1 ? 'ce' : 'ci'} con prezzo impresa &gt; cliente {onlyInverted ? '· mostra tutte' : '· controlla'}
+            </button>
+          )}
         </div>
       )}
 
@@ -2275,8 +2294,9 @@ function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }
                                 if (searching && !voceMatches(v)) return null;
                                 const impresaVal = parseEuro(v.priceImpresa);
                                 const clienteVal = evalClientPrice(v.priceCliente, impresaVal);
+                                const inverted = isPriceInverted(impresaVal, clienteVal);
                                 return (
-                                  <div key={vi} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 0 9px 24px', borderBottom: '1px solid #F0EAE0', fontSize: 13.5, flexWrap: 'wrap' }}>
+                                  <div key={vi} title={inverted ? 'Attenzione: il prezzo impresa è più alto del prezzo cliente' : undefined} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 0 9px 24px', borderBottom: '1px solid #F0EAE0', fontSize: 13.5, flexWrap: 'wrap', background: inverted ? '#FBE9E7' : undefined, boxShadow: inverted ? 'inset 4px 0 0 #A3261B' : undefined }}>
                                     <span style={{ fontFamily: 'ui-monospace, monospace', fontSize: 11.5, color: '#8B8178', width: 90, flexShrink: 0 }}>{hl(v.code)}</span>
                                     <span style={{ flex: '1 1 160px', minWidth: 0, fontWeight: 300, color: C.black }}>
                                       {hl(v.desc)}
@@ -2284,7 +2304,7 @@ function EditableCatalog({ macros, setMacros, projects, setProjects, listinoId }
                                     </span>
                                     <span style={{ width: 54, flexShrink: 0, color: '#8B8178', fontSize: 12 }}>{v.unit}</span>
                                     <span style={{ width: 92, flexShrink: 0, textAlign: 'right', fontWeight: 500, color: C.black }}>{formatEuro(impresaVal)}</span>
-                                    <span style={{ width: 92, flexShrink: 0, textAlign: 'right', color: C.maroon, fontWeight: 500 }}>{formatEuro(clienteVal)}</span>
+                                    <span style={{ width: 92, flexShrink: 0, textAlign: 'right', color: inverted ? '#A3261B' : C.maroon, fontWeight: inverted ? 700 : 500 }}>{inverted && '⚠ '}{formatEuro(clienteVal)}</span>
                                     <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
                                       {setProjects && (
                                         <button
@@ -2546,6 +2566,9 @@ function ComputoSectionsView({ sections }) {
 // scuri/saturi da garantire un contrasto leggibile col testo bianco. In precedenza l'ultimo colore del ciclo
 // era C.sidebar (#F6F4EF, quasi bianco) — su testo bianco risultava illeggibile dalla quarta macrosezione in poi.
 const SECTION_COLORS = [DEFAULT_ACCENT, C.darkGray, '#94706C', '#4A3F35'];
+
+// Colori ben visibili per le misure disegnate sulle planimetrie (scelta automatica a rotazione o a mano).
+const PLAN_COLORS = ['#D62828', '#1D4ED8', '#0F9D58', '#F59E0B', '#9333EA', '#0891B2', '#DB2777', '#111827'];
 
 function DraggableCatalogTree({ listino, onAdd, onEdit }) {
   const [expanded, setExpanded] = useState({});
@@ -4749,6 +4772,27 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
               document.body
             )}
           </div>
+          {(() => {
+            const inv = items.filter((it) => it.type !== 'subtotal' && isPriceInverted(parseEuro(it.unitPriceImpresa), parseEuro(it.unitPriceCliente)));
+            if (!inv.length) return null;
+            const goTo = (it) => {
+              if (!document.getElementById(`computo-item-${it.id}`)) { setActiveParte('__all__'); setVoceSearch(''); }
+              setTimeout(() => { const el = document.getElementById(`computo-item-${it.id}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 80);
+            };
+            return (
+              <div style={{ background: '#FBE9E7', border: '1px solid #F2C4BD', borderLeft: '5px solid #A3261B', borderRadius: 12, padding: '12px 16px', marginBottom: 18, color: '#7A1D14' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 6 }}>⚠ {inv.length} vo{inv.length === 1 ? 'ce ha' : 'ci hanno'} il prezzo impresa più alto del prezzo cliente: controlla, probabilmente c'è un errore.</div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                  {inv.slice(0, 12).map((it) => (
+                    <button key={it.id} onClick={() => goTo(it)} title={`${it.desc} — impresa ${it.unitPriceImpresa} € / cliente ${it.unitPriceCliente} €`} style={{ border: '1px solid #E8A99F', background: '#fff', color: '#A3261B', borderRadius: 999, padding: '5px 11px', fontSize: 12.5, fontWeight: 600, cursor: 'pointer', fontFamily: FONT }}>
+                      {it.code || String(it.desc || '').slice(0, 24)} · {it.unitPriceImpresa} € &gt; {it.unitPriceCliente} €
+                    </button>
+                  ))}
+                  {inv.length > 12 && <span style={{ fontSize: 12.5, alignSelf: 'center' }}>e altre {inv.length - 12}…</span>}
+                </div>
+              </div>
+            );
+          })()}
 
           {/* Segnalibri di lettura: uno per persona, su questa revisione. Ogni membro del team vede dove sono
               arrivati tutti (nome e cognome + data), e può spostare solo il PROPRIO cliccando "🔖" sulla riga
@@ -5166,10 +5210,11 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                       const impresaIsZero = parseEuro(it.unitPriceImpresa) === 0;
                                       const clienteIsZero = parseEuro(it.unitPriceCliente) === 0;
                                       const hasZeroValue = qtyIsZero || impresaIsZero || clienteIsZero;
-                                      const rowBg = isCurrentSearchMatch ? 'rgba(201,138,46,0.30)' : searchMatchIdx >= 0 ? 'rgba(201,138,46,0.14)' : hasZeroValue ? 'rgba(179,69,43,0.10)' : myBookmarkHere ? 'rgba(128,20,48,0.05)' : 'transparent';
+                                      const priceInverted = isPriceInverted(parseEuro(it.unitPriceImpresa), parseEuro(it.unitPriceCliente));
+                                      const rowBg = isCurrentSearchMatch ? 'rgba(201,138,46,0.30)' : searchMatchIdx >= 0 ? 'rgba(201,138,46,0.14)' : priceInverted ? '#FBE9E7' : hasZeroValue ? 'rgba(179,69,43,0.10)' : myBookmarkHere ? 'rgba(128,20,48,0.05)' : 'transparent';
                                       return (
                                       <React.Fragment key={it.id}>
-                                      <tr id={`computo-item-${it.id}`} className="no-print-zero-flag" title={hasZeroValue ? 'Un valore di questa voce è a zero (quantità o prezzo) — solo a schermo, per segnalartelo: non compare né nel PDF né nell\'export Excel.' : undefined} style={{ borderTop: `1px solid ${C.paleGray}`, background: rowBg }}>
+                                      <tr id={`computo-item-${it.id}`} className="no-print-zero-flag" title={priceInverted ? 'Attenzione: il prezzo impresa è più alto del prezzo cliente — controlla (segnalazione solo a schermo).' : hasZeroValue ? 'Un valore di questa voce è a zero (quantità o prezzo) — solo a schermo, per segnalartelo: non compare né nel PDF né nell\'export Excel.' : undefined} style={{ borderTop: `1px solid ${C.paleGray}`, background: rowBg, boxShadow: priceInverted ? 'inset 4px 0 0 #A3261B' : undefined }}>
                                         <td style={{ padding: '8px 6px' }}>
                                           <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
                                             <input type="checkbox" checked={isItemSelected(it.id)} onChange={() => toggleItemSelected(it.id)} title="Seleziona per spostare in un'altra parte o macrosezione" style={{ width: 16, height: 16, accentColor: C.maroon, cursor: 'pointer', margin: '0 0 2px' }} />
@@ -5243,7 +5288,7 @@ function ProjectDetailPage({ project, onBack, onUpdateProject, listini, onUpdate
                                         <td style={{ padding: '8px 6px', color: C.gray }}>{it.unit}</td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right', color: impresaIsZero ? '#B3452B' : 'inherit', fontWeight: impresaIsZero ? 700 : 400 }}>{it.unitPriceImpresa} €{impresaIsZero && ' ⚠️'}</td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: C.black }}>{formatEuro(parseEuro(it.unitPriceImpresa) * parseEuro(it.qty))}</td>
-                                        <td style={{ padding: '8px 6px', textAlign: 'right', color: clienteIsZero ? '#B3452B' : C.maroon, fontWeight: clienteIsZero ? 700 : 400 }}>{it.unitPriceCliente} €{clienteIsZero && ' ⚠️'}</td>
+                                        <td style={{ padding: '8px 6px', textAlign: 'right', color: clienteIsZero || priceInverted ? '#A3261B' : C.maroon, fontWeight: clienteIsZero || priceInverted ? 700 : 400 }}>{priceInverted && <span title="Prezzo cliente più basso del prezzo impresa">⚠ </span>}{it.unitPriceCliente} €{clienteIsZero && ' ⚠️'}</td>
                                         <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: C.maroon }}>{formatEuro(parseEuro(it.unitPriceCliente) * parseEuro(it.qty))}</td>
                                         <td style={{ padding: '8px 6px' }}>
                                           <select
@@ -6785,6 +6830,14 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId, orgId }
   // Immagine della planimetria come appare a schermo (con zoom e spostamento già applicati): clic, punti e
   // lente si calcolano tutti dal suo riquadro reale, così coincidono sempre al pixel.
   const imgElsRef = useRef({});
+  // Colore delle prossime misure: null = automatico (a rotazione fra PLAN_COLORS), altrimenti quello scelto.
+  const [drawColor, setDrawColor] = useState(null);
+  const nextDrawColor = (pl) => drawColor || PLAN_COLORS[(pl?.shapes || []).length % PLAN_COLORS.length];
+  // (usa onUpdateProject, definita più sotto: viene chiamata solo al clic, quando esiste già)
+  const setShapeColor = (plId, shapeId, color) => onUpdateProject({
+    ...project,
+    planimetrie: (project.planimetrie || []).map((p) => (p.id === plId ? { ...p, shapes: (p.shapes || []).map((x) => (x.id === shapeId ? { ...x, color } : x)) } : p)),
+  });
   const planSrcs = usePlanImageSrcs(project?.planimetrie);
   const [panDragState, setPanDragState] = useState(null);
   const [draggingHandle, setDraggingHandle] = useState(null);
@@ -7133,7 +7186,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId, orgId }
     const shape = {
       id: Date.now() + Math.random(), type: shapeType, points, height, heightMin: heightMinOut, heightMax: heightMaxOut, baseLength,
       code: linkCode, computoItemId: linkComputoItemId, desc: linkDesc || (shapeType === 'area' ? 'Area misurata' : 'Lunghezza misurata'),
-      value, unit, color: SECTION_COLORS[(pl.shapes || []).length % SECTION_COLORS.length],
+      value, unit, color: nextDrawColor(pl),
     };
     onUpdateProject({
       ...project,
@@ -7326,6 +7379,14 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId, orgId }
                 {modeBtn('calibra', mpp ? '📏 Ricalibra' : '📏 Calibra scala', 'Clicca due punti di cui conosci la distanza reale, per convertire i disegni in metri')}
                 {modeBtn('area', '▭ Area', 'Disegna un poligono: calcola m², o m³ se indichi un\'altezza (anche a falda, con minima e massima)')}
                 {modeBtn('lunghezza', '／ Lunghezza', 'Disegna una linea: calcola i metri lineari, o i m² di una parete se indichi un\'altezza')}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginLeft: 6, paddingLeft: 8, borderLeft: `1px solid ${C.paleGray}` }} title="Colore delle prossime aree/lunghezze">
+                  <span style={{ fontSize: 11, color: C.gray, marginRight: 2 }}>Colore</span>
+                  <button onClick={() => setDrawColor(null)} title="Automatico (cambia a ogni misura)" style={{ fontSize: 10.5, fontWeight: 600, padding: '4px 7px', borderRadius: 999, cursor: 'pointer', border: `1.5px solid ${drawColor ? C.paleGray : C.black}`, background: C.white, color: C.black }}>Auto</button>
+                  {PLAN_COLORS.map((col) => (
+                    <button key={col} onClick={() => setDrawColor(col)} title={col} style={{ width: 20, height: 20, borderRadius: 999, background: col, cursor: 'pointer', border: drawColor === col ? `2px solid ${C.black}` : '2px solid #fff', boxShadow: '0 0 0 1px rgba(0,0,0,0.2)', padding: 0 }} />
+                  ))}
+                  <input type="color" value={drawColor || '#D62828'} onChange={(e) => setDrawColor(e.target.value)} title="Altro colore" style={{ width: 24, height: 22, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }} />
+                </span>
                 {isDrawing && (
                   <>
                     <button onClick={() => finishPlanShape(pl)} style={{ ...rowBtnStyle, background: C.maroon, color: C.white, borderColor: C.maroon }}>✓ Fine ({draft.length} punti)</button>
@@ -7440,25 +7501,34 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId, orgId }
                       return (
                         <React.Fragment key={s.id}>
                           {s.type === 'area' ? (
-                            <polygon
-                              points={ptsAttr} fill={s.color} fillOpacity={0.28} stroke={s.color} strokeWidth={isEditingThis ? 0.6 : 0.4}
-                              vectorEffect="non-scaling-stroke"
-                              style={{ pointerEvents: previewClickable ? 'auto' : 'none', cursor: previewClickable ? 'pointer' : 'inherit' }}
-                              onClick={onShapeClick}
-                            />
+                            <>
+                              {/* Spessori in pixel a schermo (non-scaling-stroke): ben visibili a qualunque zoom,
+                                  con un alone bianco sotto perché la linea si stacchi anche sui disegni scuri. */}
+                              <polygon points={ptsAttr} fill="none" stroke="#fff" strokeOpacity={0.85} strokeWidth={isEditingThis ? 6 : 5} strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
+                              <polygon
+                                points={ptsAttr} fill={s.color} fillOpacity={0.22} stroke={s.color} strokeWidth={isEditingThis ? 3.5 : 2.5} strokeLinejoin="round"
+                                vectorEffect="non-scaling-stroke"
+                                style={{ pointerEvents: previewClickable ? 'auto' : 'none', cursor: previewClickable ? 'pointer' : 'inherit' }}
+                                onClick={onShapeClick}
+                              />
+                            </>
                           ) : (
                             <>
                               {/* Bersaglio di click invisibile e più largo della linea vera, altrimenti una
                                   lunghezza sottile sarebbe troppo difficile da colpire con un click. */}
-                              <polyline points={ptsAttr} fill="none" stroke="transparent" strokeWidth={3} vectorEffect="non-scaling-stroke" style={{ pointerEvents: previewClickable ? 'auto' : 'none', cursor: previewClickable ? 'pointer' : 'inherit' }} onClick={onShapeClick} />
-                              <polyline points={ptsAttr} fill="none" stroke={s.color} strokeWidth={isEditingThis ? 0.9 : 0.6} vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
+                              <polyline points={ptsAttr} fill="none" stroke="transparent" strokeWidth={16} vectorEffect="non-scaling-stroke" style={{ pointerEvents: previewClickable ? 'auto' : 'none', cursor: previewClickable ? 'pointer' : 'inherit' }} onClick={onShapeClick} />
+                              <polyline points={ptsAttr} fill="none" stroke="#fff" strokeOpacity={0.85} strokeWidth={isEditingThis ? 7 : 6} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
+                              <polyline points={ptsAttr} fill="none" stroke={s.color} strokeWidth={isEditingThis ? 4 : 3} strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" style={{ pointerEvents: 'none' }} />
                             </>
                           )}
                         </React.Fragment>
                       );
                     })}
                     {draft.length > 0 && (
-                      <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" style={{ stroke: C.maroon }} strokeWidth={0.5} strokeDasharray="1.5,1" vectorEffect="non-scaling-stroke" />
+                      <>
+                        <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke="#fff" strokeOpacity={0.85} strokeWidth={5} vectorEffect="non-scaling-stroke" />
+                        <polyline points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="none" stroke={mode === 'calibra' ? C.maroon : nextDrawColor(pl)} strokeWidth={2.5} strokeDasharray="7,5" vectorEffect="non-scaling-stroke" />
+                      </>
                     )}
                   </svg>
 
@@ -7613,7 +7683,7 @@ function RilievoPage({ projects, setProjects, listini, initialProjectId, orgId }
                   ) : (() => { const s = r.s; return (
                     <div key={s.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0 6px 18px', borderBottom: `1px solid ${C.paleGray}` }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
-                        <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, flexShrink: 0 }} />
+                        <input type="color" value={/^#[0-9a-f]{6}$/i.test(s.color || '') ? s.color : '#D62828'} onChange={(e) => setShapeColor(pl.id, s.id, e.target.value)} title="Cambia il colore di questa misura" style={{ width: 22, height: 20, padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', flexShrink: 0 }} />
                         <span style={{ fontSize: 12, color: C.black, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {r.itemLabel || s.desc}{!r.itemLabel && s.code ? ` (${s.code})` : ''} — <strong>{s.value.toLocaleString('it-IT', { maximumFractionDigits: 2 })} {s.unit}</strong>{shapeHeightLabel(s)}
                         </span>
